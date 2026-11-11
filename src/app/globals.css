@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+/*
+ * The look of the desk's register: ink on white paper, pale blue ruling, a maroon margin rule.
+ * Maroon and sand are the sip app's (RSSB SKP); ink and greys are the pass templates' own.
+ */
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #231f20; /* pass ink */
+  --color-primary: hsl(6 99% 27%); /* sip maroon */
+  --color-primary-hover: hsl(6 99% 22%);
+  --color-primary-foreground: #ffffff;
+  --color-muted: #f3f5f7;
+  --color-muted-foreground: #6d6e71; /* pass grey */
+  --color-destructive: #b3261e;
+  --color-border: #dcdfe3;
+  --color-input: #c5cad0;
+  --color-rule: #d3dfea; /* register ruling */
+  --color-panel: #f6f7f8;
+  /* warm sand (sip chart colours): selection and notes */
+  --color-sand-50: hsl(30 20% 96%);
+  --color-sand-100: hsl(30 30% 90%);
+  --color-sand-200: hsl(30 40% 80%);
+  --color-sand-500: hsl(30 60% 50%);
+  --color-sand-700: hsl(30 80% 30%);
+  --color-sand-900: hsl(30 90% 20%);
+}
+
+/* Bundled faces (src/fonts): Atkinson Hyperlegible Next for text, Roboto Condensed (the passes' lettering) for serials and figures. */
+@theme inline {
+  --font-sans: var(--font-ui), "Segoe UI", system-ui, sans-serif;
+  --font-condensed: var(--font-cond), "Arial Narrow", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+/* Passes print with no margin (PrintView sets the sheet size: A3+ or A4); the report keeps a margin. */
+@page {
+  size: A4;
+  margin: 0;
+}
+@page report {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  /* While passes are being printed, only the pass sheets go to the printer. */
+  body.printing-passes > :not(.print-root) {
+    display: none !important;
+  }
+  .print-root {
+    position: static !important;
+    overflow: visible !important;
+    background: none !important;
+  }
+  /* PrintView sets each sheet's height a hair under the paper's, so rounding never adds a blank page. */
+  .sheet-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    break-after: page;
+  }
+  .sheet-page:last-child {
+    break-after: auto;
+  }
+  .report-page {
+    page: report;
+  }
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

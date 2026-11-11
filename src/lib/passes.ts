@@ -1,0 +1,311 @@
+import {
+  cleanText, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, MAX_BATCH, MAX_SERIAL, type Pass,
+  type PassType, type SetOp, type Values,
+} from '@/shared/types';
+
+/** Number part of a serial: "M-0105" → 105, "0105" → 105. NaN if there is none. */
+export function parseSerial(s: string): number {
+  const m = String(s ?? '').match(/(\d+)\D*$/);
+  return m ? parseInt(m[1], 10) : NaN;
+}
+
+export const nPasses = (n: number) => `${n} pass${n === 1 ? '' : 'es'}`;
+
+/** Given = handed to someone: it has an Incharge, or the holder's Name, Dept or Phone (the Give box's rule). */
+export const isGiven = (p: Pick<Pass, 'incharge' | 'name' | 'dept' | 'phone'>) => Boolean(p.incharge || p.name || p.dept || p.phone);
+export const isPrinted = (p: Pass) => p.printed_at !== null;
+
+/** Compresses serials into readable ranges: "0101–0145, 0150". */
+export function ranges(serials: number[]): string {
+  const s = [...new Set(serials)].sort((a, b) => a - b);
+  const out: string[] = [];
+  for (let i = 0; i < s.length; ) {
+    let j = i;
+    while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
+    out.push(i === j ? fmtSerial(s[i]) : `${fmtSerial(s[i])}–${fmtSerial(s[j])}`);
+    i = j + 1;
+  }
+  return out.join(', ');
+}
+export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
+
+/** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
+export const blankPass = (type: PassType, serial: number): Pass => ({
+  id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '',
+  printed_at: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
+});
+
+/** Serials 1 … highest in the sheet that aren't in the register yet. `sheet` is sorted by serial. */
+export function missingSerials(sheet: Pass[]): number[] {
+  const out: number[] = [];
+  let want = 1;
+  for (const p of sheet) {
+    for (; want < p.serial; want++) out.push(want);
+    want = p.serial + 1;
+  }
+  return out;
+}
+
+/** One past the highest serial in the sheet. */
+export const nextSerial = (sheet: Pass[]) => (sheet.length ? sheet[sheet.length - 1].serial + 1 : 1);
+
+/* ---------------- search ---------------- */
+
+export type Show = 'all' | 'given' | 'free' | 'unprinted' | 'printed';
+export const SHOW_LABEL: Record<Show, string> = {
+  all: 'All', given: 'Given', free: 'Free', unprinted: 'Not printed', printed: 'Printed',
+};
+
+export interface Filters {
+  q: string;
+  show: Show;
+  /** Added between these dates, inclusive ("yyyy-mm-dd", '' = open-ended). */
+  from: string;
+  to: string;
+}
+export const NO_FILTERS: Filters = { q: '', show: 'all', from: '', to: '' };
+export const hasFilters = (f: Filters) => f.q.trim() !== '' || f.show !== 'all' || f.from !== '' || f.to !== '';
+
+/** "yyyy-mm-dd" of an ISO time, in this computer's time zone. */
+export function localDay(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function filterPasses(sheet: Pass[], f: Filters): Pass[] {
+  if (!hasFilters(f)) return sheet;
+  const q = f.q.trim().toLowerCase();
+  const qNum = /^\d+$/.test(q) ? parseInt(q, 10) : null;
+  const [from, to] = f.from && f.to && f.from > f.to ? [f.to, f.from] : [f.from, f.to];
+  return sheet.filter(
+    (p) =>
+      (!from || localDay(p.created_at) >= from) &&
+      (!to || localDay(p.created_at) <= to) &&
+      (f.show === 'all' ||
+        (f.show === 'given' && isGiven(p)) ||
+        (f.show === 'free' && !isGiven(p)) ||
+        (f.show === 'printed' && isPrinted(p)) ||
+        (f.show === 'unprinted' && !isPrinted(p))) &&
+      (!q ||
+        (qNum !== null
+          ? p.serial === qNum || (q.length >= 5 && p.phone.includes(q)) // a plain number = that serial (gate check), or a phone
+          : FIELDS.some((k) => p[k].toLowerCase().includes(q)))),
+  );
+}
+
+/* ---------------- collapsing a series given to someone ---------------- */
+
+/**
+ * Splits the visible passes into runs: consecutive serials given to the same incharge with
+ * identical details (and printed state) collapse into one run; everything else is a run of one.
+ */
+export function groupRuns(view: Pass[]): Pass[][] {
+  const runs: Pass[][] = [];
+  for (const p of view) {
+    const run = runs[runs.length - 1];
+    const prev = run?.[run.length - 1];
+    const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && FIELDS.every((k) => prev[k] === p[k]);
+    if (joins) run.push(p);
+    else runs.push([p]);
+  }
+  return runs;
+}
+
+/* ---------------- Give / fill a range ---------------- */
+
+/** Trims the values and drops empty ones (and Vehicle No. on sheets without it). */
+export function cleanFill(type: PassType, values: Values): Values {
+  const out: Values = {};
+  for (const k of fieldsFor(type)) {
+    const v = values[k] && cleanText(values[k]!);
+    if (v) out[k] = v;
+  }
+  return out;
+}
+
+export interface FillPlan {
+  set: SetOp[];
+  create: CreateOp[];
+  /** Serials that will change or be created. */
+  serials: number[];
+  /** Left alone: already holds a different value (never overwritten), or printed (locked). */
+  skipped: { serial: number; why: string }[];
+  /** Already have exactly these values. */
+  same: number;
+  err: string;
+}
+
+/** What filling `values` into serials `from`–`to` would do. Missing serials are created. */
+export function planFill(sheet: Pass[], type: PassType, from: string, to: string, values: Values): FillPlan {
+  const plan: FillPlan = { set: [], create: [], serials: [], skipped: [], same: 0, err: '' };
+  const f = parseSerial(from);
+  const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
+  if (Number.isNaN(f)) return { ...plan, err: 'Enter the From and To serial numbers.' };
+  const lo = Math.min(f, t);
+  const hi = Math.max(f, t);
+  if (lo < 1 || hi > MAX_SERIAL) return { ...plan, err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
+  if (hi - lo + 1 > MAX_BATCH) return { ...plan, err: `Please do at most ${MAX_BATCH} passes at a time.` };
+
+  const keys = (Object.keys(values) as Field[]).filter((k) => values[k]);
+  const bySerial = new Map(sheet.map((p) => [p.serial, p]));
+  for (let n = lo; n <= hi; n++) {
+    const p = bySerial.get(n);
+    if (!p) {
+      plan.create.push({ type, serial: n, values: { ...values } });
+      plan.serials.push(n);
+      continue;
+    }
+    const clash = keys.find((k) => p[k] && p[k] !== values[k]);
+    const changed = keys.filter((k) => p[k] !== values[k]);
+    if (clash) plan.skipped.push({ serial: n, why: `${FIELD_LABELS[clash]} is ${p[clash]}` });
+    else if (!changed.length) plan.same++;
+    else if (isPrinted(p)) plan.skipped.push({ serial: n, why: 'printed' });
+    else {
+      plan.set.push({
+        id: p.id,
+        values: Object.fromEntries(changed.map((k) => [k, values[k]])),
+        expect: Object.fromEntries(changed.map((k) => [k, p[k]])),
+      });
+      plan.serials.push(n);
+    }
+  }
+  return plan;
+}
+
+/* ---------------- pasting cells from Excel ---------------- */
+
+/** True when clipboard text spans several cells (copied from Excel: has a line break or a tab). */
+export function isMultiCell(text: string): boolean {
+  return /[\t\n]/.test(text.replace(/\r/g, '').replace(/\n+$/, ''));
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '');
+
+export interface PastePlan {
+  set: SetOp[];
+  create: CreateOp[];
+  /** Lines that filled a row. */
+  rows: number;
+  /** Lines with no row to go in (only when new rows can't be added). */
+  extra: number;
+  /** Filled cells that will be replaced. */
+  overwritten: number;
+  skippedHeader: boolean;
+  error: string;
+}
+
+/**
+ * A block copied from Excel, pasted at on-screen row `start`, column `key`: each line fills one
+ * row downward and tab-separated cells fill the columns to the right. `rows` lists the passes
+ * behind each on-screen row (a collapsed series is one row of many passes). Lines past the last
+ * row become new passes when `canCreate`. Printed passes are never pasted over.
+ */
+export function planPaste(opts: {
+  type: PassType;
+  rows: Pass[][];
+  start: number;
+  key: Field;
+  text: string;
+  nextSerial: number;
+  canCreate: boolean;
+}): PastePlan {
+  const { type, rows, start, key, nextSerial, canCreate } = opts;
+  const cols = fieldsFor(type);
+  const c0 = cols.indexOf(key);
+  const plan: PastePlan = { set: [], create: [], rows: 0, extra: 0, overwritten: 0, skippedHeader: false, error: '' };
+  let lines = opts.text.replace(/\r/g, '').replace(/\n+$/, '').split('\n').map((l) => l.split('\t'));
+
+  // A copied header row ("Name  Dept  Area …") is skipped.
+  const first = lines[0];
+  const labelHits = first.filter((cell, c) => cols[c0 + c] && norm(cell) === norm(FIELD_LABELS[cols[c0 + c]])).length;
+  if (lines.length > 1 && labelHits > 0 && labelHits >= Math.ceil(first.length / 2)) {
+    lines = lines.slice(1);
+    plan.skippedHeader = true;
+  }
+
+  const locked: number[] = [];
+  let made = 0;
+  lines.forEach((cells, i) => {
+    const values: Values = {};
+    cells.forEach((cell, c) => {
+      const k = cols[c0 + c];
+      if (k) values[k] = cleanText(cell);
+    });
+    const keys = Object.keys(values) as Field[];
+    const targets = rows[start + i];
+    if (!targets) {
+      if (!canCreate) return void plan.extra++;
+      const filled = Object.fromEntries(keys.filter((k) => values[k]).map((k) => [k, values[k]]));
+      if (!Object.keys(filled).length) return; // blank line at the end
+      plan.create.push({ type, serial: nextSerial + made++, values: filled });
+      plan.rows++;
+      return;
+    }
+    plan.rows++;
+    for (const p of targets) {
+      if (p.id < 0) { // an unfilled row: add that serial
+        const filled = Object.fromEntries(keys.filter((k) => values[k]).map((k) => [k, values[k]]));
+        if (Object.keys(filled).length) plan.create.push({ type, serial: p.serial, values: filled });
+        continue;
+      }
+      const changed = keys.filter((k) => p[k] !== values[k]);
+      if (!changed.length) continue;
+      if (isPrinted(p)) { locked.push(p.serial); continue; }
+      plan.overwritten += changed.filter((k) => p[k]).length;
+      plan.set.push({
+        id: p.id,
+        values: Object.fromEntries(changed.map((k) => [k, values[k]])),
+        expect: Object.fromEntries(changed.map((k) => [k, p[k]])),
+      });
+    }
+  });
+  if (locked.length) plan.error = `${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed. Untick Printed first, or paste somewhere else.`;
+  else if (nextSerial + made - 1 > MAX_SERIAL) plan.error = `Serial numbers go up to ${MAX_SERIAL}.`;
+  else if (plan.set.length + plan.create.length > MAX_BATCH) plan.error = `Please paste at most ${MAX_BATCH} rows at a time.`;
+  return plan;
+}
+
+/* ---------------- printing a range ---------------- */
+
+/** Most passes in one print run: 100 A4 pages keeps the browser quick. */
+export const MAX_PRINT = 900;
+
+/** What a printed card shows. */
+export type CardData = Pick<Pass, 'type' | 'serial' | 'name' | 'dept' | 'area' | 'phone' | 'vehicle' | 'vehicle_no'>;
+
+export interface PrintPlan {
+  cards: CardData[];
+  /** Saving these marks the cards printed (serials not in the register yet are added, blank). */
+  set: SetOp[];
+  create: CreateOp[];
+  /** Already printed: left out (untick Printed in the sheet to print again). */
+  printed: number[];
+  err: string;
+}
+
+/** The passes from–to that aren't printed yet, including serials not in the register yet. */
+export function planPrint(sheet: Pass[], type: PassType, from: string, to: string): PrintPlan {
+  const plan: PrintPlan = { cards: [], set: [], create: [], printed: [], err: '' };
+  const f = parseSerial(from);
+  const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
+  if (Number.isNaN(f)) return { ...plan, err: 'Enter the From and To serial numbers.' };
+  const lo = Math.min(f, t);
+  const hi = Math.max(f, t);
+  if (lo < 1 || hi > MAX_SERIAL) return { ...plan, err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
+  const bySerial = new Map(sheet.map((p) => [p.serial, p]));
+  for (let n = lo; n <= hi; n++) {
+    const p = bySerial.get(n);
+    if (p && isPrinted(p)) { plan.printed.push(n); continue; }
+    if (plan.cards.length >= MAX_PRINT) return { ...plan, err: `Please print at most ${MAX_PRINT} passes at a time (${MAX_PRINT / 9} pages).` };
+    if (!p) {
+      plan.cards.push({ type, serial: n, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '' });
+      plan.create.push({ type, serial: n, values: {}, printed: true });
+      continue;
+    }
+    plan.cards.push(p);
+    // If anything on the card changed after the preview, nothing is marked and the user is told.
+    const seen = { name: p.name, dept: p.dept, area: p.area, phone: p.phone, vehicle: p.vehicle, vehicle_no: p.vehicle_no };
+    plan.set.push({ id: p.id, printed: true, expect: { ...seen, printed: false } });
+  }
+  return plan;
+}

@@ -1,0 +1,144 @@
+import { type Kysely, sql } from 'kysely';
+import type { Migration } from 'kysely/migration';
+
+/**
+ * Database migrations, applied in name order when the server starts.
+ * Never edit one that has run on a real database: add a new one instead.
+ */
+export const migrations: Record<string, Migration> = {
+  '0001_init': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        CREATE TYPE pass_type AS ENUM (
+          'mobile-pandal', 'mobile-non-pandal',
+          'bike-pandal',   'bike-non-pandal',
+          'sewa-vehicle',  'tractor-trolley'
+        );
+
+        CREATE TABLE users (
+          id             integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          username       text NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9._-]{2,40}$'),
+          name           text NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+          password_hash  text NOT NULL,
+          is_admin       boolean NOT NULL DEFAULT false,
+          active         boolean NOT NULL DEFAULT true,
+          created_at     timestamptz NOT NULL DEFAULT now(),
+          created_by     integer REFERENCES users (id)
+        );
+
+        CREATE TABLE sessions (
+          id          text PRIMARY KEY,
+          user_id     integer NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          created_at  timestamptz NOT NULL DEFAULT now(),
+          expires_at  timestamptz NOT NULL
+        );
+        CREATE INDEX sessions_user_id ON sessions (user_id);
+
+        -- One row per pass. A range given to an incharge is one row per serial, so a pass can
+        -- never be given twice (UNIQUE) and one pass in a range can get a name later.
+        CREATE TABLE passes (
+          id          integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          type        pass_type NOT NULL,
+          serial      integer NOT NULL CHECK (serial BETWEEN 1 AND 99999),
+          name        text NOT NULL DEFAULT '' CHECK (length(name) <= 120),
+          dept        text NOT NULL DEFAULT '' CHECK (length(dept) <= 120),
+          area        text NOT NULL DEFAULT '' CHECK (length(area) <= 120),
+          phone       text NOT NULL DEFAULT '' CHECK (length(phone) <= 120),
+          vehicle_no  text NOT NULL DEFAULT '' CHECK (length(vehicle_no) <= 120),
+          incharge    text NOT NULL DEFAULT '' CHECK (length(incharge) <= 120),
+          printed_at  timestamptz,
+          created_at  timestamptz NOT NULL DEFAULT now(),
+          created_by  integer NOT NULL REFERENCES users (id),
+          updated_at  timestamptz NOT NULL DEFAULT now(),
+          updated_by  integer NOT NULL REFERENCES users (id),
+          rev         integer NOT NULL,
+          UNIQUE (type, serial),
+          CHECK (vehicle_no = '' OR type IN ('sewa-vehicle', 'tractor-trolley'))
+        );
+        CREATE INDEX passes_rev ON passes (rev);
+
+        -- Every action, for History and Undo.
+        CREATE TABLE changes (
+          id           integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          done_at      timestamptz NOT NULL DEFAULT now(),
+          done_by      integer NOT NULL REFERENCES users (id),
+          action       text NOT NULL,
+          type         pass_type,
+          serial_from  integer,
+          serial_to    integer,
+          summary      text NOT NULL,
+          count        integer NOT NULL,
+          rev          integer NOT NULL,
+          before       jsonb NOT NULL,
+          undone_at    timestamptz,
+          undone_by    integer REFERENCES users (id)
+        );
+
+        -- Bumped by every write. Each write locks this row first, so writes are saved one at a
+        -- time, in order, and every desk can fetch exactly what changed since its last look.
+        CREATE TABLE meta (
+          id       integer PRIMARY KEY CHECK (id = 1),
+          version  integer NOT NULL
+        );
+        INSERT INTO meta VALUES (1, 0);
+
+        -- Passes removed by Undo, so other desks drop them too.
+        CREATE TABLE deleted_passes (
+          id   integer PRIMARY KEY,
+          rev  integer NOT NULL
+        );
+        CREATE INDEX deleted_passes_rev ON deleted_passes (rev);
+
+        CREATE TABLE settings (
+          key         text PRIMARY KEY,
+          value       text NOT NULL,
+          updated_at  timestamptz NOT NULL DEFAULT now(),
+          updated_by  integer NOT NULL REFERENCES users (id)
+        );
+      `).execute(db);
+    },
+  },
+  // Pass templates: Bike passes carry a Veh. Reg No.; Sewa Vehicle / Tractor Trolley passes also
+  // carry the Vehicle (make / model) next to its Reg. No.
+  '0002_vehicle': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TABLE passes ADD COLUMN vehicle text NOT NULL DEFAULT '' CHECK (length(vehicle) <= 120);
+        ALTER TABLE passes DROP CONSTRAINT IF EXISTS passes_check;
+        ALTER TABLE passes ADD CONSTRAINT passes_vehicle_no_sheets
+          CHECK (vehicle_no = '' OR type NOT IN ('mobile-pandal', 'mobile-non-pandal'));
+        ALTER TABLE passes ADD CONSTRAINT passes_vehicle_sheets
+          CHECK (vehicle = '' OR type IN ('sewa-vehicle', 'tractor-trolley'));
+      `).execute(db);
+    },
+  },
+  // Gate checks: every scan of a pass's QR code, so a pass scanned again shows when and by whom.
+  '0003_scans': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        CREATE TABLE scans (
+          id          bigserial PRIMARY KEY,
+          type        text NOT NULL,
+          serial      integer NOT NULL,
+          result      text NOT NULL,
+          scanned_by  integer NOT NULL REFERENCES users (id),
+          scanned_at  timestamptz NOT NULL DEFAULT now()
+        );
+        CREATE INDEX scans_pass ON scans (type, serial, scanned_at DESC);
+      `).execute(db);
+    },
+  },
+  // Two more sheets, laid out like the Sewa Vehicle pass. The Vehicle rule names the sheets without a
+  // Vehicle column, as new enum values can't be used in the transaction that adds them.
+  '0004_entry_passes': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'gate3-entry';
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'bav-entry';
+        ALTER TABLE passes DROP CONSTRAINT passes_vehicle_sheets;
+        ALTER TABLE passes ADD CONSTRAINT passes_vehicle_sheets
+          CHECK (vehicle = '' OR type NOT IN ('mobile-pandal', 'mobile-non-pandal', 'bike-pandal', 'bike-non-pandal'));
+      `).execute(db);
+    },
+  },
+};

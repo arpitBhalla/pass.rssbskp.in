@@ -1,0 +1,50 @@
+import 'server-only';
+import { z } from 'zod';
+import { ACTIONS, MAX_BATCH, MAX_SERIAL, PASS_TYPES } from '@/shared/types';
+import { backupError } from '../backup';
+import { passCodes } from '../gate';
+import { applyChange, listChanges, syncSince, undoChange } from '../passes';
+import { authedProcedure, router } from '../trpc';
+
+const text = z.string().max(500).optional();
+const values = z.object({ name: text, dept: text, area: text, phone: text, vehicle: text, vehicle_no: text, incharge: text }).strict();
+
+const applyInput = z.object({
+  action: z.enum(ACTIONS),
+  summary: z.string().trim().min(1).max(300),
+  set: z.array(z.object({
+    id: z.number().int().positive(),
+    values: values.optional(),
+    printed: z.boolean().optional(),
+    expect: values.extend({ printed: z.boolean().optional() }),
+  })).max(MAX_BATCH).optional(),
+  create: z.array(z.object({
+    type: z.enum(PASS_TYPES),
+    serial: z.number().int().min(1).max(MAX_SERIAL),
+    values,
+    printed: z.boolean().optional(),
+  })).max(MAX_BATCH).optional(),
+});
+
+export const passesRouter = router({
+  /** What changed since version `since`. Every desk calls this every few seconds. */
+  sync: authedProcedure
+    .input(z.object({ since: z.number().int().min(0) }))
+    .query(async ({ ctx, input }) => ({ ...(await syncSince(ctx.db, input.since)), backupError: backupError() })),
+
+  // Not "apply": tRPC reserves apply, call and then.
+  /** QR codes for passes about to be printed (makes the signing key on the first print). */
+  codes: authedProcedure
+    .input(z.object({ type: z.enum(PASS_TYPES), serials: z.array(z.number().int().min(1).max(MAX_SERIAL)).min(1).max(MAX_BATCH) }))
+    .mutation(({ ctx, input }) => passCodes(ctx.db, ctx.user.id, input.type, input.serials)),
+
+  save: authedProcedure.input(applyInput).mutation(({ ctx, input }) => applyChange(ctx.db, ctx.user.id, input)),
+
+  undo: authedProcedure
+    .input(z.object({ changeId: z.number().int().positive() }))
+    .mutation(({ ctx, input }) => undoChange(ctx.db, ctx.user.id, input.changeId)),
+
+  history: authedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(1000).default(300) }))
+    .query(({ ctx, input }) => listChanges(ctx.db, input.limit)),
+});

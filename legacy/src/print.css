@@ -1,0 +1,129 @@
+/* ---------- print preview ---------- */
+.print-view { position: fixed; inset: 0; z-index: 20; background: #e8eaed; overflow: auto; }
+.print-bar {
+  position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line);
+}
+.sheets { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+.a4 {
+  width: 210mm; height: 297mm; padding: 8mm; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+  display: grid; grid-template-columns: repeat(3, 62mm); grid-auto-rows: 85mm; gap: 4mm;
+  justify-content: center; align-content: start;
+}
+
+@page { size: A4; margin: 0; }
+@page report { size: A4; margin: 12mm; }
+@media print {
+  html, body, #root { height: auto; display: block; }
+  .print-bar, .toast, .app > :not(main), main > :not(.report) { display: none !important; }
+  .app:not([hidden]), main { display: block; height: auto; }
+  .report { page: report; overflow: visible; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .report th { position: static; }
+  .report tr { break-inside: avoid; }
+  .print-view { position: static; background: none; overflow: visible; }
+  .sheets { display: block; padding: 0; }
+  .a4 { box-shadow: none; break-after: page; height: 296mm; overflow: hidden; } /* a hair under 297 so rounding never adds blank pages */
+  .a4:last-child { break-after: auto; }
+}
+
+/* ---------- the pass (62 × 85 mm) ---------- */
+.card {
+  --zone: #5b8f2f;
+  position: relative; width: 62mm; height: 85mm; display: flex; flex-direction: column; overflow: hidden;
+  background: #fff; color: #111; border-bottom: 2mm solid var(--zone);
+  outline: 0.15mm solid #c4c4c4; /* cut line */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.card.inside { --zone: #5b8f2f; }
+.card.outside { --zone: #a3302a; }
+
+.card-head {
+  flex-shrink: 0; height: 15mm; display: flex; align-items: center; justify-content: center;
+  background: var(--zone); color: #fff; font-size: 6.2mm; font-weight: 700;
+  font-family: "Noto Sans Devanagari", "Kohinoor Devanagari", "Nirmala UI", Mangal, system-ui, sans-serif;
+}
+.card-body { position: relative; flex: 1; display: flex; flex-direction: column; padding: 3mm 7mm 2.5mm 4mm; }
+.card-body > :not(.watermark, .event) { position: relative; } /* sit above the watermark */
+
+.watermark {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -45%);
+  display: flex; flex-direction: column; align-items: center; padding: 1mm 2.2mm;
+  border: 0.6mm solid #f1eeee; color: #f1eeee; font: 700 10mm/1 Georgia, "Times New Roman", serif; letter-spacing: 1mm;
+}
+.event {
+  position: absolute; right: 1.3mm; bottom: 3mm; max-height: 58mm; overflow: hidden;
+  writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap;
+  font-size: 4.2mm; font-weight: 700; letter-spacing: 0.3mm; color: #d6d6d6; text-transform: uppercase;
+}
+.title {
+  text-align: center; color: #4a0d0d; font-size: 4.6mm; font-weight: 600;
+  text-decoration: underline; text-decoration-thickness: 0.3mm; text-underline-offset: 0.9mm;
+}
+.name { margin-top: 2.5mm; text-align: center; font-size: 5mm; font-weight: 700; line-height: 1.15; text-transform: uppercase; }
+.fields {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 3mm; row-gap: 1.3mm; align-items: baseline;
+  margin: 3mm 0 0 2mm;
+}
+.fields dt { color: #8a8a8a; font-size: 2.7mm; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+.fields dd { margin: 0; min-height: 4mm; font-size: 3.4mm; font-weight: 600; text-transform: uppercase; }
+.fields dd:empty { border-bottom: 0.2mm dotted #9a9a9a; } /* write-in line */
+.icons { margin-top: auto; padding-right: 1mm; text-align: right; font-size: 8mm; line-height: 1; }
+.card-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; gap: 3mm; }
+.icons + .card-foot { margin-top: 1.5mm; }
+.code { display: flex; flex-direction: column; align-items: center; }
+.code .barcode { display: block; width: 30mm; height: 8mm; }
+.code span { margin-top: 0.4mm; font: 2.4mm ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.3mm; }
+.sign { display: flex; flex-direction: column; align-items: center; font-size: 2.6mm; color: #444; }
+.sign img { height: 8mm; max-width: 20mm; object-fit: contain; }
+.sign-space { width: 18mm; height: 8mm; }
+
+/* ---------- the Mobile pass, RSSB SKP template (62 × 85 mm) ---------- */
+.mcard {
+  --band: #2e3192; --stripe: #c3c3c7; --logo: #b3201e; /* Pandal */
+  --narrow: "Arial Narrow", "Roboto Condensed", "Avenir Next Condensed", "Helvetica Neue", Bahnschrift, sans-serif;
+  position: relative; width: 62mm; height: 85mm; display: flex; flex-direction: column; overflow: hidden;
+  padding: 16.2mm 0 0; background: #fff; color: #231f20; text-align: center;
+  outline: 0.15mm solid #c4c4c4; /* cut line */
+  font-family: Tahoma, Verdana, "DejaVu Sans", sans-serif; font-weight: 700;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.mcard.non-pandal { --band: #c96a35; --stripe: #fdf28e; --logo: #231f20; } /* Non Pandal */
+.mcard::after { /* bottom band */
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4.2mm;
+  background: linear-gradient(var(--stripe) 0 0.8mm, var(--band) 0.8mm);
+}
+.mcard-wave { position: absolute; top: 0; left: 0; width: 62mm; height: 14mm; }
+.mcard-wave .band { fill: var(--band); }
+.mcard-wave .stripe { fill: var(--stripe); }
+.mcard-logo {
+  position: absolute; top: 1mm; left: 50%; transform: translateX(-50%);
+  width: 11.6mm; height: 13.6mm; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding-left: 0.5mm; /* balances the letter-spacing after the last letter */
+  background: var(--logo); border: 0.5mm solid #fff; outline: 0.2mm solid #555;
+  box-shadow: inset 0 0 0 0.55mm var(--logo), inset 0 0 0 0.8mm #fff;
+  color: #fff; font: 400 4.7mm/1.08 Georgia, "Times New Roman", serif; letter-spacing: 0.5mm;
+}
+.mcard-org { font-size: 6.5mm; line-height: 7mm; white-space: nowrap; }
+.mcard-org small { margin-left: 0.5mm; font-size: 2.1mm; }
+.mcard-place { color: #8e8e90; font-size: 3.9mm; line-height: 5.6mm; white-space: nowrap; }
+.mcard-kind { color: #8e8e90; font-size: 5mm; line-height: 6.3mm; white-space: nowrap; }
+.mcard-zone { font-size: 7mm; line-height: 7.4mm; white-space: nowrap; }
+.mcard-fields {
+  display: grid; grid-template-columns: max-content 1fr; column-gap: 1.6mm;
+  margin: 2.8mm 0 0; padding: 0 3mm 0 3.9mm; text-align: left;
+  font-family: var(--narrow); font-stretch: condensed; font-size: 3.9mm; line-height: 5.7mm;
+}
+.mcard-fields > div { display: contents; }
+.mcard-fields dt { display: flex; justify-content: space-between; gap: 1.3mm; } /* colons line up after the longest label */
+.mcard-fields dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
+.mcard-foot {
+  margin-top: auto; padding: 0 2.4mm 5.4mm 1.8mm; display: flex; justify-content: space-between; align-items: flex-end;
+  font-family: var(--narrow); font-stretch: condensed;
+}
+.mcard-sr { font-size: 4.3mm; line-height: 1; white-space: nowrap; }
+.mcard-sr b { font-size: 9mm; letter-spacing: 0.2mm; }
+.mcard-sign { position: relative; display: flex; flex-direction: column; align-items: center; font-size: 3mm; line-height: 1; }
+.mcard-sign img { height: 8mm; max-width: 18mm; object-fit: contain; margin-bottom: -2mm; }
+.mcard-sign .sign-space { height: 6mm; }
+.mcard-sign span { position: relative; }
