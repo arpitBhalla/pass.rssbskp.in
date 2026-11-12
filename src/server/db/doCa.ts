@@ -1,4 +1,9 @@
------BEGIN CERTIFICATE-----
+/**
+ * The certificate authority of the DigitalOcean project that hosts the production database (from the
+ * cluster's Connection details; public, not a secret). Kept in the code, not as a file, so that it is
+ * found wherever the server runs from. Replace it if the database moves to another DigitalOcean project.
+ */
+export const DO_CA = `-----BEGIN CERTIFICATE-----
 MIIEQTCCAqmgAwIBAgIUKB7QwVNHNuq1ze161+hx8PMG0cMwDQYJKoZIhvcNAQEM
 BQAwOjE4MDYGA1UEAwwvZTRlZmRhMjItNzhhZS00MjNhLWI5YjctNDgwMWI0Mjhi
 MTM4IFByb2plY3QgQ0EwHhcNMjMxMTI3MTA1ODE1WhcNMzMxMTI0MTA1ODE1WjA6
@@ -23,3 +28,4 @@ gPVKlBTvMOXvbF7gu+Lw/aZzxW4EIW6g5pDIJxCRK73N8pNLEJKv/aIJkjCMBY7Z
 wCUL/TN8whQTCVgynxzsMcZKf9ehWS9tdmzfjdC3NGkTEJL9uKO2lvqSaCAMzmwa
 vtdAheVftsy4DB2fywojPGQDNTJsW2G99HmArwa1FDYVSLE+6g==
 -----END CERTIFICATE-----
+`;

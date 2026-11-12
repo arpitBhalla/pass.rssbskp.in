@@ -21,8 +21,9 @@ There's no public sign-up.
 
 **Production database** (DigitalOcean managed Postgres): `.env` holds the `DATABASE_URL` of the login
 `rssb_passes`, which owns only the `passes` database (other logins on the cluster can't open it).
-`?sslmode=verify-full&sslrootcert=certs/do-ca.crt` checks the server against DigitalOcean's CA
-(`certs/do-ca.crt`, from the cluster's Connection details). Its backups go to `backups/production`.
+The address is the one DigitalOcean gives (`?sslmode=require`): the app always checks the server
+against DigitalOcean's CA, kept in the code (`src/server/db/doCa.ts`), whatever the address says about
+ssl. Its backups go to `backups/production`.
 `.env.development.local` keeps `pnpm dev` on the local database. Don't create a `.env.local`: it
 would override `.env` for `pnpm start` too. The admin login (`doadmin`) is in the DigitalOcean
 control panel, not in this folder.

@@ -1,9 +1,11 @@
 import 'server-only';
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { DATABASE_URL, db } from './db';
+import { DATABASE_URL, db, onDigitalOcean, withoutSsl } from './db';
+import { DO_CA } from './db/doCa';
 
 const run = promisify(execFile);
 const DIR = resolve(/*turbopackIgnore: true*/ process.env.BACKUP_DIR || 'backups');
@@ -27,6 +29,17 @@ const state = { lastVersion: -1, error: '', file: '' };
 /** '' when the last backup worked; otherwise why it failed (shown as a banner in the app). */
 export const backupError = () => state.error;
 
+/** The address for pg_dump. It needs DigitalOcean's CA as a file, so it gets a copy in the temp folder. */
+async function dumpUrl(): Promise<string> {
+  if (!onDigitalOcean(new URL(DATABASE_URL))) return DATABASE_URL;
+  const ca = join(tmpdir(), 'passes-do-ca.crt');
+  await writeFile(/*turbopackIgnore: true*/ ca, DO_CA);
+  const u = withoutSsl(new URL(DATABASE_URL));
+  u.searchParams.set('sslmode', 'verify-full');
+  u.searchParams.set('sslrootcert', ca);
+  return u.toString();
+}
+
 const stamp = () => new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
 
 /** Writes a pg_dump (custom format, restore with pg_restore) if anything changed since the last one. */
@@ -35,10 +48,11 @@ export async function backupNow(reason: string): Promise<void> {
   if (version === state.lastVersion) return;
   await mkdir(/*turbopackIgnore: true*/ DIR, { recursive: true });
   const file = join(DIR, `passes-${stamp()}-${reason}.dump`);
+  const dbname = await dumpUrl();
   let lastErr: unknown;
   for (const bin of PG_DUMP) {
     try {
-      await run(bin, ['--format=custom', `--file=${file}`, `--dbname=${DATABASE_URL}`], { timeout: 5 * 60_000 });
+      await run(bin, ['--format=custom', `--file=${file}`, `--dbname=${dbname}`], { timeout: 5 * 60_000 });
       Object.assign(state, { lastVersion: version, error: '', file });
       await prune();
       return;
