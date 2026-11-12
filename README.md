@@ -11,7 +11,7 @@ Needs Node 22+ and Postgres (on a Mac: `brew install postgresql@15 && brew servi
 
 ```sh
 pnpm install
-cp .env.example .env.local   # only if Postgres isn't at postgres://localhost:5432
+cp .env.example .env         # then set DATABASE_URL (see Production database below)
 pnpm build && pnpm start     # http://localhost:5180
 ```
 
@@ -19,8 +19,17 @@ The database is created and set up automatically on the first start. The first p
 app creates the admin user; after that, only the admin adds people (**Users** tab), and everyone logs in.
 There's no public sign-up.
 
-**Other computers on the same network** open `http://<this computer's IP>:5180`. Find the IP with
-`ipconfig getifaddr en0` on a Mac.
+**Production database** (DigitalOcean managed Postgres): `.env` holds the `DATABASE_URL` of the login
+`rssb_passes`, which owns only the `passes` database (other logins on the cluster can't open it).
+`?sslmode=verify-full&sslrootcert=certs/do-ca.crt` checks the server against DigitalOcean's CA
+(`certs/do-ca.crt`, from the cluster's Connection details). Its backups go to `backups/production`.
+`.env.development.local` keeps `pnpm dev` on the local database. Don't create a `.env.local`: it
+would override `.env` for `pnpm start` too. The admin login (`doadmin`) is in the DigitalOcean
+control panel, not in this folder.
+
+**Other computers and the gate phones on the same network** open `http://<this computer's IP>:5180`.
+Find the IP with `ipconfig getifaddr en0` on a Mac. This needs `pnpm start` (above): the development
+server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pages for other addresses.
 
 ## Use it
 
@@ -40,7 +49,9 @@ There's no public sign-up.
 - **Search:** type a serial number to check a pass at the gate, or any name / area / phone. Filter by
   Given / Free / Printed, or by the dates passes were added.
 - **Print:** enter a range in the right panel and click **Preview & print**. The passes are the RSSB
-  SKP templates redrawn to measure, as vector graphics (sharp at any size):
+  SKP templates redrawn to measure, as vector graphics (sharp at any size), with the changes of design
+  v1: every pass has the tab with the Tag (`NOV - 2026`) at the bottom, the 150 × 100 mm passes are
+  headed RSSB SIKANDERPUR-M.C., and Bike passes have no Valid For line:
 
   | Sheets | Pass size | Per A3+ | Per A4 |
   | --- | --- | --- | --- |
@@ -61,21 +72,23 @@ There's no public sign-up.
   change with who made it and can undo any of them, unless those passes were changed again afterwards.
 - **Report:** passes per sheet by Area then Dept (or Dept then Area), with serial numbers and
   incharges. Export it to Excel or print it.
-- **Gate check:** every printed pass has a QR code. Scanning it with a phone's camera opens the pass
-  check page: **VALID** (green), **CHECK** (yellow: genuine, but the register disagrees, e.g. the name
-  was changed after printing or it isn't marked printed) or **NOT VALID** (red: a fake, not in the
-  register, or printed before a new key). It shows the register's details (name, dept, area,
-  incharge, vehicle, Reg. No.) and when the pass was scanned before; every scan is recorded.
-  Gate volunteers log in once on their phone (any user; the admin adds them under **Users**). The
-  phone must reach this computer (same Wi-Fi). The QR holds the sheet, serial, a short hash of the
-  name and a 10-byte code made with a secret only the server has, so a copied design can't make a
-  pass that checks VALID. A photocopy of a real pass still checks VALID: compare the name with the
-  person and watch for repeat scans.
-- **Settings** (admin): the signature, the **Valid For** line of Bike passes (e.g. `28th & 29th
-  NOV-2026`, ordinals print raised), the **Tag** of the 150 × 100 mm passes (`SKP-2026`), the **Pass
-  check address** the QR codes open (e.g. `http://192.168.1.20:5180`; empty = the address of the desk
-  that prints; passes can't be printed with a `localhost` address, as phones couldn't open it) and the
-  **QR key** (**Make a new key** cancels every pass printed before it: they check NOT VALID). Set once;
+- **Gate check:** every printed pass has a QR code holding only its code (44 digits, no address).
+  Gate volunteers open the check page, `http://<this computer's IP>:5180/v` (Settings shows it with a
+  QR code to open it on a phone), log in once (any user; the admin adds them under **Users**) and add
+  it to the home screen. For each pass: tap **Scan a pass** and photograph the QR code from 10–20 cm.
+  The page says **VALID** (green), **CHECK** (yellow: genuine, but the register disagrees, e.g. the
+  name was changed after printing or it isn't marked printed) or **NOT VALID** (red: a fake, not in
+  the register, or printed before a new key), or **TRY AGAIN** if the photo has no readable QR code.
+  It shows the register's details (name, dept, area, incharge, vehicle, Reg. No.) and when the pass
+  was scanned before; every scan is recorded. It takes a photo rather than showing the camera live
+  because phones only allow a live camera on https. The phone must reach this computer (same Wi-Fi).
+  The code holds the sheet, serial, a short hash of the name and a 10-byte tag made with a secret
+  only the server has, so a copied design can't make a pass that checks VALID. A photocopy of a real
+  pass still checks VALID: compare the name with the person and watch for repeat scans. Passes
+  printed before 2026-11-12 hold a link with the code instead; Scan reads those too.
+- **Settings** (admin): the signature, the **Tag** in the tab at the bottom of every pass (`NOV - 2026`), the
+  **Gate check page** address for phones (shown when Settings is opened by the network address, not
+  `localhost`) and the **QR key** (**Make a new key** cancels every pass printed before it: they check NOT VALID). Set once;
   every desk uses them. Settings also shows every pass as it prints. An SVG signature stays vector.
   The Print box says when one is missing.
 - Dept suggestions come from the sip app's department list (`src/lib/depts.ts`), and area suggestions
@@ -114,5 +127,7 @@ pnpm typecheck && pnpm lint
 Next.js 16 (App Router), tRPC 11, Kysely + Postgres, Tailwind 4, TypeScript. The server code is in
 `src/server`, the shared types in `src/shared/types.ts`, and the sheet logic in `src/lib` (unit tested).
 The pass templates are `src/components/cards` (positions in mm, measured on the template images).
+The design version is kept in code only (`TEMPLATE_VERSION` in `PassCard.tsx`, now v1; not printed):
+raise it when the design changes.
 Fonts are bundled in `src/fonts` (SIL Open Font License): Roboto Condensed, Source Sans 3 and
 Archivo Black for the passes, Atkinson Hyperlegible Next for the app.

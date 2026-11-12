@@ -2,22 +2,15 @@
 import qrcode from 'qrcode-generator';
 import { useMemo } from 'react';
 
-/** What a pass's QR code holds: a link `${prefix}${digits}`, e.g. http://192.168.1.20:5180/v#1234…. */
-export interface PassCode {
-  prefix: string;
-  digits: string;
-}
-
 /**
- * The QR's dark modules as one SVG path, 1 unit per module. The link is two parts: the address as bytes
- * and the code as digits (QR numeric mode, the densest: 3.3 bits a digit). A usual address gives 33 × 33
- * modules; printed 12–14 mm wide, each is about 0.36 mm, which phone cameras read easily.
- * Error correction M: still reads with about 15% of it scuffed.
+ * The QR's dark modules as one SVG path, 1 unit per module. Digits use QR numeric mode (the densest:
+ * 3.3 bits a digit), anything else bytes. A pass's code alone (44 digits) at error correction Q is
+ * 25 × 25 modules: printed 12–14 mm wide, each is about 0.5 mm, and it still reads with about a quarter
+ * of it scuffed.
  */
-export function qrModules({ prefix, digits }: PassCode): { d: string; n: number } {
-  const q = qrcode(0, 'M');
-  q.addData(prefix, 'Byte');
-  q.addData(digits, 'Numeric');
+export function qrModules(text: string, ec: 'M' | 'Q' = 'Q'): { d: string; n: number } {
+  const q = qrcode(0, ec);
+  q.addData(text, /^\d+$/.test(text) ? 'Numeric' : 'Byte');
   q.make();
   const n = q.getModuleCount();
   let d = '';
@@ -32,9 +25,9 @@ export function qrModules({ prefix, digits }: PassCode): { d: string; n: number 
   return { d, n };
 }
 
-/** A QR code `size` mm square at (x, y) on a white square; `pad` mm of white inside it (the quiet zone). */
-export function Qr({ code, x, y, size, pad }: { code: PassCode; x: number; y: number; size: number; pad: number }) {
-  const { d, n } = useMemo(() => qrModules(code), [code]);
+/** A QR code of `text`, `size` units square at (x, y) on a white square; `pad` units of white inside it (the quiet zone). */
+export function Qr({ text, x, y, size, pad, ec }: { text: string; x: number; y: number; size: number; pad: number; ec?: 'M' | 'Q' }) {
+  const { d, n } = useMemo(() => qrModules(text, ec), [text, ec]);
   const m = (size - 2 * pad) / n;
   return (
     <g>

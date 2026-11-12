@@ -1,13 +1,14 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useState, useSyncExternalStore } from 'react';
 import { toast } from '@/client/toast';
 import { errorMessage, useTRPC } from '@/client/trpc';
 import type { CardData } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
 import { PASS_TYPES, type PassType, TYPE_INFO } from '@/shared/types';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
-import type { PassCode } from './cards/Qr';
+import { Qr } from './cards/Qr';
 import { btn, btnDanger, input } from './ui';
 
 /** One-time setup of what every pass prints with. Admin only; every desk uses it. */
@@ -24,14 +25,11 @@ export function SettingsScreen() {
           <Row title="Signature" note="On every pass, above Auth Signatory. An SVG stays sharp at any size; photos are resized.">
             <Signature signature={s.signature} />
           </Row>
-          <Row title="Valid For" note="Bike passes print “Valid For:” and this. Ordinals like 28th print raised.">
-            <TextSetting name="validFor" value={s.validFor} placeholder="28th & 29th NOV-2026" />
+          <Row title="Tag" note="The tab at the bottom of every pass.">
+            <TextSetting name="tag" value={s.tag} placeholder="NOV - 2026" />
           </Row>
-          <Row title="Tag" note="The tab at the bottom of Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Entry passes.">
-            <TextSetting name="tag" value={s.tag} placeholder="SKP-2026" />
-          </Row>
-          <Row title="Pass check address" note="Each pass's QR code opens this address on the gate phone. Use one the phones can reach. Empty: the address of the desk that prints.">
-            <TextSetting name="checkUrl" value={s.checkUrl} placeholder="http://192.168.1.20:5180" />
+          <Row title="Gate check page" note="Gate volunteers check passes here on their phones (same Wi-Fi as this computer): Scan, then photograph the pass's QR code.">
+            <GatePage />
           </Row>
           <Row title="QR key" note="A secret on the server behind every QR code, so a copied design can't make a pass that checks VALID.">
             <QrKey />
@@ -68,7 +66,7 @@ function useSaved() {
 }
 
 /** A line of text printed on passes. Saved with Save or Enter. */
-function TextSetting({ name, value, placeholder }: { name: 'validFor' | 'tag' | 'checkUrl'; value: string; placeholder: string }) {
+function TextSetting({ name, value, placeholder }: { name: 'tag'; value: string; placeholder: string }) {
   const trpc = useTRPC();
   const saved = useSaved();
   const [draft, setDraft] = useState(value);
@@ -165,6 +163,31 @@ function QrKey() {
   );
 }
 
+const noChange = () => () => {};
+
+/** The gate check page's address on this network, with a QR code that opens it on a phone. */
+function GatePage() {
+  const origin = useSyncExternalStore(noChange, () => window.location.origin, () => '');
+  if (!origin) return null;
+  if (/^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(origin)) {
+    return <p>Open this app by the computer&apos;s network address (like http://192.168.1.20:5180) to see the address phones use.</p>;
+  }
+  const url = `${origin}/v`;
+  return (
+    <div className="flex items-center gap-4">
+      <svg width={112} height={112} viewBox="0 0 112 112" role="img" aria-label={`QR code for ${url}`} className="flex-none">
+        <Qr text={url} x={0} y={0} size={112} pad={8} ec="M" />
+      </svg>
+      <div className="space-y-1">
+        <Link href="/v" className="font-semibold text-primary hover:underline">{url}</Link>
+        <p className="text-[13.5px] leading-snug text-muted-foreground">
+          On each gate phone: scan this with the camera, log in, and add the page to the home screen.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** Sample details for the previews. */
 const SAMPLE: Record<PassType, Partial<CardData>> = {
   'mobile-pandal': { name: 'Harpreet Singh', dept: 'Security', area: 'Sirsa', phone: '9876543210' },
@@ -177,8 +200,8 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
   'bav-entry': { name: 'Rajinder Kumar', vehicle: 'Mahindra Bolero', vehicle_no: 'DL 8C AB 3310', area: 'Delhi', dept: 'Traffic' },
 };
 
-/** A made-up code as long as a real one (a sample QR the right size; it checks NOT VALID). */
-const SAMPLE_DIGITS = Array.from({ length: 203 }, (_, i) => (i === 0 ? 1 : (i * 7 + 3) % 10)).join('');
+/** A made-up code as long as a real one (44 digits: a sample QR the right size; it checks NOT VALID). */
+const SAMPLE_CODE = Array.from({ length: 44 }, (_, i) => (i === 0 ? 4 : (i * 7 + 3) % 10)).join('');
 
 /** PX per mm on screen. */
 const PX = 3.4;
@@ -186,16 +209,11 @@ const PX = 3.4;
 /** Every pass as it prints, with sample details and the settings above. */
 function Previews({ texts }: { texts: PrintTexts }) {
   const ready = useCardFonts();
-  // Only after the fonts load, so only in the browser: the address is this desk's when none is set.
-  const code = useMemo<PassCode | null>(
-    () => (ready ? { prefix: `${(texts.checkUrl || window.location.origin).replace(/\/+$/, '')}/v#`, digits: SAMPLE_DIGITS } : null),
-    [ready, texts.checkUrl],
-  );
   return (
     <section className="mt-8">
       <h2 className="font-condensed text-[19px] font-bold">Passes</h2>
       <p className="mb-4 text-muted-foreground">As they print, with sample details. The sample QR codes check as NOT VALID.</p>
-      {!code ? <p className="text-muted-foreground">Loading the pass fonts…</p> : (
+      {!ready ? <p className="text-muted-foreground">Loading the pass fonts…</p> : (
         <div className="flex flex-wrap items-end gap-x-6 gap-y-5">
           {PASS_TYPES.map((t, i) => {
             const { w, h } = CARD_SIZE[TYPE_INFO[t].layout];
@@ -203,7 +221,7 @@ function Previews({ texts }: { texts: PrintTexts }) {
             return (
               <figure key={t}>
                 <svg width={w * PX} height={h * PX} viewBox={`0 0 ${w} ${h}`} className="shadow-[0_1px_3px_rgb(0_0_0/0.18)]">
-                  <PassCard p={p} texts={texts} code={code} />
+                  <PassCard p={p} texts={texts} code={SAMPLE_CODE} />
                 </svg>
                 <figcaption className="mt-1.5 text-[13.5px] text-muted-foreground">
                   {TYPE_INFO[t].label}, {w} × {h} mm

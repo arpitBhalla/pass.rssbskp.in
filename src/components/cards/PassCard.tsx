@@ -1,28 +1,32 @@
 'use client';
 import { memo, type SVGProps, useEffect, useState } from 'react';
-import { type Font, layLine, loadFonts, type Placed, placeText, scaleFor } from '@/client/measure';
+import { type Font, inkWidth, layLine, loadFonts, type Placed, placeText, scaleFor } from '@/client/measure';
 import { condensed, heavy, humanist } from '@/fonts';
 import type { CardData } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
 import { type Layout, TYPE_INFO } from '@/shared/types';
 import { Motorbike, Tractor } from './art';
-import { type PassCode, Qr } from './Qr';
+import { Qr } from './Qr';
 
 /**
  * The three RSSB SKP pass templates (Downloads/passes-template), redrawn as vectors in mm. Every
  * position, size and colour below was measured on the templates. Static text is fitted to the
  * template's exact ink box; filled-in values use the template's lettering width and shrink to fit.
+ *
+ * v1 (2026-11-11), the user's changes to the templates: the tab with the tag ("NOV - 2026") on every
+ * pass, "RSSB SIKANDERPUR-M.C." as the heading of the 150 × 100 mm passes, and no "Valid For" line on
+ * Bike passes. To make room for the tab, Mobile's rows, QR, Sr. No. and signature sit 1–4 mm higher
+ * than on the template, and Bike's signature 0.6 mm higher.
  */
+
+/** The design version, kept here only (not printed). Raise it when the design changes. */
+export const TEMPLATE_VERSION = 'v1';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
   signature: string;
-  /** Bike passes, e.g. "28th & 29th NOV-2026" (ordinals print raised). */
-  validFor: string;
-  /** 150 × 100 mm passes (Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Entry), e.g. "SKP-2026". */
+  /** The tab at the bottom of every pass, e.g. "NOV - 2026". */
   tag: string;
-  /** Start of the link in the QR codes; '' = the address this desk uses. */
-  checkUrl: string;
 }
 
 const INK = '#231f20';
@@ -30,6 +34,8 @@ const GREY = '#939598';
 const DARK = '#414042';
 const RED = '#9e0b0f';
 const RULE = '#6d6e71';
+/** The tab grey of the 150 × 100 mm template (same as its stripe). */
+const TAB_GREY = '#bcbec0';
 
 const NARROW: Font = { family: condensed.style.fontFamily, weight: 700 };
 const NARROW_HEAVY: Font = { family: condensed.style.fontFamily, weight: 800 };
@@ -146,21 +152,50 @@ function Zone({ dashes, text, cap, y, thick }: { dashes: [number, number, number
   );
 }
 
+const mm = (n: number) => Math.round(n * 100) / 100;
+
+/** The tag's lettering on the 150 × 100 mm template: "SKP-2026", caps 5.03 mm, ink 34.42 mm wide. */
+const TAG_CAP = 5.03;
+const TAG_WIDTH = 34.42;
+
+/**
+ * The tab with the tag (Settings), drawn like the 150 × 100 mm template's and scaled to `cap`: it rises
+ * from the stripe whose top is `base` and is as wide as the tag. `into`: how far it goes into the stripe
+ * (same colour, so no seam). Text over `max` mm shrinks.
+ */
+function TagTab({ t, cx, base, cap, max, into, fill }: { t: string; cx: number; base: number; cap: number; max: number; into: number; fill: string }) {
+  const tag = t.trim();
+  if (!tag) return null;
+  const k = cap / TAG_CAP;
+  const scale = scaleFor('SKP-2026', BLACK, TAG_CAP, TAG_WIDTH);
+  const half = Math.min(inkWidth(tag, BLACK, cap, scale), max) / 2 + 5.18 * k;
+  const [x0, x1, top, bot, r, f] = [cx - half, cx + half, base - 8.92 * k, base + into, 3 * k, 1.86 * k].map(mm);
+  const d = `M${mm(x0 - f)} ${bot}Q${x0} ${bot} ${x0} ${mm(bot - f)}V${mm(top + r)}Q${x0} ${top} ${mm(x0 + r)} ${top}`
+    + `H${mm(x1 - r)}Q${x1} ${top} ${x1} ${mm(top + r)}V${mm(bot - f)}Q${x1} ${bot} ${mm(x1 + f)} ${bot}Z`;
+  return (
+    <g>
+      <path d={d} fill={fill} />
+      <Value t={tag} f={BLACK} cap={cap} x={cx} y={base - 1.12 * k} align="middle" scale={scale} max={max}
+        fill="#fff" stroke={DARK} strokeWidth={0.32 * k} paintOrder="stroke" strokeLinejoin="round" />
+    </g>
+  );
+}
+
 interface CardProps {
   p: CardData;
   texts: PrintTexts;
-  /** The signed code for this pass's QR (none: no QR). */
-  code?: PassCode;
+  /** The pass's code from the server (44 digits), printed as its QR code; none: no QR. */
+  code?: string;
 }
 
 /* ---------- Mobile pass: 63.5 × 88.9 mm (9 per A4) ---------- */
 
 /** `max`: room for the value; Area and Phone stop 2 mm short of the QR code (its quiet zone). */
 const MOBILE_ROWS = [
-  { label: 'NAME', key: 'name', y: 51.42, max: 43 },
-  { label: 'DEPT', key: 'dept', y: 57.91, max: 43 },
-  { label: 'AREA', key: 'area', y: 64.39, max: 29.4 },
-  { label: 'PHONE', key: 'phone', y: 71, max: 29.4 },
+  { label: 'NAME', key: 'name', y: 50.6, max: 43 },
+  { label: 'DEPT', key: 'dept', y: 56.8, max: 43 },
+  { label: 'AREA', key: 'area', y: 63, max: 29.4 },
+  { label: 'PHONE', key: 'phone', y: 69.2, max: 29.4 },
 ] as const;
 
 function MobileCard({ p, texts, code }: CardProps) {
@@ -199,15 +234,17 @@ function MobileCard({ p, texts, code }: CardProps) {
         </g>
       ))}
 
-      {code && <Qr code={code} x={49.4} y={60.1} size={12} pad={0} />}
+      {code && <Qr text={code} x={49.4} y={59} size={12} pad={0} />}
 
-      <Fixed t="Sr. No." f={NARROW} cap={4} x0={2.04} x1={14.28} y={81.8} />
-      <Value t={serialText(p.serial, 4)} f={NARROW} cap={6.01} x={16.33} y={82.4} scale={scaleFor('0001', NARROW, 6.01, 15.6)} max={26} />
-      <Signature href={texts.signature} x={44.2} y={73.4} w={16.6} h={7.9} />
-      <Fixed t="Auth Signatory" f={NARROW} cap={2.1} x0={43.09} x1={60.86} y={82.95} />
+      <Fixed t="Sr. No." f={NARROW} cap={4} x0={2.04} x1={14.28} y={77.8} />
+      <Value t={serialText(p.serial, 4)} f={NARROW} cap={6.01} x={16.33} y={78.4} scale={scaleFor('0001', NARROW, 6.01, 15.6)} max={26} />
+      <Signature href={texts.signature} x={44.2} y={73} w={16.6} h={4.75} />
+      <Fixed t="Auth Signatory" f={NARROW} cap={2.1} x0={43.09} x1={60.86} y={79.4} />
 
       <rect y={84.7} width={63.5} height={0.48} fill={c.stripe} />
       <rect y={85.18} width={63.5} height={3.72} fill={c.band} />
+      {/* The tab is the template's grey (Non Pandal's stripe is too pale for it) and stands on the band. */}
+      <TagTab t={texts.tag} cx={31.75} base={84.7} cap={2.4} max={19} into={0.48} fill={TAB_GREY} />
     </>
   );
 }
@@ -222,42 +259,6 @@ const BIKE_ROWS = [
 ] as const;
 const LINE_END = 66.8;
 
-/** "Valid For: 28th & 29th NOV-2026", ordinals raised like the template. */
-function ValidFor({ value }: { value: string }) {
-  const cap = 3.6;
-  const sup = 0.58;
-  const y = 57.07;
-  const supY = 52.68 + cap * sup;
-  const parts = (t: string) => {
-    const out: { t: string; sup: boolean }[] = [];
-    let last = 0;
-    for (const m of t.matchAll(/(\d)(st|nd|rd|th)\b/gi)) {
-      const i = (m.index ?? 0) + 1;
-      out.push({ t: t.slice(last, i), sup: false }, { t: m[2], sup: true });
-      last = i + m[2].length;
-    }
-    out.push({ t: t.slice(last), sup: false });
-    return out.filter((s) => s.t);
-  };
-  const lay = (ps: ReturnType<typeof parts>, scale: number) =>
-    ps.map((s) => ({ ...s, p: layLine(s.t, NARROW, s.sup ? cap * sup : cap, { x: 0, scale }) }));
-  const width = (ps: ReturnType<typeof lay>) => ps.reduce((w, s) => w + s.p.length, 0);
-
-  const ref = lay(parts('Valid For: 28th & 29th NOV-2026'), 1);
-  let scale = (52.87 - 2.93) / width(ref);
-  const segs = parts(`Valid For: ${value.trim()}`.trim());
-  const w = width(lay(segs, scale));
-  if (w > 62.5) scale *= 62.5 / w;
-
-  const laid = lay(segs, scale);
-  const starts = laid.map((_, i) => laid.slice(0, i).reduce((x, s) => x + s.p.length, 2.93));
-  return (
-    <g>
-      {laid.map((s, i) => <Line key={i} p={{ ...s.p, x: starts[i] }} y={s.sup ? supY : y} f={NARROW} t={s.t} />)}
-    </g>
-  );
-}
-
 function BikeCard({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color;
   const pandal = p.type === 'bike-pandal';
@@ -267,6 +268,7 @@ function BikeCard({ p, texts, code }: CardProps) {
       <rect width={88} height={60} fill={c.bg} />
       <rect width={88} height={9.5} fill={c.band} />
       <rect y={9.5} width={88} height={0.65} fill={c.stripe} />
+      <rect y={57.15} width={88} height={0.65} fill={c.stripe} />
       <rect y={57.8} width={88} height={2.2} fill={c.band} />
       <Motorbike transform="translate(21.5 23.7) scale(0.423)" />
 
@@ -276,7 +278,7 @@ function BikeCard({ p, texts, code }: CardProps) {
         ? <Fixed t="PANDAL" f={NARROW_HEAVY} cap={4.22} x0={37.09} x1={56.77} y={15.28} />
         : <Fixed t="NON PANDAL" f={NARROW_HEAVY} cap={4.22} x0={30.58} x1={63.28} y={15.28} />}
       <Fixed t="TWO WHEELER PASS" f={NARROW_HEAVY} cap={4.55} x0={20.98} x1={72.87} y={21.46} />
-      {code && <Qr code={code} x={74.1} y={15.5} size={13} pad={0.6} />}
+      {code && <Qr text={code} x={74.1} y={15.5} size={13} pad={0.6} />}
       <Zone dashes={[69.94, 71.41, 84.75, 86.37]} text={[73.36, 82.79]} cap={2.11} y={13.17} thick={0.22} />
 
       {BIKE_ROWS.map((r) => (
@@ -290,10 +292,10 @@ function BikeCard({ p, texts, code }: CardProps) {
       <Fixed t="Sr. No." f={NARROW} cap={2.6} x0={73.2} x1={81.66} y={35.45} />
       <Value t={serialText(p.serial, 3)} f={NARROW} cap={6.5} x={77.43} y={44.55} align="middle" scale={scaleFor('001', NARROW, 6.5, 10.73)} max={15} />
 
-      <ValidFor value={texts.validFor} />
-      <Signature href={texts.signature} x={68.9} y={46.3} w={16} h={7.3} />
-      <rect x={66.69} y={53.66} width={19.36} height={0.16} fill={INK} />
-      <Fixed t="Auth Signatory" f={NARROW} cap={2.03} x0={68.16} x1={84.75} y={56.5} />
+      <Signature href={texts.signature} x={68.9} y={45.7} w={16} h={7.3} />
+      <rect x={66.69} y={53.06} width={19.36} height={0.16} fill={INK} />
+      <Fixed t="Auth Signatory" f={NARROW} cap={2.03} x0={68.16} x1={84.75} y={55.9} />
+      <TagTab t={texts.tag} cx={44} base={57.15} cap={3} max={26} into={0.3} fill={c.stripe} />
     </>
   );
 }
@@ -321,7 +323,9 @@ function VehicleCard({ p, texts, code }: CardProps) {
       <rect width={150} height={5.4} fill={c.band} />
       <rect y={5.5} width={150} height={1.4} fill={c.stripe} />
 
-      <Fixed t="RADHA SOAMI SATSANG, BEAS" f={HUMANIST} cap={7.67} x0={2.92} x1={146.68} y={16.53} />
+      {/* The template's heading was RADHA SOAMI SATSANG, BEAS (2.92 → 146.68): same lettering, centred. */}
+      <Value t="RSSB SIKANDERPUR-M.C." f={HUMANIST} cap={7.67} x={75} y={16.53} align="middle"
+        scale={scaleFor('RADHA SOAMI SATSANG, BEAS', HUMANIST, 7.67, 146.68 - 2.92)} />
       <Zone dashes={[119.04, 122.1, 144.55, 147.48]} text={[125.16, 141.36]} cap={3.96} y={22.88} thick={0.4} />
       {/* Template titles fill 39.46 → 148.27; other titles keep the Sewa lettering and end at the same place. */}
       {p.type === 'sewa-vehicle' || tractor
@@ -349,16 +353,14 @@ function VehicleCard({ p, texts, code }: CardProps) {
           <Value t={upper(p[r.key])} f={SANS} cap={3.84} x={VALUE_X} y={r.y} scale={k} max={r.max} />
         </g>
       ))}
-      {code && <Qr code={code} x={131.8} y={62} size={14} pad={0.7} />}
+      {code && <Qr text={code} x={131.8} y={62} size={14} pad={0.7} />}
 
       <Fixed t="Sr. No." f={NARROW} cap={3.96} x0={3.99} x1={16.21} y={88.62} />
       <Value t={serialText(p.serial, 3)} f={NARROW} cap={8.46} x={19.93} y={89.81} scale={scaleFor('001', NARROW, 8.46, 19.8)} max={30} />
 
-      <path d="M50.75 93.65Q52.61 93.65 52.61 91.8V87.13Q52.61 84.13 55.61 84.13H94.39Q97.39 84.13 97.39 87.13V91.8Q97.39 93.65 99.91 93.65Z" fill={c.stripe} />
       <rect y={93.05} width={150} height={1.4} fill={c.stripe} />
       <rect y={94.45} width={150} height={5.55} fill={c.band} />
-      <Value t={texts.tag.trim()} f={BLACK} cap={5.03} x={75} y={91.93} align="middle" scale={scaleFor('SKP-2026', BLACK, 5.03, 92.21 - 57.79)}
-        max={42} fill="#fff" stroke={DARK} strokeWidth={0.32} paintOrder="stroke" strokeLinejoin="round" />
+      <TagTab t={texts.tag} cx={75} base={93.05} cap={TAG_CAP} max={42} into={0.6} fill={c.stripe} />
 
       <Signature href={texts.signature} x={121.3} y={79.2} w={25} h={8.6} />
       <rect x={119.71} y={87.83} width={27.23} height={0.13} fill={INK} />

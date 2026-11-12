@@ -70,6 +70,12 @@ export function scaleFor(text: string, font: Font, cap: number, inkWidth: number
   return w > 0 ? inkWidth / w : 1;
 }
 
+/** How wide the ink of `text` is at cap height `cap` and lettering width `scale` (before any shrinking). */
+export function inkWidth(text: string, font: Font, cap: number, scale = 1): number {
+  const m = metrics(text, font);
+  return (m.right - m.left) * (cap / capRatio(font)) * scale;
+}
+
 /**
  * Lays out a line by its cap height. `align` places the ink (not the advance box) at `x`. `scale`
  * stretches horizontally (from `scaleFor`). A line wider than `max` shrinks, down to 75%, then is squeezed.

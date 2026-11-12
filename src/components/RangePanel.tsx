@@ -7,7 +7,7 @@ import { usePaper } from '@/client/paper';
 import { useTRPC } from '@/client/trpc';
 import { cleanFill, nPasses, parseSerial, planFill, planPrint, ranges } from '@/lib/passes';
 import { PAPER, sheetPlan } from '@/lib/sheets';
-import { type Field, FIELD_LABELS, fieldsFor, type Layout, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { type Field, FIELD_LABELS, fieldsFor, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { useMe } from './AppShell';
 import type { PrintTexts } from './cards/PassCard';
 import { PrintView } from './PrintView';
@@ -56,8 +56,8 @@ export function RangePanel({ type, sheet, range, setRange }: {
   const sig = useQuery(trpc.settings.get.queryOptions());
   const signature = sig.data?.signature ?? '';
   const texts = useMemo(
-    () => ({ signature, validFor: sig.data?.validFor ?? '', tag: sig.data?.tag ?? '', checkUrl: sig.data?.checkUrl ?? '' }),
-    [signature, sig.data?.validFor, sig.data?.tag, sig.data?.checkUrl],
+    () => ({ signature, tag: sig.data?.tag ?? '' }),
+    [signature, sig.data?.tag],
   );
   const layout = info.layout;
   const paper = usePaper();
@@ -141,7 +141,7 @@ export function RangePanel({ type, sheet, range, setRange }: {
             {print.printed.length > 0 && <p>Skipping {print.printed.length} already printed ({ranges(print.printed)}). Untick Printed in the sheet to print again.</p>}
           </div>
         )}
-        <PrintSetup layout={layout} texts={texts} loading={sig.isLoading} />
+        <PrintSetup texts={texts} loading={sig.isLoading} />
         <div className="flex gap-2">
           <button className={`${btnPrimary} flex-1`} disabled={!print || !!print.err || !print.cards.length} onClick={() => print && setPrinting(print)}>
             Preview &amp; print
@@ -161,19 +161,17 @@ export function RangePanel({ type, sheet, range, setRange }: {
 }
 
 /** What the passes print with (set once in Settings), and what's missing. */
-function PrintSetup({ layout, texts, loading }: { layout: Layout; texts: PrintTexts; loading: boolean }) {
+function PrintSetup({ texts, loading }: { texts: PrintTexts; loading: boolean }) {
   const me = useMe();
   if (loading) return null;
   const missing = [
     !texts.signature && 'signature',
-    layout === 'bike' && !texts.validFor && 'Valid For',
-    layout === 'vehicle' && !texts.tag && 'tag',
+    !texts.tag && 'tag',
   ].filter(Boolean) as string[];
   const where = me.is_admin ? <Link href="/settings" className="font-semibold text-primary hover:underline">Settings</Link> : 'Settings (ask an admin)';
   return (
     <div className="space-y-1 text-[13.5px] leading-snug text-muted-foreground">
-      {layout === 'bike' && texts.validFor && <p>Valid For: <span className="text-foreground">{texts.validFor}</span></p>}
-      {layout === 'vehicle' && texts.tag && <p>Tag: <span className="text-foreground">{texts.tag}</span></p>}
+      {texts.tag && <p>Tag: <span className="text-foreground">{texts.tag}</span></p>}
       {missing.length > 0
         ? <p className="rounded-[3px] bg-sand-100 px-2 py-1 text-sand-900">No {missing.join(' or ')} yet: printed blank. Set it in {where}.</p>
         : me.is_admin && <p>Change these in {where}.</p>}

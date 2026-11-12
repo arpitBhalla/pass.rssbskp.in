@@ -8,17 +8,10 @@ import { PAPER, PAPERS, sheetPlan } from '@/lib/sheets';
 import { fmtSerial, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
-import type { PassCode } from './cards/Qr';
 import { btn, btnPrimary } from './ui';
 
 type Mark = { state: 'idle' } | { state: 'busy' } | { state: 'done'; undo: () => Promise<boolean> } | { state: 'error'; text: string };
-type Codes = { state: 'loading' } | { state: 'ready'; bySerial: Map<number, PassCode> } | { state: 'error'; text: string };
-
-/** The address the QR codes open. `local`: only this computer can open it, so phones couldn't. */
-export function checkAddress(texts: PrintTexts): { base: string; local: boolean } {
-  const base = (texts.checkUrl || window.location.origin).replace(/\/+$/, '');
-  return { base, local: /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(base) };
-}
+type Codes = { state: 'loading' } | { state: 'ready'; bySerial: Map<number, string> } | { state: 'error'; text: string };
 
 /**
  * Full-screen preview of the passes on A3+ or A4 sheets, each sheet one vector SVG. Each pass gets a
@@ -48,7 +41,6 @@ export function PrintView({ cards, texts, onMark, onClose }: {
 
   // The QR codes: made on the server with the name now in the register, which must be the name printed.
   const client = useTRPCClient();
-  const { base, local } = checkAddress(texts);
   const [codes, setCodes] = useState<Codes>({ state: 'loading' });
   useEffect(() => {
     let live = true;
@@ -58,15 +50,14 @@ export function PrintView({ cards, texts, onMark, onClose }: {
         const changed = r.find((x, i) => x.name !== cards[i].name.trim().toUpperCase());
         setCodes(changed
           ? { state: 'error', text: `Pass ${fmtSerial(changed.serial)} was just changed on another desk. Close and print again.` }
-          : { state: 'ready', bySerial: new Map(r.map((x) => [x.serial, { prefix: `${base}/v#`, digits: x.code }])) });
+          : { state: 'ready', bySerial: new Map(r.map((x) => [x.serial, x.code])) });
       },
       (e) => { if (live) setCodes({ state: 'error', text: errorMessage(e) }); },
     );
     return () => { live = false; };
-  }, [client, cards, type, base]);
+  }, [client, cards, type]);
 
   const ready = fonts && codes.state === 'ready';
-  const printable = ready && !local;
 
   useEffect(() => {
     document.body.classList.add('printing-passes');
@@ -80,7 +71,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
 
   // After the print dialog closes. Marks once; printing a second copy doesn't mark again.
   useEffect(() => {
-    if (!printable) return;
+    if (!ready) return;
     const afterPrint = async () => {
       if (markRef.current.state === 'busy' || markRef.current.state === 'done') return;
       setMark({ state: 'busy' });
@@ -89,7 +80,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
     };
     window.addEventListener('afterprint', afterPrint);
     return () => window.removeEventListener('afterprint', afterPrint);
-  }, [onMark, printable]);
+  }, [onMark, ready]);
 
   const undo = async () => {
     if (mark.state !== 'done') return;
@@ -116,13 +107,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
         </span>
         {codes.state === 'loading' && <span className="text-muted-foreground">Making the QR codes…</span>}
         {codes.state === 'error' && <span className="font-medium text-red-700">No QR codes: {codes.text}</span>}
-        {ready && local && (
-          <span className="max-w-[46rem] font-medium text-red-700">
-            The QR codes would open {base}, which phones can&apos;t reach. Open this app by its network address
-            (like http://192.168.1.20:5180), or an admin can set the pass check address in Settings.
-          </span>
-        )}
-        {printable && mark.state === 'idle' && (
+        {ready && mark.state === 'idle' && (
           <span className="text-xs text-muted-foreground">In the print dialog: {PAPER[paper].dialog}, scale 100% (Actual size), margins None, headers and footers off.</span>
         )}
         {mark.state === 'busy' && <span className="text-muted-foreground">Marking as printed…</span>}
@@ -134,7 +119,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
         )}
         {mark.state === 'error' && <span className="font-medium text-red-700">Not marked as printed: {mark.text}</span>}
         <span className="flex-1" />
-        <button className={btnPrimary} disabled={!printable} onClick={() => window.print()}>Print</button>
+        <button className={btnPrimary} disabled={!ready} onClick={() => window.print()}>Print</button>
         <button className={btn} onClick={onClose}>Close</button>
       </div>
       {!ready ? (

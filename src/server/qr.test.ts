@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db, ensureDatabase, migrate } from './db';
 import { checkPass, passCodes } from './gate';
+import { claimOf, codeIn } from '../lib/gateCode';
 import { checkCode, hashOfName, makeCode, newSecret, toKeys } from './qr';
 
 describe('pass codes', () => {
@@ -26,6 +27,24 @@ describe('pass codes', () => {
     expect(checkCode(toKeys(newSecret()), code).why).toMatch(/old-key|fake/);
     expect(checkCode(null, code).why).toBe('fake');
     for (const junk of ['', 'abc', '0123', '1'.repeat(70), 'https://example.org']) expect(checkCode(keys, junk).why).toBe('unreadable');
+  });
+});
+
+describe('reading a scanned QR code on the gate phone', () => {
+  const code = makeCode(toKeys(newSecret()), 'gate3-entry', 317, 'GURMEET KAUR');
+
+  it('finds the code alone, or at the end of an old pass link', () => {
+    expect(codeIn(code)).toBe(code);
+    expect(codeIn(` ${code}\n`)).toBe(code);
+    expect(codeIn(`http://192.168.1.20:5180/v#${code}`)).toBe(code);
+    for (const junk of ['', 'hello', 'https://example.org', `https://example.org/x${code}`, `${code}0000000000000000`, `0${code}`]) {
+      expect(codeIn(junk)).toBeNull();
+    }
+  });
+
+  it('shows which pass a code says it is, as the server reads it', () => {
+    expect(claimOf(code)).toEqual({ type: 'gate3-entry', serial: 317 });
+    expect(claimOf('1'.repeat(44))).toBeNull();
   });
 });
 
