@@ -15,7 +15,7 @@ const WIDTH: Partial<Record<Field, number>> = { dept: 118, area: 118, phone: 112
 /** Name, Incharge and Issued To take the spare width, but never less than this: the table scrolls sideways first. */
 const FLEX_MIN = 112;
 /** The other columns' widths. Mobile sheets fit beside the side panel on a 1440 px screen. */
-const COL = { serial: 128, added: 70, by: 92, printed: 66, given: 64 };
+const COL = { serial: 90, added: 70, by: 92, printed: 66, given: 64 };
 
 export interface Span {
   lo: number;
@@ -629,7 +629,15 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
   );
 });
 
-/** A series given to one incharge, shown as "0003…0017". Edits apply to every pass in it. */
+/** "0500–04", "0598–603": the second serial without the digits it shares with the first (at least two kept). */
+function shortRange(lo: number, hi: number) {
+  const a = fmtSerial(lo), b = fmtSerial(hi);
+  let same = 0;
+  while (same < a.length && a.length === b.length && a[same] === b[same]) same++;
+  return `${a}–${b.slice(Math.min(same, b.length - 2))}`;
+}
+
+/** A series given to one incharge, shown as "0003–17". Edits apply to every pass in it. */
 function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven }: {
   passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; mark?: Mark; selected: boolean; onToggle: () => void;
   onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven'];
@@ -648,14 +656,17 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
   };
   return (
     <tr data-i={i} className={rowCls(selected, '[&>td]:bg-sand-50')}>
-      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} !pl-0.5 cursor-pointer select-none ${selected ? picked : ''}`} title={`${passes.length} passes. Click to select them.`}>
+      <td
+        data-pick className={`${td} ${margin} ${serialCls} ${rowHead} !pr-1 !pl-0 cursor-pointer select-none ${selected ? picked : ''}`}
+        title={`${fmtSerial(first.serial)}–${fmtSerial(passes[passes.length - 1].serial)}: ${passes.length} passes. Click to select them.`}
+      >
         <button
-          className="w-5 text-center text-[13px] text-primary hover:bg-primary/10" onClick={onToggle}
+          className="w-4 text-center text-[13px] text-primary hover:bg-primary/10" onClick={onToggle}
           title={open ? 'Collapse' : `Show each of the ${passes.length} passes`}
         >
           {open ? '▾' : '▸'}
         </button>
-        {fmtSerial(first.serial)}…{fmtSerial(passes[passes.length - 1].serial)}
+        <span className="text-[14px]">{shortRange(first.serial, passes[passes.length - 1].serial)}</span>
       </td>
       {before(fields).map(cell)}
       <td className={`${td} text-center`}>

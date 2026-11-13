@@ -61,7 +61,8 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   reverses it), and printed passes are never overwritten. **Esc** clears the block. The row and column
   of the cell being typed in are highlighted.
 - **Collapsed ranges:** consecutive passes given to one incharge with the same details show as one row
-  (▸ 0003…0022). Click ▸ to see each. Editing the collapsed row changes all of them.
+  (▸ 0003–22: the second serial without the digits it shares with the first; hover for the full
+  range). Click ▸ to see each. Editing the collapsed row changes all of them.
 - **Issued To** (after Given): who collected the pass at the desk. It can be filled in after the pass
   is printed (the rest of a printed row is locked), and pasted, filled or imported the same way. It
   isn't printed on the pass; the gate check shows it.
