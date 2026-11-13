@@ -37,8 +37,10 @@ export function RangePanel({ type, sheet, range, setRange }: {
     if (!give || !giveCount || !hasWho) return;
     const who = fill.incharge || fill.name || fill.dept || fill.phone;
     const summary = `Gave ${info.label} ${ranges(give.serials)} to ${who}`;
+    const typed = values;
+    setValues({}); // the passes show as given at once; if the server refuses, the box gets its values back
     const r = await apply({ action: 'give', summary, set: give.set, create: give.create });
-    if (r) setValues({});
+    if (!r) setValues((v) => (Object.values(v).some(Boolean) ? v : typed));
   };
 
   const from = parseSerial(range.from);

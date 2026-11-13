@@ -138,8 +138,8 @@ export function SheetScreen({ type }: { type: PassType }) {
     if (!importPlan) return;
     const { plan, name } = importPlan;
     const serials = [...plan.create.map((c) => c.serial), ...plan.set.map((o) => sheetRef.current.find((p) => p.id === o.id)?.serial ?? 0)];
-    const r = await apply({ action: 'import', summary: `Imported ${name} into ${info.label} ${ranges(serials)}`, set: plan.set, create: plan.create });
-    if (r) setImportPlan(null);
+    setImportPlan(null); // the passes show at once; a refusal says why
+    await apply({ action: 'import', summary: `Imported ${name} into ${info.label} ${ranges(serials)}`, set: plan.set, create: plan.create });
   };
 
   const given = useMemo(() => sheet.reduce((n, p) => n + (isGiven(p) ? 1 : 0), 0), [sheet]);
@@ -174,7 +174,10 @@ export function SheetScreen({ type }: { type: PassType }) {
               : <><b className="font-semibold text-foreground">{sheet.length}</b> {sheet.length === 1 ? 'pass' : 'passes'}, <b className="font-semibold text-foreground">{given}</b> given</>}
           </span>
           <div className="ml-auto flex items-center gap-2">
-          <button className={btn} disabled={!status.undo} onClick={() => void undo()} title={status.undo ? `Undo: ${status.undo.summary} (Ctrl+Z)` : 'Nothing to undo'}>
+          <button
+            className={btn} disabled={!status.undo && !status.saving} onClick={() => void undo()}
+            title={status.undo && !status.saving ? `Undo: ${status.undo.summary} (Ctrl+Z)` : status.saving ? 'Undo your last change (Ctrl+Z)' : 'Nothing to undo'}
+          >
             Undo
           </button>
           <Menu

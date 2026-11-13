@@ -110,6 +110,9 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 
 ## Safety
 
+- Changes show on screen the moment you make them and are sent to the server in the background, one
+  at a time in order; **Saving…** shows at the top meanwhile (closing the tab then asks first). If the
+  server refuses a change, it comes off the screen again and the message says why.
 - Every action saves completely or not at all. If someone else changed the same passes a moment
   earlier, nothing is saved, the sheet refreshes, and you're told who changed them.
 - **Backups:** a `pg_dump` goes to `./backups` at start-up and every 30 minutes when something changed

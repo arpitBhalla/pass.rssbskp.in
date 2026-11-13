@@ -72,8 +72,8 @@ export function RangeBar({ type, sheet, range, onClear }: {
   const [confirming, setConfirming] = useState(''); // the range whose Delete is being confirmed
   const doDelete = async () => {
     if (!del?.items.length) return;
-    await remove({ summary: `Deleted ${info.label} ${ranges(del.serials)}`, items: del.items });
     setConfirming('');
+    await remove({ summary: `Deleted ${info.label} ${ranges(del.serials)}`, items: del.items });
   };
 
   const printView = printing && <PrintView cards={printing.cards} texts={texts} onMark={onMark} onClose={closePrint} />;

@@ -10,16 +10,26 @@ export interface Status {
   backupError: string;
   /** This browser tab's last change, if it can be undone. */
   undo: { changeId: number; summary: string } | null;
+  /** Changes are on screen that the server hasn't confirmed yet. */
+  saving: boolean;
 }
 
 type Counts = Record<PassType, number>;
 const EMPTY: Pass[] = [];
 
+/** Changes this tab made that the server hasn't confirmed yet: shown on top of the server's copy. */
+interface Overlay {
+  rows: Map<number, Pass>;
+  hide: Set<number>;
+}
+
 /**
  * All passes, kept in sync with the server. Each sheet's array is rebuilt only when one of its
  * passes changes, so components that read a sheet re-render only when that sheet changes.
+ * Unsaved changes (`show`) sit on top of the server's copy until they are saved or refused (`settle`),
+ * so the screen changes the moment something is clicked and a sync meanwhile can't undo it.
  */
-class PassStore {
+export class PassStore {
   private byType = new Map<PassType, Map<number, Pass>>(PASS_TYPES.map((t) => [t, new Map()]));
   private typeOf = new Map<number, PassType>();
   private sheets = new Map<PassType, Pass[]>();
@@ -27,9 +37,13 @@ class PassStore {
   private counts: Counts | null = null;
   private listeners = new Set<() => void>();
   private undoStack: { changeId: number; summary: string }[] = [];
+  private overlays = new Map<number, Overlay>(); // in the order they were made
+  private nextOverlay = 1;
+  /** The logged-in user's id, for passes this tab adds before the server answers. */
+  me = 0;
   /** Database version this browser has caught up to. */
   rev = 0;
-  status: Status = { loaded: false, online: true, backupError: '', undo: null };
+  status: Status = { loaded: false, online: true, backupError: '', undo: null, saving: false };
   /** Set by the sync loop: fetch changes now. */
   resync: () => void = () => {};
 
@@ -69,6 +83,64 @@ class PassStore {
     this.emit();
   }
 
+  /** Rebuilds these sheets on next read and tells the components. */
+  private touch(types: Iterable<PassType | undefined>) {
+    for (const t of types) if (t) this.sheets.delete(t);
+    this.all = null;
+    this.counts = null;
+    this.emit();
+  }
+
+  /** The server's copy of a pass. */
+  saved(id: number): Pass | undefined {
+    const t = this.typeOf.get(id);
+    return t && this.byType.get(t)!.get(id);
+  }
+
+  /** A pass as shown: the server's copy with this tab's unsaved changes on top. */
+  get(id: number): Pass | undefined {
+    const layers = [...this.overlays.values()];
+    for (let i = layers.length - 1; i >= 0; i--) {
+      if (layers[i].hide.has(id)) return undefined;
+      const r = layers[i].rows.get(id);
+      if (r) return r;
+    }
+    return this.saved(id);
+  }
+
+  /** Shows changed (or new) passes, and hides deleted ones, before the server has them. Returns a handle for `settle`. */
+  show(rows: Pass[], hide: number[] = []): number {
+    const handle = this.nextOverlay++;
+    const types = [...rows.map((r) => r.type), ...hide.map((id) => this.get(id)?.type)];
+    this.overlays.set(handle, { rows: new Map(rows.map((r) => [r.id, r])), hide: new Set(hide) });
+    this.touch(types);
+    return handle;
+  }
+
+  /** Takes unsaved changes off the screen: they were saved (and merged) or refused. */
+  settle(handle: number) {
+    const o = this.overlays.get(handle);
+    if (!o) return;
+    this.overlays.delete(handle);
+    // Looked up after removing the layer: a pass it hid is visible again.
+    this.touch([...[...o.rows.values()].map((r) => r.type), ...[...o.hide].map((id) => this.get(id)?.type)]);
+  }
+
+  /** A pass this tab added got its real id: unsaved changes made to it since follow it. */
+  rename(tempId: number, realId: number) {
+    let type: PassType | undefined;
+    for (const o of this.overlays.values()) {
+      const r = o.rows.get(tempId);
+      if (r) {
+        o.rows.delete(tempId);
+        o.rows.set(realId, { ...r, id: realId });
+        type = r.type;
+      }
+      if (o.hide.delete(tempId)) o.hide.add(realId);
+    }
+    if (type) this.touch([type]);
+  }
+
   /** The database was replaced: forget everything. */
   clear() {
     for (const m of this.byType.values()) m.clear();
@@ -84,7 +156,15 @@ class PassStore {
   getSheet(type: PassType): Pass[] {
     let s = this.sheets.get(type);
     if (!s) {
-      s = [...this.byType.get(type)!.values()].sort((a, b) => a.serial - b.serial);
+      let m = this.byType.get(type)!;
+      if (this.overlays.size) {
+        m = new Map(m);
+        for (const o of this.overlays.values()) {
+          for (const id of o.hide) m.delete(id);
+          for (const r of o.rows.values()) if (r.type === type) m.set(r.id, r);
+        }
+      }
+      s = [...m.values()].sort((a, b) => a.serial - b.serial);
       this.sheets.set(type, s);
     }
     return s;
@@ -93,7 +173,7 @@ class PassStore {
   getAll = (): Pass[] => (this.all ??= PASS_TYPES.flatMap((t) => this.getSheet(t)));
 
   getCounts = (): Counts =>
-    (this.counts ??= Object.fromEntries(PASS_TYPES.map((t) => [t, this.byType.get(t)!.size])) as Counts);
+    (this.counts ??= Object.fromEntries(PASS_TYPES.map((t) => [t, this.getSheet(t).length])) as Counts);
 
   setStatus(patch: Partial<Status>) {
     const next = { ...this.status, ...patch };

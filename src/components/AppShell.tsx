@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createContext, Fragment, type ReactNode, use, useEffect, useRef } from 'react';
 import { useSyncLoop } from '@/client/actions';
-import { useCounts, useStatus } from '@/client/store';
+import { store, useCounts, useStatus } from '@/client/store';
 import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { PASS_TYPES, type PassType, TYPE_INFO, type User } from '@/shared/types';
@@ -14,6 +14,7 @@ const MeContext = createContext<User | null>(null);
 export const useMe = () => use(MeContext)!;
 
 export function AppShell({ user, children }: { user: User; children: ReactNode }) {
+  useEffect(() => { store.me = user.id; }, [user.id]); // passes this tab adds show who added them before the server answers
   useSyncLoop();
   const path = usePathname();
   const counts = useCounts();
@@ -52,6 +53,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
               })}
             </nav>
             <span className="flex-1" />
+            {status.saving && <span role="status" className="text-[13.5px] text-white/75">Saving…</span>}
             <span className="flex items-center gap-2 text-[14.5px] text-white/90">
               <span aria-hidden className="grid size-6 place-items-center rounded-full bg-white/15 text-[12.5px] font-bold">
                 {user.name.trim().charAt(0).toUpperCase()}
