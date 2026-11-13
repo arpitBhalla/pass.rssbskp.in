@@ -122,22 +122,42 @@ describe('sync', () => {
 });
 
 describe('Given', () => {
-  it('starts unticked whatever is filled in; ticking is saved, refused if stale, allowed on printed passes', async () => {
+  const print = (id: number) => applyChange(db, ramesh, { action: 'print', summary: 'print', set: [{ id, printed: true, expect: { printed: false } }] });
+
+  it('starts unticked whatever is filled in; ticking is saved on printed passes, refused if stale', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet'))).rows;
     expect(p.given_at).toBeNull();
+    await print(p.id);
     const t = await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] });
     expect(t.rows[0].given_at).not.toBeNull();
     // Another desk still saw it unticked: refused.
     await expect(applyChange(db, suresh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] }))
       .rejects.toThrow(/just changed by Ramesh/);
-    await applyChange(db, ramesh, { action: 'print', summary: 'print', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
     const u = await applyChange(db, ramesh, { action: 'given', summary: 'untick', set: [{ id: p.id, given: false, expect: { given: true } }] });
     expect(u.rows[0]).toMatchObject({ given_at: null });
     expect(u.rows[0].printed_at).not.toBeNull();
   });
 
+  it('a pass is printed first: Given is refused until it is printed', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet'))).rows;
+    await expect(applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] }))
+      .rejects.toThrow(/0001 is not printed yet/);
+    await expect(applyChange(db, ramesh, { action: 'import', summary: 'add', create: [{ type: 'mobile-pandal', serial: 9, values: { name: 'A' }, given: true }] }))
+      .rejects.toThrow(/0009 is not printed yet/);
+    // Printed and Given in one go (e.g. an import of passes printed elsewhere) is fine.
+    const both = await applyChange(db, ramesh, { action: 'import', summary: 'add', create: [{ type: 'mobile-pandal', serial: 9, values: { name: 'A' }, printed: true, given: true }] });
+    expect(both.rows[0].given_at).not.toBeNull();
+    // Unticking Printed later (to reprint) leaves Given as it is.
+    await print(p.id);
+    await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] });
+    const r = await applyChange(db, ramesh, { action: 'print', summary: 'untick', set: [{ id: p.id, printed: false, expect: { printed: true } }] });
+    expect(r.rows[0].printed_at).toBeNull();
+    expect(r.rows[0].given_at).not.toBeNull();
+  });
+
   it('undo restores Given as it was', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet'))).rows;
+    await print(p.id);
     const t = await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] });
     expect((await undoChange(db, ramesh, t.changeId)).rows[0].given_at).toBeNull();
   });
@@ -148,7 +168,8 @@ describe('delete', () => {
 
   it('deletes several passes as one change; sync reports them; undo brings them back as they were', async () => {
     const g = await applyChange(db, ramesh, give(1, 5, 'Gurpreet'));
-    await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: g.rows[1].id, given: true, expect: { given: false } }] });
+    // Given, then Printed unticked again (e.g. to reprint it): still deletable, and undo keeps Given.
+    await db.updateTable('passes').set({ given_at: new Date('2026-11-13T10:00:00Z') }).where('id', '=', g.rows[1].id).execute();
     const before = (await syncSince(db, 0)).rows.sort((a, b) => a.serial - b.serial);
     const rev = (await syncSince(db, 0)).rev;
     const d = await deletePasses(db, suresh, { summary: 'Deleted 0002–0004', items: items(before.slice(1, 4)) });

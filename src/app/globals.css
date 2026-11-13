@@ -74,3 +74,27 @@ body {
     print-color-adjust: exact;
   }
 }
+
+/* The sheet: the column header of the cell being typed in stands out, like Excel's column letters. */
+.sheet-grid:has(input[data-k="name"]:focus) th[data-col="name"],
+.sheet-grid:has(input[data-k="dept"]:focus) th[data-col="dept"],
+.sheet-grid:has(input[data-k="area"]:focus) th[data-col="area"],
+.sheet-grid:has(input[data-k="phone"]:focus) th[data-col="phone"],
+.sheet-grid:has(input[data-k="vehicle"]:focus) th[data-col="vehicle"],
+.sheet-grid:has(input[data-k="vehicle_no"]:focus) th[data-col="vehicle_no"],
+.sheet-grid:has(input[data-k="incharge"]:focus) th[data-col="incharge"],
+.sheet-grid:has(input[data-col="printed"]:focus) th[data-col="printed"],
+.sheet-grid:has(input[data-col="given"]:focus) th[data-col="given"] {
+  background: var(--color-rule);
+  color: var(--color-foreground);
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+/* The fill handle only shows while the sheet has the cursor, or a block of cells is selected. */
+.sheet-grid [data-fill] {
+  display: none;
+}
+.sheet-grid:focus-within [data-fill],
+.sheet-grid.has-block [data-fill] {
+  display: block;
+}

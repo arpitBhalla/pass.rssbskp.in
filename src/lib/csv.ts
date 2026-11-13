@@ -42,10 +42,10 @@ const excelText = (v: string) => (/^\+|^0|^\d{12,}$/.test(v) ? `="${v}"` : v);
 export function exportTable(rows: Pass[], type: PassType, names: Map<number, string> = new Map()): string[][] {
   const cols = fieldsFor(type);
   return [
-    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Given', 'Printed', 'Added', 'Added by'],
+    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Printed', 'Given', 'Added', 'Added by'],
     ...rows.map((p) => [
       fmtSerial(p.serial), TYPE_INFO[p.type].label, ...cols.map((k) => p[k]),
-      isGiven(p) ? 'Yes' : '', isPrinted(p) ? 'Yes' : '', localDay(p.created_at), names.get(p.created_by) ?? '',
+      isPrinted(p) ? 'Yes' : '', isGiven(p) ? 'Yes' : '', localDay(p.created_at), names.get(p.created_by) ?? '',
     ]),
   ];
 }
@@ -88,6 +88,8 @@ export interface ImportPlan {
   /** Rows left alone: a cell differs from what's saved (never overwritten), or the pass is printed. */
   clashes: string[];
   same: number;
+  /** Marked Given in the file but not printed: left unticked (a pass is printed first). */
+  givenNotPrinted: number;
   error: string;
 }
 
@@ -96,7 +98,7 @@ export interface ImportPlan {
  * filled cells never overwrite a different saved value: those rows are listed instead.
  */
 export function planImport(sheet: Pass[], type: PassType, text: string): ImportPlan {
-  const plan: ImportPlan = { set: [], create: [], otherSheet: 0, unknownSheet: 0, clashes: [], same: 0, error: '' };
+  const plan: ImportPlan = { set: [], create: [], otherSheet: 0, unknownSheet: 0, clashes: [], same: 0, givenNotPrinted: 0, error: '' };
   const rows = parseCSV(text);
   if (rows.length < 2) return { ...plan, error: 'That file has no data rows.' };
   const head = rows[0].map((h) => h.trim());
@@ -135,8 +137,11 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     const values = Object.fromEntries(cols.map((k) => [k, cell(r, c[k])]).filter(([, v]) => v)) as Partial<Record<Field, string>>;
     const yes = (i: number) => /^(y|true|1|✓)/i.test(cell(r, i));
     const printed = yes(c.printed);
-    const given = yes(c.given);
     const p = bySerial.get(serial);
+    // Given only for passes printed (in the register, or in the file): a pass is printed first.
+    const givenInFile = yes(c.given);
+    const given = givenInFile && (printed || (!!p && isPrinted(p)));
+    if (givenInFile && !given && !(p && isGiven(p))) plan.givenNotPrinted++;
     if (!p) {
       plan.create.push({ type, serial, values, printed, given });
       continue;

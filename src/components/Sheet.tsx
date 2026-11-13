@@ -1,5 +1,6 @@
 'use client';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { toast } from '@/client/toast';
 import { addedBy, useUserNames } from '@/client/users';
 import {
   type ClipboardEvent, type FocusEvent, type KeyboardEvent, memo, type MouseEvent, useEffect, useMemo, useRef, useState,
@@ -14,7 +15,7 @@ const WIDTH: Partial<Record<Field, number>> = { dept: 130, area: 130, phone: 120
 /** Name and Incharge take the spare width, but never less than this: the table scrolls sideways first. */
 const FLEX_MIN = 128;
 /** The other columns' widths. Mobile sheets fit beside the side panel on a 1440 px screen. */
-const COL = { n: 56, serial: 118, added: 70, by: 110, given: 64, printed: 66 };
+const COL = { serial: 128, added: 70, by: 110, printed: 66, given: 64 };
 
 export interface Span {
   lo: number;
@@ -27,10 +28,24 @@ const inSpan = (s: Span | null, p: Pass) => !!s && p.serial >= s.lo && p.serial 
  * the register yet), or the blank row for the next serial.
  */
 type Item =
-  | { kind: 'row'; key: string; p: Pass; n: number }
+  | { kind: 'row'; key: string; p: Pass }
   | { kind: 'group'; key: string; passes: Pass[]; open: boolean }
-  | { kind: 'empty'; key: string; serial: number; n: number }
+  | { kind: 'empty'; key: string; serial: number }
   | { kind: 'new'; key: string };
+
+/** A cell: its row (by item key, so it survives rows moving) and column (index into the sheet's fields). */
+interface Cell { key: string; c: number }
+/** A block of cells: rows r0–r1 (item indexes) and columns c0–c1. */
+interface Rect { r0: number; r1: number; c0: number; c1: number }
+/** How a row's cells are marked: selected block, fill preview, and which cell has the fill handle. */
+interface Mark { sel?: [number, number]; fill?: [number, number]; handle?: number }
+const within = (span: [number, number] | undefined, c: number) => !!span && c >= span[0] && c <= span[1];
+const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/** Cells as Excel takes them: tab-separated text, plus an HTML table marking every cell as text (keeps 0001's zeros). */
+const toClipboard = (rows: string[][]) => ({
+  text: rows.map((r) => r.join('\t')).join('\n'),
+  html: `<table>${rows.map((r) => `<tr>${r.map((v) => `<td style="mso-number-format:'\\@'">${escHtml(v)}</td>`).join('')}</tr>`).join('')}</table>`,
+});
 
 /** The passes behind a row. An unfilled row stands for a pass that doesn't exist yet. */
 const itemPasses = (type: PassType, it: Item): Pass[] =>
@@ -52,7 +67,8 @@ export interface SheetProps {
   onEdit: EditFn;
   /** Adds this serial with these values. */
   onCreate: (serial: number, values: Values) => Promise<boolean>;
-  onPaste: (rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean) => void;
+  /** Pastes (or, `fill`, fills from the fill handle) these lines of cells from row `start`, column `key`. */
+  onPaste: (rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean, fill?: boolean) => void;
   onPrinted: (passes: Pass[], printed: boolean) => void;
   onGiven: (passes: Pass[], given: boolean) => void;
   onSelect: (span: Span) => void;
@@ -70,18 +86,17 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
 
   const items = useMemo(() => {
     const out: Item[] = [];
-    let n = 0;
     let m = 0; // next unfilled serial to place, in serial order
     const emptiesBefore = (serial: number) => {
-      for (; m < missing.length && missing[m] < serial; m++) out.push({ kind: 'empty', key: `e${missing[m]}`, serial: missing[m], n: ++n });
+      for (; m < missing.length && missing[m] < serial; m++) out.push({ kind: 'empty', key: `e${missing[m]}`, serial: missing[m] });
     };
     for (const run of groupRuns(view)) {
       emptiesBefore(run[0].serial);
-      if (run.length === 1) { out.push({ kind: 'row', key: String(run[0].id), p: run[0], n: ++n }); continue; }
+      if (run.length === 1) { out.push({ kind: 'row', key: String(run[0].id), p: run[0] }); continue; }
       const key = `g${run[0].id}`;
       const open = opened.has(key);
       out.push({ kind: 'group', key, passes: run, open });
-      for (const p of run) { n++; if (open) out.push({ kind: 'row', key: String(p.id), p, n }); }
+      if (open) for (const p of run) out.push({ kind: 'row', key: String(p.id), p });
     }
     emptiesBefore(Infinity);
     if (canAdd) out.push({ kind: 'new', key: 'new' });
@@ -120,17 +135,190 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const a = anchor.current ?? span;
     onSelect({ lo: Math.min(a.lo, span.lo), hi: Math.max(a.hi, span.hi) });
   };
+  /* ----- cells, like Excel: drag or Shift+click for a block, Ctrl+C copies it, the corner square fills ----- */
+  const [active, setActive] = useState<Cell | null>(null); // the cell with the cursor
+  const [block, setBlock] = useState<{ a: Cell; b: Cell } | null>(null);
+  const [fillTo, setFillToState] = useState<Rect | null>(null);
+  const fillRef = useRef<Rect | null>(null); // the same, for the mouseup that runs the fill
+  const setFillTo = (r: Rect | null) => { fillRef.current = r; setFillToState(r); };
+  const cellDrag = useRef<{ mode: 'block' | 'fill'; start: Cell } | null>(null);
+  const indexOf = useMemo(() => new Map(items.map((it, i) => [it.key, i])), [items]);
+  const rectOf = (a: Cell, b: Cell): Rect | null => {
+    const ia = indexOf.get(a.key), ib = indexOf.get(b.key);
+    if (ia === undefined || ib === undefined) return null;
+    return { r0: Math.min(ia, ib), r1: Math.max(ia, ib), c0: Math.min(a.c, b.c), c1: Math.max(a.c, b.c) };
+  };
+  const rect = block ? rectOf(block.a, block.b) : null;
+  const multi = !!rect && (rect.r0 !== rect.r1 || rect.c0 !== rect.c1);
+  /** What the fill handle copies: the block, or the cell with the cursor. */
+  const source = rect ?? (active ? rectOf(active, active) : null);
+
+  const cellAt = (el: Element | null): Cell | null => {
+    const tdEl = el?.closest<HTMLElement>('td[data-c]');
+    const it = items[Number(tdEl?.closest<HTMLElement>('tr[data-i]')?.dataset.i)];
+    return tdEl && it ? { key: it.key, c: Number(tdEl.dataset.c) } : null;
+  };
+  /** A cell's value: what's typed in it if it's on screen, else what's saved. */
+  const valueAt = (i: number, c: number): string => {
+    const k = fields[c];
+    const el = scrollRef.current?.querySelector<HTMLInputElement>(`tr[data-i="${i}"] input[data-k="${k}"]`);
+    if (el) return cleanText(el.value);
+    const it = items[i];
+    return it ? (itemPasses(type, it)[0]?.[k] ?? '') : '';
+  };
+
+  /** Copies the fill source into `to` (rows below it, or columns to its right), saved like a paste. */
+  const fill = (from: Rect, to: Rect) => {
+    const lines: string[][] = [];
+    const h = from.r1 - from.r0 + 1, w = from.c1 - from.c0 + 1;
+    for (let i = to.r0; i <= to.r1; i++) {
+      const line: string[] = [];
+      for (let c = to.c0; c <= to.c1; c++) {
+        const si = to.r0 > from.r1 ? from.r0 + ((i - to.r0) % h) : i; // filling down repeats the source rows
+        const sc = to.c0 > from.c1 ? from.c0 + ((c - to.c0) % w) : c; // filling right repeats the source columns
+        line.push(valueAt(si, sc));
+      }
+      lines.push(line);
+    }
+    const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
+    const start = items[to.r0]?.kind === 'new' ? rows.length : to.r0;
+    onPaste(rows, start, fields[to.c0], lines.map((l) => l.join('\t')).join('\n'), canAdd, true);
+    setBlock({ a: { key: items[Math.min(from.r0, to.r0)].key, c: Math.min(from.c0, to.c0) }, b: { key: items[Math.max(from.r1, to.r1)].key, c: Math.max(from.c1, to.c1) } });
+  };
+
+  // Latest state for the document-level mouse and copy listeners below.
+  const live = useRef({ cellAt, rect, source, multi, fill, valueAt, items, selection, view, fields, setFillTo });
+  useEffect(() => { live.current = { cellAt, rect, source, multi, fill, valueAt, items, selection, view, fields, setFillTo }; });
+
+  useEffect(() => {
+    let raf = 0;
+    let pt: { x: number; y: number } | null = null;
+    /** Follows the mouse while dragging a block or the fill handle; scrolls when it nears an edge. */
+    const track = () => {
+      raf = 0;
+      const d = cellDrag.current, box = scrollRef.current;
+      if (!d || !pt || !box) return;
+      const { cellAt: at, source: src } = live.current;
+      const r = box.getBoundingClientRect();
+      const dy = pt.y > r.bottom - 24 ? 16 : pt.y < r.top + ROW_H + 12 ? -16 : 0;
+      const dx = pt.x > r.right - 24 ? 16 : pt.x < r.left + 24 ? -16 : 0;
+      if (dx || dy) box.scrollBy(dx, dy);
+      const cell = at(document.elementFromPoint(Math.min(Math.max(pt.x, r.left + 2), r.right - 2), Math.min(Math.max(pt.y, r.top + ROW_H + 2), r.bottom - 2)));
+      if (cell && d.mode === 'block' && (cell.key !== d.start.key || cell.c !== d.start.c)) setBlock({ a: d.start, b: cell });
+      if (cell && d.mode === 'fill' && src) {
+        const i = live.current.items.findIndex((it) => it.key === cell.key);
+        const set = live.current.setFillTo;
+        if (i > src.r1) set({ r0: src.r1 + 1, r1: i, c0: src.c0, c1: src.c1 });
+        else if (cell.c > src.c1 && i >= src.r0) set({ r0: src.r0, r1: src.r1, c0: src.c1 + 1, c1: cell.c });
+        else set(null);
+      }
+      if (dx || dy) raf = requestAnimationFrame(track);
+    };
+    const move = (e: globalThis.MouseEvent) => {
+      if (!cellDrag.current) return;
+      pt = { x: e.clientX, y: e.clientY };
+      if (!raf) raf = requestAnimationFrame(track);
+    };
+    const up = () => {
+      const d = cellDrag.current;
+      if (!d) return;
+      if (raf) { cancelAnimationFrame(raf); track(); } // where the mouse was let go counts, even if not drawn yet
+      cellDrag.current = null;
+      pt = null;
+      document.body.classList.remove('select-none');
+      if (d.mode === 'fill') {
+        const to = fillRef.current, src = live.current.source;
+        live.current.setFillTo(null);
+        if (to && src) live.current.fill(src, to);
+      }
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+  }, []);
+
+  // Ctrl+C: the block of cells; else the cell with the cursor (whole value); else rows picked by Sr. No.
+  useEffect(() => {
+    const onCopy = (e: globalThis.ClipboardEvent) => {
+      const { rect: r, multi: m, valueAt: val, selection: sel, view: v, fields: fs } = live.current;
+      const el = document.activeElement;
+      const inSheet = !!el && !!scrollRef.current?.contains(el);
+      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+      let rows: string[][] | null = null;
+      let what = '';
+      if (m && r && (inSheet || !typing)) {
+        rows = [];
+        for (let i = r.r0; i <= r.r1; i++) {
+          if (live.current.items[i]?.kind === 'new') continue;
+          const line: string[] = [];
+          for (let c = r.c0; c <= r.c1; c++) line.push(val(i, c));
+          rows.push(line);
+        }
+        what = `${rows.length * (r.c1 - r.c0 + 1)} cells`;
+      } else if (inSheet && el instanceof HTMLInputElement && el.dataset.k && el.selectionStart === el.selectionEnd) {
+        rows = [[cleanText(el.value)]];
+      } else if (sel && !typing && !window.getSelection()?.toString()) {
+        rows = v.filter((p) => inSpan(sel, p)).map((p) => [fmtSerial(p.serial), ...fs.map((k) => p[k])]);
+        what = `${rows.length} row${rows.length === 1 ? '' : 's'}, with Sr. No.`;
+      }
+      if (!rows?.length || !e.clipboardData) return;
+      const { text, html } = toClipboard(rows);
+      e.clipboardData.setData('text/plain', text);
+      e.clipboardData.setData('text/html', html);
+      e.preventDefault();
+      if (what) toast(`Copied ${what}`);
+    };
+    document.addEventListener('copy', onCopy);
+    return () => document.removeEventListener('copy', onCopy);
+  }, []);
+
   const onMouseDown = (e: MouseEvent<HTMLTableSectionElement>) => {
     const el = e.target as Element;
-    if (e.button !== 0 || el.closest('button') || !el.closest('td[data-pick]')) return;
+    if (e.button !== 0 || el.closest('button')) return;
+    if (el.closest('[data-fill]')) { // the fill handle
+      e.preventDefault(); // keep the cursor where it is
+      if (source) { cellDrag.current = { mode: 'fill', start: { key: items[source.r0].key, c: source.c0 } }; document.body.classList.add('select-none'); }
+      return;
+    }
+    if (!el.closest('td[data-pick]')) {
+      const cell = cellAt(el);
+      if (!cell) return;
+      if (e.shiftKey && active) { e.preventDefault(); setBlock({ a: active, b: cell }); return; }
+      setBlock(null);
+      cellDrag.current = { mode: 'block', start: cell };
+      return;
+    }
+    setBlock(null);
     const span = spanOf(itemAt(el));
     if (!span) return;
     e.preventDefault(); // no text selection while dragging
+    // Leave the cell being typed in (it saves), so Ctrl+C copies the picked rows rather than that cell.
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && scrollRef.current?.contains(focused)) focused.blur();
     if (e.shiftKey && anchor.current) extendTo(span);
     else { anchor.current = span; onSelect(span); }
     dragging.current = true;
   };
+  // Dragging out of the first cell turns it into a block: no text selection inside that box.
+  const onMouseOverCells = (e: MouseEvent<HTMLTableSectionElement>) => {
+    const d = cellDrag.current;
+    if (d?.mode !== 'block') return;
+    const cell = cellAt(e.target as Element);
+    if (!cell || (cell.key === d.start.key && cell.c === d.start.c)) return;
+    const el = document.activeElement;
+    if (el instanceof HTMLInputElement && scrollRef.current?.contains(el)) el.setSelectionRange(el.value.length, el.value.length);
+    document.body.classList.add('select-none');
+  };
+  const onFocusCell = (e: FocusEvent<HTMLTableSectionElement>) => {
+    const cell = (e.target as HTMLElement).dataset.k ? cellAt(e.target as Element) : null;
+    if (cell) setActive(cell);
+  };
   const onMouseOver = (e: MouseEvent<HTMLTableSectionElement>) => {
+    onMouseOverCells(e);
     if (!dragging.current) return;
     const span = spanOf(itemAt(e.target as Element));
     if (span) extendTo(span);
@@ -157,8 +345,9 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const k = el.dataset.k as Field | undefined;
     if (!k || e.defaultPrevented) return;
     let dir = 0;
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) setBlock(null); // typing edits the one cell
     if (e.key === 'Enter') dir = e.shiftKey ? -1 : 1;
-    else if (e.key === 'Escape') { el.value = el.defaultValue; el.blur(); return; }
+    else if (e.key === 'Escape') { if (block) { setBlock(null); return; } el.value = el.defaultValue; el.blur(); return; }
     else if (!SUGGEST[k] && e.key === 'ArrowDown') dir = 1; // boxes with suggestions keep ↑↓ for the list
     else if (!SUGGEST[k] && e.key === 'ArrowUp') dir = -1;
     if (!dir) return;
@@ -175,6 +364,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const text = e.clipboardData.getData('text');
     if (!k || !isMultiCell(text)) return;
     e.preventDefault();
+    setBlock(null);
     const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
     const i = Number(el.closest('tr')!.dataset.i);
     onPaste(rows, items[i].kind === 'new' ? rows.length : i, k, text, canAdd);
@@ -184,47 +374,50 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
     <Watermark type={type} />
     <div ref={scrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto">
-      <table className="w-full table-fixed border-separate border-spacing-0" style={{ minWidth: tableMin }}>
+      <table className={`sheet-grid w-full table-fixed border-separate border-spacing-0 ${multi ? 'has-block' : ''}`} style={{ minWidth: tableMin }}>
         <colgroup>
-          <col style={{ width: COL.n }} />
           <col style={{ width: COL.serial }} />
           {fields.map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
           <col style={{ width: COL.added }} />
           <col style={{ width: COL.by }} />
-          <col style={{ width: COL.given }} />
           <col style={{ width: COL.printed }} />
+          <col style={{ width: COL.given }} />
         </colgroup>
         <thead className="sticky top-0 z-10">
           <tr className="h-[30px] text-left">
-            <th className={`${th} text-right`}>#</th>
             <th className={`${th} ${margin}`}>Sr. No.</th>
-            {fields.map((k) => <th key={k} className={th}>{FIELD_LABELS[k]}</th>)}
+            {fields.map((k) => <th key={k} data-col={k} className={th}>{FIELD_LABELS[k]}</th>)}
             <th className={th}>Added</th>
             <th className={th}>Added by</th>
-            <th className={`${th} text-center`}>Given</th>
-            <th className={`${th} text-center`}>Printed</th>
+            <th data-col="printed" className={`${th} text-center`}>Printed</th>
+            <th data-col="given" className={`${th} text-center`}>Given</th>
           </tr>
         </thead>
-        <tbody onKeyDown={onKeyDown} onPaste={onPasteCells} onMouseDown={onMouseDown} onMouseOver={onMouseOver}>
+        <tbody onKeyDown={onKeyDown} onPaste={onPasteCells} onMouseDown={onMouseDown} onMouseOver={onMouseOver} onFocus={onFocusCell}>
           {padTop > 0 && <tr style={{ height: padTop }}><td colSpan={cols} /></tr>}
           {vItems.map((v) => {
             const it = items[v.index];
+            const i = v.index;
+            let mark: Mark | undefined;
+            if (multi && rect && i >= rect.r0 && i <= rect.r1) mark = { sel: [rect.c0, rect.c1] };
+            if (fillTo && i >= fillTo.r0 && i <= fillTo.r1) mark = { ...mark, fill: [fillTo.c0, fillTo.c1] };
+            if (source && i === source.r1) mark = { ...mark, handle: source.c1 };
             if (it.kind === 'row') {
-              return <Row key={v.key} p={it.p} i={v.index} n={it.n} fields={fields} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} />;
+              return <Row key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} />;
             }
             if (it.kind === 'group') {
               return (
                 <GroupRow
-                  key={v.key} passes={it.passes} i={v.index} open={it.open} fields={fields}
+                  key={v.key} passes={it.passes} i={i} open={it.open} fields={fields} mark={mark}
                   selected={it.passes.every((p) => inSpan(selection, p))}
                   onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
                 />
               );
             }
             if (it.kind === 'empty') {
-              return <BlankRow key={v.key} i={v.index} n={it.n} serial={it.serial} fields={fields} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} />;
+              return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} />;
             }
-            return <BlankRow key={v.key} i={v.index} serial={next} fields={fields} selected={false} onCreate={onCreate} last />;
+            return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} last />;
           })}
           {padBottom > 0 && <tr style={{ height: padBottom }}><td colSpan={cols} /></tr>}
         </tbody>
@@ -261,42 +454,59 @@ function Watermark({ type }: { type: PassType }) {
 const th = 'border-b border-r border-b-input border-r-rule bg-panel px-2 font-condensed text-[14.5px] font-semibold text-foreground/70';
 const td = 'h-[30px] border-b border-r border-rule px-2 whitespace-nowrap overflow-hidden text-ellipsis';
 const tdCell = 'h-[30px] border-b border-r border-rule p-0 focus-within:shadow-[inset_0_0_0_2px_var(--color-primary)]';
+/** A field cell, marked if it's in the selected block, in the fill preview, or holds the fill handle. */
+const cellTd = (c: number, mark: Mark | undefined) =>
+  `${tdCell} ${within(mark?.sel, c) ? 'shadow-[inset_0_0_0_999px_rgb(37_99_235/0.11)]' : ''} ${within(mark?.fill, c) ? 'shadow-[inset_0_0_0_999px_rgb(138_14_3/0.09)]' : ''} ${mark?.handle === c ? 'relative' : ''}`;
+/** The fill handle: drag it down or right to copy the cell (or block) into the cells it passes. */
+const FillHandle = () => (
+  <span
+    data-fill aria-hidden title="Drag down or right to copy into those cells"
+    className="absolute -right-[4px] -bottom-[4px] z-[5] size-[8px] cursor-crosshair border border-white bg-primary"
+  />
+);
 const margin = 'border-r-[3px] border-double !border-r-primary/75';
-const lineNo = 'text-right font-condensed text-[13px] tabular-nums text-muted-foreground/75';
 const serialCls = 'font-condensed text-[16px] font-semibold tabular-nums tracking-[0.02em]';
 const rowCls = (selected: boolean, extra = '') =>
-  `${selected ? '[&>td]:bg-sand-100' : 'hover:[&>td]:bg-muted/60'} ${extra}`;
+  `${selected ? '[&>td]:bg-sand-100' : `hover:[&>td]:bg-muted/60 ${focusRow}`} ${extra}`;
+/** The row holding the cell being typed in (like Excel): tinted, with its Sr. No. marked. */
+const focusRow = '[&:focus-within>td]:!bg-[#edf3f9]';
+const rowHead = '[tr:focus-within>&]:!bg-rule [tr:focus-within>&]:!text-foreground';
+/** Sr. No. of a row picked for the bar above (click, Shift+click or drag down the Sr. No.s). */
+const picked = '!bg-sand-200 !text-sand-900';
 
-const Row = memo(function Row({ p, i, n, fields, selected, onEdit, onPrinted, onGiven }: {
-  p: Pass; i: number; n: number; fields: readonly Field[]; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
+const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven }: {
+  p: Pass; i: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
   onGiven: SheetProps['onGiven'];
 }) {
   const printed = isPrinted(p);
   const given = isGiven(p);
   return (
     <tr data-i={i} className={rowCls(selected)}>
-      <td data-pick className={`${td} ${lineNo} cursor-pointer select-none ${selected ? '!bg-sand-200 font-semibold !text-sand-900' : ''}`} title="Click to select. Shift+click or drag for more.">{n}</td>
-      <td data-pick className={`${td} ${margin} ${serialCls} cursor-pointer select-none`}>{fmtSerial(p.serial)}</td>
-      {fields.map((k) => (
-        <td key={k} className={tdCell}>
+      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} cursor-pointer select-none ${selected ? picked : ''}`} title="Click to select. Shift+click or drag for more.">{fmtSerial(p.serial)}</td>
+      {fields.map((k, c) => (
+        <td key={k} data-c={c} className={cellTd(c, mark)}>
           <CellInput key={p[k]} target={[p]} k={k} saved={p[k]} locked={printed} onEdit={onEdit} />
+          {mark?.handle === c && <FillHandle />}
         </td>
       ))}
       <td className={`${td} text-[13.5px] text-muted-foreground`} title={new Date(p.created_at).toLocaleString()}>{shortDate(p.created_at)}</td>
       <AddedBy ids={[p.created_by]} />
       <td className={`${td} text-center`}>
-        <TickBox checked={given} onChange={(v) => onGiven([p], v)} title={given ? `Given ${new Date(p.given_at!).toLocaleString()}. Untick if it wasn't handed over.` : 'Not given yet: tick when the pass is handed over'} />
+        <TickBox col="printed" checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
       </td>
       <td className={`${td} text-center`}>
-        <TickBox checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
+        <TickBox
+          col="given" checked={given} disabled={!given && !printed} onChange={(v) => onGiven([p], v)}
+          title={given ? `Given ${new Date(p.given_at!).toLocaleString()}. Untick if it wasn't handed over.` : printed ? 'Not given yet: tick when the pass is handed over' : 'Not printed yet: print it first, then tick Given when it is handed over'}
+        />
       </td>
     </tr>
   );
 });
 
 /** A series given to one incharge, shown as "0003…0017". Edits apply to every pass in it. */
-function GroupRow({ passes, i, open, fields, selected, onToggle, onEdit, onPrinted, onGiven }: {
-  passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; selected: boolean; onToggle: () => void;
+function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven }: {
+  passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; mark?: Mark; selected: boolean; onToggle: () => void;
   onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven'];
 }) {
   const first = passes[0];
@@ -304,26 +514,31 @@ function GroupRow({ passes, i, open, fields, selected, onToggle, onEdit, onPrint
   const given = isGiven(first);
   return (
     <tr data-i={i} className={rowCls(selected, '[&>td]:bg-sand-50')}>
-      <td className={`${td} text-right`}>
-        <button className="font-condensed text-[13.5px] font-semibold text-primary hover:underline" onClick={onToggle} title={open ? 'Collapse' : 'Show each pass'}>
-          {open ? '▾' : '▸'} {passes.length}
+      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} !pl-0.5 cursor-pointer select-none ${selected ? picked : ''}`} title={`${passes.length} passes. Click to select them.`}>
+        <button
+          className="w-5 text-center text-[13px] text-primary hover:bg-primary/10" onClick={onToggle}
+          title={open ? 'Collapse' : `Show each of the ${passes.length} passes`}
+        >
+          {open ? '▾' : '▸'}
         </button>
-      </td>
-      <td data-pick className={`${td} ${margin} ${serialCls} cursor-pointer select-none`} title={`${passes.length} passes`}>
         {fmtSerial(first.serial)}…{fmtSerial(passes[passes.length - 1].serial)}
       </td>
-      {fields.map((k) => (
-        <td key={k} className={tdCell}>
+      {fields.map((k, c) => (
+        <td key={k} data-c={c} className={cellTd(c, mark)}>
           <CellInput key={first[k]} target={passes} k={k} saved={first[k]} locked={printed} onEdit={onEdit} />
+          {mark?.handle === c && <FillHandle />}
         </td>
       ))}
       <td className={`${td} text-[13.5px] text-muted-foreground`}>{addedSpan(passes)}</td>
       <AddedBy ids={passes.map((p) => p.created_by)} />
       <td className={`${td} text-center`}>
-        <TickBox checked={given} onChange={(v) => onGiven(passes, v)} title={given ? 'Given. Untick if they weren\'t handed over.' : 'Not given yet: tick when these passes are handed over'} />
+        <TickBox col="printed" checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
       </td>
       <td className={`${td} text-center`}>
-        <TickBox checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
+        <TickBox
+          col="given" checked={given} disabled={!given && !printed} onChange={(v) => onGiven(passes, v)}
+          title={given ? 'Given. Untick if they weren\'t handed over.' : printed ? 'Not given yet: tick when these passes are handed over' : 'Not printed yet: print them first, then tick Given when they are handed over'}
+        />
       </td>
     </tr>
   );
@@ -334,8 +549,8 @@ function GroupRow({ passes, i, open, fields, selected, onToggle, onEdit, onPrint
  * bottom. Type across it (Tab between cells); the pass is added when you leave the row, with
  * everything typed in it. Enter on the last row adds it and stays there for the next one.
  */
-function BlankRow({ i, n, serial, fields, selected, onCreate, last = false }: {
-  i: number; n?: number; serial: number; fields: readonly Field[]; selected: boolean; onCreate: SheetProps['onCreate']; last?: boolean;
+function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }: {
+  i: number; serial: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onCreate: SheetProps['onCreate']; last?: boolean;
 }) {
   const ref = useRef<HTMLTableRowElement>(null);
   const busy = useRef(false);
@@ -378,22 +593,20 @@ function BlankRow({ i, n, serial, fields, selected, onCreate, last = false }: {
   }, []);
 
   return (
-    <tr ref={ref} data-i={i} className={last ? '[&>td]:bg-sand-50/70' : rowCls(selected)} onBlur={onBlur} onKeyDown={onKeyDown}>
-      <td data-pick={last ? undefined : true} className={`${td} ${lineNo} ${last ? '' : 'cursor-pointer select-none'} ${selected ? '!bg-sand-200 font-semibold !text-sand-900' : ''}`}>
-        {last ? '+' : n}
-      </td>
-      <td data-pick={last ? undefined : true} className={`${td} ${margin} ${serialCls} !font-normal !text-muted-foreground/80 ${last ? '' : 'cursor-pointer select-none'}`} title={last ? 'Type or paste here to add the next pass' : 'Not in the register yet: type or paste to fill it'}>
-        {fmtSerial(serial)}
+    <tr ref={ref} data-i={i} className={last ? `[&>td]:bg-sand-50/70 ${focusRow}` : rowCls(selected)} onBlur={onBlur} onKeyDown={onKeyDown}>
+      <td data-pick={last ? undefined : true} className={`${td} ${margin} ${serialCls} ${rowHead} !font-normal !text-muted-foreground/80 ${last ? '' : 'cursor-pointer select-none'} ${selected ? picked : ''}`} title={last ? 'Type or paste here to add the next pass' : 'Not in the register yet: type or paste to fill it'}>
+        {last && <span aria-hidden className="mr-1">+</span>}{fmtSerial(serial)}
       </td>
       {fields.map((k, c) => (
-        <td key={k} className={tdCell}>
+        <td key={k} data-c={c} className={cellTd(c, mark)}>
           <input data-k={k} list={SUGGEST[k]} placeholder={last && c === 0 ? 'type or paste…' : ''} className={cellCls(false, k)} />
+          {mark?.handle === c && <FillHandle />}
         </td>
       ))}
       <td className={td} />
       <td className={td} />
-      <td className={`${td} text-[13.5px] text-muted-foreground/60`}>{last ? '' : 'Free'}</td>
       <td className={td} />
+      <td className={`${td} text-[13.5px] text-muted-foreground/60`}>{last ? '' : 'Free'}</td>
     </tr>
   );
 }
@@ -419,9 +632,14 @@ function addedSpan(passes: Pass[]) {
   return a === b ? a : `${a}–${b}`;
 }
 
-function TickBox({ checked, onChange, title }: { checked: boolean; onChange: (v: boolean) => void; title: string }) {
+function TickBox({ col, checked, disabled, onChange, title }: {
+  col: 'printed' | 'given'; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; title: string;
+}) {
   return (
-    <input type="checkbox" className="size-4 cursor-pointer align-middle accent-primary" checked={checked} title={title} onChange={(e) => onChange(e.target.checked)} />
+    <input
+      type="checkbox" data-col={col} disabled={disabled} title={title} checked={checked} onChange={(e) => onChange(e.target.checked)}
+      className="size-4 cursor-pointer align-middle accent-primary disabled:cursor-not-allowed disabled:opacity-35"
+    />
   );
 }
 

@@ -74,7 +74,7 @@ export function SheetScreen({ type }: { type: PassType }) {
     ));
   }, [apply, info.label, type]);
 
-  const onPaste = useCallback((rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean) => {
+  const onPaste = useCallback((rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean, fill = false) => {
     const plan = planPaste({ type, rows, start, key, text, nextSerial: nextSerial(sheetRef.current), canCreate });
     if (plan.error) return toast(plan.error, 'error');
     if (!plan.set.length && !plan.create.length) return toast('Nothing to change: those cells already hold that.');
@@ -85,7 +85,7 @@ export function SheetScreen({ type }: { type: PassType }) {
       plan.skippedHeader ? 'skipped the header row' : '',
       plan.extra ? `${plan.extra} line${plan.extra === 1 ? '' : 's'} had no row (clear the search to add new passes)` : '',
     ].filter(Boolean);
-    const summary = `Pasted ${plan.rows} row${plan.rows === 1 ? '' : 's'} into ${info.label} ${ranges(serials)}`;
+    const summary = `${fill ? 'Filled' : 'Pasted'} ${plan.rows} row${plan.rows === 1 ? '' : 's'} ${fill ? 'of' : 'into'} ${info.label} ${ranges(serials)}`;
     void apply({ action: 'paste', summary, set: plan.set, create: plan.create }, { toast: `${summary}${notes.length ? ` (${notes.join(', ')})` : ''}` });
   }, [apply, info.label, type]);
 
@@ -97,7 +97,7 @@ export function SheetScreen({ type }: { type: PassType }) {
   }, [apply, info.label]);
 
   const onGiven = useCallback((passes: Pass[], given: boolean) => {
-    const set = passes.filter((p) => isGiven(p) !== given).map((p) => ({ id: p.id, given, expect: { given: !given } }));
+    const set = passes.filter((p) => isGiven(p) !== given && (!given || isPrinted(p))).map((p) => ({ id: p.id, given, expect: { given: !given } }));
     if (!set.length) return;
     const summary = `${given ? 'Ticked' : 'Unticked'} Given · ${info.label} ${passRanges(passes)}`;
     void apply({ action: 'given', summary, set });
@@ -242,6 +242,7 @@ function ImportSummary({ plan }: { plan: ImportPlan }) {
     plan.same && `${nPasses(plan.same)} already the same`,
     plan.otherSheet && `${plan.otherSheet} row${plan.otherSheet === 1 ? '' : 's'} for other sheets (import those from their own tab)`,
     plan.unknownSheet && `${plan.unknownSheet} row${plan.unknownSheet === 1 ? '' : 's'} skipped: Pandal / Non Pandal not given`,
+    plan.givenNotPrinted && `${nPasses(plan.givenNotPrinted)} marked Given but not printed: left unticked (print first)`,
   ].filter(Boolean);
   return (
     <div className="space-y-2">

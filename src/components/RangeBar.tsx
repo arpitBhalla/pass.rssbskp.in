@@ -136,12 +136,18 @@ export function RangeBar({ type, sheet, range, onClear }: {
             </>
           )}
           <Divider />
-          <button className={btn} disabled={!given?.tick.length} onClick={() => void setGiven(true)} title="Tick Given: these passes are handed over">
+          <button
+            className={btn} disabled={!given?.tick.length} onClick={() => void setGiven(true)}
+            title={given?.notPrinted.length ? `Tick Given: handed over. Skips ${given.notPrinted.length} not printed yet (${ranges(given.notPrinted)}): print first.` : 'Tick Given: these passes are handed over'}
+          >
             {given?.tick.length ? `Mark ${given.tick.length} given` : 'Mark given'}
           </button>
           <button className={btn} disabled={!given?.untick.length} onClick={() => void setGiven(false)} title="Untick Given for these passes">
             {given?.untick.length ? `Untick ${given.untick.length} given` : 'Untick given'}
           </button>
+          {given && !given.tick.length && given.notPrinted.length > 0 && (
+            <span className={note} title={`Not printed yet: ${ranges(given.notPrinted)}`}>print first</span>
+          )}
           <span className="flex-1" />
           <button
             className={btnDanger} disabled={!del?.items.length} onClick={() => setConfirming(rangeKey)}

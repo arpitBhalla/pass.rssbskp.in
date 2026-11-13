@@ -48,10 +48,17 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   into the first cell: lines fill downward, columns fill rightward, and a copied header row is skipped.
   Empty rows are serials not in the register yet. Typing or pasting into one adds that serial, and the
   row at the bottom adds the next one.
+- **Like Excel:** drag across cells (or click one, then Shift+click another) to select a block, and
+  **Ctrl+C** copies it for Excel or for pasting elsewhere in the sheet. With only the cursor in a cell,
+  Ctrl+C copies that cell; with rows picked by Sr. No., it copies them with their Sr. No. Drag the small
+  square at the corner of the cell (or block) down or right to copy it into the cells it passes, saved
+  as one change (**Undo** reverses it). Printed passes are never overwritten. The row and column of the
+  cell being typed in are highlighted.
 - **Collapsed ranges:** consecutive passes given to one incharge with the same details show as one row
-  (▸ 20). Click ▸ to see each. Editing the collapsed row changes all of them.
+  (▸ 0003…0022). Click ▸ to see each. Editing the collapsed row changes all of them.
 - **Given:** tick **Given** in a row when the pass is handed over (filling in details doesn't tick it;
-  a collapsed row ticks all of its passes). For a range, use **Mark … given** / **Untick … given** in the
+  a collapsed row ticks all of its passes). A pass is printed first: Given can't be ticked until
+  Printed is (unticking Printed later, e.g. to reprint, leaves Given as it is). For a range, use **Mark … given** / **Untick … given** in the
   bar above the sheet. It can be ticked on printed passes too. A printed pass that isn't ticked Given checks
   **CHECK** at the gate.
 - **Delete:** pick the passes, click **Delete … passes** in the bar above the sheet and confirm.

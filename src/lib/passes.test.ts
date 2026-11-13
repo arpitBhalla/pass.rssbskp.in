@@ -190,11 +190,13 @@ describe('print', () => {
 });
 
 describe('Given and Delete for a range', () => {
-  it('Given: ticks what is unticked, unticks what is ticked, ignores serials not in the register', () => {
-    const s = [pass(1), pass(2, { given_at: 'x' }), pass(4, { incharge: 'Mohan' })];
+  it('Given: ticks what is printed and unticked, unticks what is ticked, ignores serials not in the register', () => {
+    const printed = { printed_at: '2026-11-13T09:00:00Z' };
+    const s = [pass(1, printed), pass(2, { ...printed, given_at: 'x' }), pass(3), pass(4, { ...printed, incharge: 'Mohan' })];
     const plan = planGiven(s, '1', '5');
     expect(plan.tickSerials).toEqual([1, 4]);
     expect(plan.untickSerials).toEqual([2]);
+    expect(plan.notPrinted).toEqual([3]); // printed first, then given
     expect(plan.tick[0]).toEqual({ id: s[0].id, given: true, expect: { given: false } });
     expect(planGiven(s, '', '').err).toMatch(/Enter the From/);
   });

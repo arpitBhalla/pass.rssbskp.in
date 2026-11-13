@@ -50,7 +50,9 @@ describe('Excel workbook export', () => {
     expect(mp).toContain('<t xml:space="preserve">+919876543210</t>');
     expect(mp).toContain('Kaur &amp; &lt;Singh&gt;');
     expect(mp).toContain('<t xml:space="preserve">Given</t>'); // header
-    expect(mp).toMatch(/r="H2" t="inlineStr"><is><t xml:space="preserve">Yes</); // Given column, ticked
+    expect(mp).toMatch(/r="H1" t="inlineStr"[^>]*><is><t xml:space="preserve">Printed</); // Printed, then Given
+    expect(mp).toMatch(/r="I1" t="inlineStr"[^>]*><is><t xml:space="preserve">Given</);
+    expect(mp).toMatch(/r="I2" t="inlineStr"><is><t xml:space="preserve">Yes</); // Given column, ticked
     expect(files.get('xl/worksheets/sheet8.xml')).toContain('DL 8C 0012');
   });
 });

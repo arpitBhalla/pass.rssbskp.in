@@ -98,6 +98,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       const byId = new Map(current.map((r) => [r.id, r]));
       const stale: PassRow[] = [];
       const locked: PassRow[] = [];
+      const unprinted: PassRow[] = [];
       const updates: Record<string, unknown>[] = [];
       for (const op of set) {
         const row = byId.get(op.id);
@@ -110,6 +111,8 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         // A printed pass can't change at all until Printed is unticked (in a separate step).
         const differs = (Object.keys(values) as Field[]).some((k) => row[k] !== values[k]);
         if (row.printed_at !== null && differs) { locked.push(row); continue; }
+        // A pass is printed first, then handed over: Given needs Printed (unticking either is always allowed).
+        if (op.given && row.given_at === null && !(op.printed ?? row.printed_at !== null)) { unprinted.push(row); continue; }
         checkFields(row.type, values);
         const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null };
         for (const k of FIELDS) merged[k] = values[k] ?? row[k];
@@ -121,6 +124,11 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       }
       if (locked.length) {
         throw bad(`${serialList(locked.map((r) => r.serial))} ${locked.length === 1 ? 'is' : 'are'} printed and can't be changed. Untick Printed first.`);
+      }
+      const unprintedNew = create.filter((c) => c.given && !c.printed);
+      if (unprinted.length || unprintedNew.length) {
+        const serials = [...unprinted.map((r) => r.serial), ...unprintedNew.map((c) => c.serial)];
+        throw bad(`${serialList(serials)} ${serials.length === 1 ? 'is' : 'are'} not printed yet. Print first, then tick Given when handed over.`);
       }
 
       const updated = updates.length

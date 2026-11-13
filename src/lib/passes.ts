@@ -335,16 +335,19 @@ export interface GivenPlan {
   untick: SetOp[];
   tickSerials: number[];
   untickSerials: number[];
+  /** Not given and not printed: can't be ticked Given until printed. */
+  notPrinted: number[];
   err: string;
 }
 
 /** Ticking or unticking Given for the passes from–to. */
 export function planGiven(sheet: Pass[], from: string, to: string): GivenPlan {
-  const plan: GivenPlan = { tick: [], untick: [], tickSerials: [], untickSerials: [], err: '' };
+  const plan: GivenPlan = { tick: [], untick: [], tickSerials: [], untickSerials: [], notPrinted: [], err: '' };
   const r = serialRange(from, to);
   if ('err' in r) return { ...plan, err: r.err };
   for (const p of passesIn(sheet, r.lo, r.hi)) {
     const given = isGiven(p);
+    if (!given && !isPrinted(p)) { plan.notPrinted.push(p.serial); continue; } // printed first, then given
     (given ? plan.untick : plan.tick).push({ id: p.id, given: !given, expect: { given } });
     (given ? plan.untickSerials : plan.tickSerials).push(p.serial);
   }
