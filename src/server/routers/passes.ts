@@ -7,7 +7,7 @@ import { applyChange, deletePasses, listChanges, syncSince, undoChange } from '.
 import { authedProcedure, router } from '../trpc';
 
 const text = z.string().max(500).optional();
-const values = z.object({ name: text, dept: text, area: text, phone: text, vehicle: text, vehicle_no: text, incharge: text }).strict();
+const values = z.object({ name: text, dept: text, area: text, phone: text, vehicle: text, vehicle_no: text, incharge: text, issued_to: text }).strict();
 
 const applyInput = z.object({
   action: z.enum(ACTIONS),

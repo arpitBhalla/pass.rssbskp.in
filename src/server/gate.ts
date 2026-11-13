@@ -40,13 +40,13 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
     reasons.push('Not made with the current key: a fake, or printed before the key was changed in Settings.');
   } else {
     const row = await db.selectFrom('passes')
-      .select(['name', 'dept', 'area', 'phone', 'incharge', 'vehicle', 'vehicle_no', 'printed_at', 'given_at'])
+      .select(['name', 'dept', 'area', 'phone', 'incharge', 'issued_to', 'vehicle', 'vehicle_no', 'printed_at', 'given_at'])
       .where('type', '=', c.type).where('serial', '=', c.serial).executeTakeFirst();
     if (!row) {
       verdict = 'invalid';
       reasons.push('Not in the register.');
     } else {
-      pass = { name: row.name, dept: row.dept, area: row.area, incharge: row.incharge, vehicle: row.vehicle, vehicle_no: row.vehicle_no };
+      pass = { name: row.name, dept: row.dept, area: row.area, incharge: row.incharge, issued_to: row.issued_to, vehicle: row.vehicle, vehicle_no: row.vehicle_no };
       // A pass printed blank gets its name later, by hand and in the register: only a printed name must match.
       if (!hashOfName(c.nameHash, '') && !hashOfName(c.nameHash, row.name)) {
         reasons.push(row.name.trim()

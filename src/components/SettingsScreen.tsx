@@ -192,12 +192,14 @@ function GatePage() {
 const SAMPLE: Record<PassType, Partial<CardData>> = {
   'mobile-pandal': { name: 'Harpreet Singh', dept: 'Security', area: 'Sirsa', phone: '9876543210' },
   'mobile-non-pandal': { name: 'Sunita Devi', dept: 'Langar', area: 'Gurugram', phone: '9812345678' },
-  'bike-pandal': { name: 'Harpreet Singh', dept: 'Security', area: 'Sirsa', vehicle_no: 'HR 26 AB 1234' },
-  'bike-non-pandal': { name: 'Rajinder Kumar', dept: 'Traffic', area: 'Delhi', vehicle_no: 'DL 3S CK 7788' },
-  'sewa-vehicle': { name: 'Harpreet Singh', vehicle: 'Maruti Swift', vehicle_no: 'HR 26 AB 1234', area: 'Sirsa', dept: 'Security' },
-  'tractor-trolley': { name: 'Baldev Singh', vehicle: 'Mahindra 575 DI', vehicle_no: 'PB 10 X 4455', area: 'Ludhiana', dept: 'Construction' },
-  'gate3-entry': { name: 'Gurmeet Kaur', vehicle: 'Toyota Innova', vehicle_no: 'HR 55 AL 9021', area: 'Gurugram', dept: 'Langar' },
-  'bav-entry': { name: 'Rajinder Kumar', vehicle: 'Mahindra Bolero', vehicle_no: 'DL 8C AB 3310', area: 'Delhi', dept: 'Traffic' },
+  'bike-pandal': { name: 'Harpreet Singh', dept: 'Security', area: 'Sirsa', vehicle_no: 'HR-26AB-1234' },
+  'bike-non-pandal': { name: 'Rajinder Kumar', dept: 'Traffic', area: 'Delhi', vehicle_no: 'DL-3SCK-7788' },
+  'sewa-vehicle': { name: 'Harpreet Singh', vehicle: 'Maruti Swift', vehicle_no: 'HR-26AB-1234', area: 'Sirsa', dept: 'Security' },
+  'tractor-trolley': { name: 'Baldev Singh', vehicle: 'Mahindra 575 DI', vehicle_no: 'PB-10X-4455', area: 'Ludhiana', dept: 'Construction' },
+  'gate3-entry': { name: 'Gurmeet Kaur', vehicle: 'Toyota Innova', vehicle_no: 'HR-55AL-9021', area: 'Gurugram', dept: 'Langar' },
+  'bav-entry': { name: 'Rajinder Kumar', vehicle: 'Mahindra Bolero', vehicle_no: 'DL-8CAB-3310', area: 'Delhi', dept: 'Traffic' },
+  'vip-gate': { name: 'Amarjit Singh', vehicle: 'Toyota Fortuner', vehicle_no: 'HR-26DK-0007', area: 'Gurugram', dept: 'Reception' },
+  admin: { name: 'Sukhwinder Kaur', vehicle: 'Honda City', vehicle_no: 'HR-29T-4512', area: 'Faridabad', dept: 'Administration' },
 };
 
 /** A made-up code as long as a real one (44 digits: a sample QR the right size; it checks NOT VALID). */

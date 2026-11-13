@@ -7,8 +7,8 @@ import { toast } from '@/client/toast';
 import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
 import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
-import { filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planPaste, ranges, type Show, SHOW_LABEL } from '@/lib/passes';
-import { type Field, FIELD_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, ranges, type Show, SHOW_LABEL } from '@/lib/passes';
+import { cleanField, type Field, FIELD_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { Menu, Popover } from './Menu';
 import { RangeBar } from './RangeBar';
 import { RangePanel } from './RangePanel';
@@ -31,8 +31,10 @@ function download(blob: Blob, name: string) {
 export function SheetScreen({ type }: { type: PassType }) {
   const info = TYPE_INFO[type];
   const sheet = useSheet(type);
-  const { apply, undo } = useActions();
+  const { apply, undoLast } = useActions();
   const status = useStatus();
+  /** This tab's last change in this sheet, for Undo (each sheet undoes its own). */
+  const lastUndo = status.undo.findLast((u) => u.type === type && !u.undoing);
 
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const deferred = useDeferredValue(filters); // typing in search stays smooth on big sheets
@@ -74,7 +76,7 @@ export function SheetScreen({ type }: { type: PassType }) {
     ));
   }, [apply, info.label, type]);
 
-  const onPaste = useCallback((rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean, fill = false) => {
+  const onPaste = useCallback((rows: Pass[][], start: number, key: Field, text: string | string[][], canCreate: boolean, fill = false) => {
     const plan = planPaste({ type, rows, start, key, text, nextSerial: nextSerial(sheetRef.current), canCreate });
     if (plan.error) return toast(plan.error, 'error');
     if (!plan.set.length && !plan.create.length) return toast('Nothing to change: those cells already hold that.');
@@ -88,6 +90,13 @@ export function SheetScreen({ type }: { type: PassType }) {
     const summary = `${fill ? 'Filled' : 'Pasted'} ${plan.rows} row${plan.rows === 1 ? '' : 's'} ${fill ? 'of' : 'into'} ${info.label} ${ranges(serials)}`;
     void apply({ action: 'paste', summary, set: plan.set, create: plan.create }, { toast: `${summary}${notes.length ? ` (${notes.join(', ')})` : ''}` });
   }, [apply, info.label, type]);
+
+  // Ctrl+X (the cells were copied) or Delete: empty them, as one change. The passes stay.
+  const onClear = useCallback((passes: Pass[], keys: readonly Field[], what: string, cut: boolean) => {
+    const plan = planClear(passes, keys);
+    if (!plan.set.length) return toast(cut ? `Copied ${what} (nothing to cut: they were empty)` : 'Nothing to clear: those cells are empty.');
+    void apply({ action: 'edit', summary: `${cut ? 'Cut' : 'Cleared'} ${what} ${cut ? 'from' : 'of'} ${info.label} ${passRanges(plan.passes)}`, set: plan.set });
+  }, [apply, info.label]);
 
   const onPrinted = useCallback((passes: Pass[], printed: boolean) => {
     const set = passes.filter((p) => isPrinted(p) !== printed).map((p) => ({ id: p.id, printed, expect: { printed: !printed } }));
@@ -103,18 +112,21 @@ export function SheetScreen({ type }: { type: PassType }) {
     void apply({ action: 'given', summary, set });
   }, [apply, info.label]);
 
-  // Ctrl/Cmd+Z outside a text box undoes this tab's last change.
+  // Ctrl/Cmd+Z undoes this tab's last change in this sheet, like Excel: in a sheet cell too, unless something is
+  // being typed there (then it undoes the typing). Other text boxes keep their own undo.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
       const el = document.activeElement;
-      if (el instanceof HTMLInputElement && el.type !== 'checkbox' || el instanceof HTMLTextAreaElement) return;
+      const k = el instanceof HTMLInputElement ? el.dataset.k as Field | undefined : undefined;
+      const typing = !!k && cleanField(k, (el as HTMLInputElement).value) !== cleanField(k, (el as HTMLInputElement).defaultValue);
+      if (typing || (!k && (el instanceof HTMLInputElement && el.type !== 'checkbox' || el instanceof HTMLTextAreaElement))) return;
       e.preventDefault();
-      void undo();
+      void undoLast(type);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [undo]);
+  }, [undoLast, type]);
 
   /* ----- CSV ----- */
   const fileRef = useRef<HTMLInputElement>(null);
@@ -175,8 +187,8 @@ export function SheetScreen({ type }: { type: PassType }) {
           </span>
           <div className="ml-auto flex items-center gap-2">
           <button
-            className={btn} disabled={!status.undo && !status.saving} onClick={() => void undo()}
-            title={status.undo && !status.saving ? `Undo: ${status.undo.summary} (Ctrl+Z)` : status.saving ? 'Undo your last change (Ctrl+Z)' : 'Nothing to undo'}
+            className={btn} disabled={!lastUndo} onClick={() => void undoLast(type)}
+            title={lastUndo ? `Undo: ${lastUndo.summary} (Ctrl+Z)` : `Nothing to undo in ${info.label}`}
           >
             Undo
           </button>
@@ -194,8 +206,8 @@ export function SheetScreen({ type }: { type: PassType }) {
         <RangeBar type={type} sheet={sheet} range={range} onClear={clearRange} />
         <Sheet
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} next={next} missing={missing}
-          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onPrinted={onPrinted} onGiven={onGiven}
-          onSelect={setSelection} onSelectEnd={onSelectEnd}
+          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven}
+          onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
         />
       </section>
 

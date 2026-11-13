@@ -77,6 +77,19 @@ describe('apply', () => {
     expect(after).toMatchObject({ name: 'Amit', printed_at: null });
   });
 
+  it('Issued To can be filled in on a printed pass, and undone; Reg. No. is written one way', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet', 'bike-pandal'))).rows;
+    await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
+    const r = await applyChange(db, ramesh, { action: 'edit', summary: 'issued', set: [{ id: p.id, values: { issued_to: 'Harjit' }, expect: { issued_to: '' } }] });
+    expect(r.rows[0].issued_to).toBe('Harjit');
+    expect(r.rows[0].printed_at).not.toBeNull();
+    // A change saved before Issued To existed has none in its copy: undo leaves it empty.
+    await sql`UPDATE changes SET before = jsonb_set(before, '{rows,0}', (before->'rows'->0) - 'issued_to') WHERE id = ${r.changeId}`.execute(db);
+    expect((await undoChange(db, ramesh, r.changeId)).rows[0]).toMatchObject({ issued_to: '', incharge: 'Gurpreet' });
+    const [q] = (await applyChange(db, ramesh, { action: 'edit', summary: 'reg', create: [{ type: 'bike-pandal', serial: 2, values: { vehicle_no: 'hr 24 ab 9168' } }] })).rows;
+    expect(q.vehicle_no).toBe('HR-24AB-9168');
+  });
+
   it('keeps Reg. No. and Vehicle to the sheets that have them', async () => {
     const req = (type: Pass['type'], values: Values): ApplyRequest =>
       ({ action: 'give', summary: 'x', create: [{ type, serial: 1, values }] });
@@ -84,7 +97,7 @@ describe('apply', () => {
     await expect(applyChange(db, ramesh, req('bike-pandal', { vehicle: 'Splendor' }))).rejects.toThrow(/no Vehicle/);
     await expect(applyChange(db, ramesh, req('bike-pandal', { vehicle_no: 'HR 26 1234' }))).resolves.toBeTruthy();
     const [p] = (await applyChange(db, ramesh, req('sewa-vehicle', { vehicle: 'Swift', vehicle_no: 'HR 26 1234' }))).rows;
-    expect(p).toMatchObject({ vehicle: 'Swift', vehicle_no: 'HR 26 1234' });
+    expect(p).toMatchObject({ vehicle: 'Swift', vehicle_no: 'HR-26-1234' });
   });
 });
 
@@ -96,14 +109,29 @@ describe('undo', () => {
     });
     const u1 = await undoChange(db, ramesh, e.changeId);
     expect(u1.rows[0].name).toBe('');
-    // The give's rows were touched by the undo, so the give can no longer be undone blindly.
-    await expect(undoChange(db, ramesh, g.changeId)).rejects.toThrow(/changed afterwards/);
     await expect(undoChange(db, ramesh, e.changeId)).rejects.toThrow(/already undone/);
+    // The edit was undone, so the give's passes are as the give left them: it can be undone too.
+    expect((await undoChange(db, ramesh, g.changeId)).deleted).toHaveLength(3);
 
     const g2 = await applyChange(db, ramesh, give(10, 12, 'Harjit'));
     const u2 = await undoChange(db, suresh, g2.changeId);
     expect(u2.deleted).toHaveLength(3);
     expect(await db.selectFrom('passes').select('id').where('serial', '>=', 10).execute()).toHaveLength(0);
+  });
+});
+
+describe('undo twice', () => {
+  it('undoes the same cell twice in a row; refused if someone else changed it meanwhile', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet'))).rows;
+    const name = (from: string, to: string) => applyChange(db, ramesh, { action: 'edit', summary: to, set: [{ id: p.id, values: { name: to }, expect: { name: from } }] });
+    const a = await name('', 'Amit');
+    const b = await name('Amit', 'Amrit');
+    expect((await undoChange(db, ramesh, b.changeId)).rows[0].name).toBe('Amit');
+    expect((await undoChange(db, ramesh, a.changeId)).rows[0].name).toBe('');
+    // Now with a change by someone else in between that is not undone: refused.
+    const c = await name('', 'Raj');
+    await applyChange(db, suresh, { action: 'edit', summary: 'dept', set: [{ id: p.id, values: { dept: 'Langar' }, expect: { dept: '' } }] });
+    await expect(undoChange(db, ramesh, c.changeId)).rejects.toThrow(/changed afterwards \(by Suresh\)/);
   });
 });
 

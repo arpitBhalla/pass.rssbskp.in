@@ -2,14 +2,28 @@
 import { useSyncExternalStore } from 'react';
 import { PASS_TYPES, type Pass, type PassType } from '@/shared/types';
 
+/**
+ * A change this tab made, for Undo. `before`: the passes it changed, as they were; `hide`: the
+ * passes it added. Pushed the moment the change is made; `changeId` arrives when the server saves it.
+ */
+export interface UndoEntry {
+  type: PassType;
+  summary: string;
+  changeId: number | null;
+  before: Pass[];
+  hide: number[];
+  /** Being undone right now. */
+  undoing?: boolean;
+}
+
 export interface Status {
   /** First sync finished. */
   loaded: boolean;
   /** Server reachable on the last sync. */
   online: boolean;
   backupError: string;
-  /** This browser tab's last change, if it can be undone. */
-  undo: { changeId: number; summary: string } | null;
+  /** This tab's changes that can be undone, oldest first (all sheets; each sheet undoes its own). */
+  undo: readonly UndoEntry[];
   /** Changes are on screen that the server hasn't confirmed yet. */
   saving: boolean;
 }
@@ -36,14 +50,13 @@ export class PassStore {
   private all: Pass[] | null = null;
   private counts: Counts | null = null;
   private listeners = new Set<() => void>();
-  private undoStack: { changeId: number; summary: string }[] = [];
   private overlays = new Map<number, Overlay>(); // in the order they were made
   private nextOverlay = 1;
   /** The logged-in user's id, for passes this tab adds before the server answers. */
   me = 0;
   /** Database version this browser has caught up to. */
   rev = 0;
-  status: Status = { loaded: false, online: true, backupError: '', undo: null, saving: false };
+  status: Status = { loaded: false, online: true, backupError: '', undo: [], saving: false };
   /** Set by the sync loop: fetch changes now. */
   resync: () => void = () => {};
 
@@ -148,9 +161,8 @@ export class PassStore {
     this.sheets.clear();
     this.all = null;
     this.counts = null;
-    this.undoStack = [];
     this.rev = 0;
-    this.setStatus({ undo: null });
+    this.setStatus({ undo: [] });
   }
 
   getSheet(type: PassType): Pass[] {
@@ -182,14 +194,25 @@ export class PassStore {
     this.emit();
   }
 
-  pushUndo(changeId: number, summary: string) {
-    this.undoStack = [...this.undoStack.slice(-49), { changeId, summary }];
-    this.setStatus({ undo: this.undoStack.at(-1)! });
+  /** Adds a change to the undo list (the last 50 are kept). Returns it, to fill in or drop later. */
+  pushUndo(entry: UndoEntry): UndoEntry {
+    this.setStatus({ undo: [...this.status.undo.slice(-49), entry] });
+    return entry;
+  }
+  /** An entry was changed in place: tell the components. */
+  touchUndo() {
+    this.setStatus({ undo: [...this.status.undo] });
+  }
+  dropUndo(entry: UndoEntry) {
+    this.setStatus({ undo: this.status.undo.filter((u) => u !== entry) });
   }
   /** Drops one change from the undo list (it was undone some other way, e.g. from History). */
   forgetUndo(changeId: number) {
-    this.undoStack = this.undoStack.filter((u) => u.changeId !== changeId);
-    this.setStatus({ undo: this.undoStack.at(-1) ?? null });
+    this.setStatus({ undo: this.status.undo.filter((u) => u.changeId !== changeId) });
+  }
+  /** What Undo in this sheet would undo: this tab's last change there not already being undone. */
+  lastUndo(type: PassType): UndoEntry | undefined {
+    return this.status.undo.findLast((u) => u.type === type && !u.undoing);
   }
 }
 

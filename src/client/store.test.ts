@@ -56,3 +56,20 @@ describe('unsaved changes on screen', () => {
     expect(s.getSheet('mobile-pandal').map((p) => [p.id, p.rev])).toEqual([[40, 10]]);
   });
 });
+
+describe('undo, per sheet', () => {
+  it("each sheet's Undo takes its own last change, skipping ones already being undone", () => {
+    const s = new PassStore();
+    const a = s.pushUndo({ type: 'mobile-pandal', summary: 'a', changeId: 1, before: [], hide: [] });
+    s.pushUndo({ type: 'bike-pandal', summary: 'b', changeId: 2, before: [], hide: [] });
+    const c = s.pushUndo({ type: 'mobile-pandal', summary: 'c', changeId: null, before: [], hide: [] });
+    expect(s.lastUndo('mobile-pandal')).toBe(c);
+    c.undoing = true;
+    expect(s.lastUndo('mobile-pandal')).toBe(a);
+    expect(s.lastUndo('bike-pandal')?.summary).toBe('b');
+    s.dropUndo(a);
+    s.forgetUndo(2);
+    expect(s.lastUndo('bike-pandal')).toBeUndefined();
+    expect(s.status.undo).toEqual([c]);
+  });
+});

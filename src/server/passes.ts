@@ -2,22 +2,22 @@ import 'server-only';
 import { TRPCError } from '@trpc/server';
 import { type Kysely, type Transaction, sql } from 'kysely';
 import {
-  type ApplyRequest, type ApplyResult, type Change, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, cleanText,
-  type DeleteRequest, type DeleteResult, MAX_BATCH, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
+  type ApplyRequest, type ApplyResult, type Change, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, cleanField,
+  type DeleteRequest, type DeleteResult, locksWhenPrinted, MAX_BATCH, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
 } from '@/shared/types';
 import type { ChangeBefore, Database, PassRow, PassRowJson } from './db/schema';
 
 const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message });
 const conflict = (message: string) => new TRPCError({ code: 'CONFLICT', message });
 
-const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'printed_at', 'given_at', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
+const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to', 'printed_at', 'given_at', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
 
 export function toPass(r: Pick<PassRow, (typeof PASS_COLUMNS)[number]>): Pass {
   return {
     id: r.id, type: r.type, serial: r.serial, name: r.name, dept: r.dept, area: r.area, phone: r.phone,
-    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, printed_at: iso(r.printed_at), given_at: iso(r.given_at), created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
+    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, issued_to: r.issued_to, printed_at: iso(r.printed_at), given_at: iso(r.given_at), created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
   };
 }
 
@@ -48,7 +48,7 @@ async function bump(trx: Transaction<Database>): Promise<number> {
 
 function cleanValues(v: Values | undefined): Values {
   const out: Values = {};
-  for (const k of FIELDS) if (v?.[k] !== undefined) out[k] = cleanText(v[k]!);
+  for (const k of FIELDS) if (v?.[k] !== undefined) out[k] = cleanField(k, v[k]!);
   return out;
 }
 
@@ -108,8 +108,8 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         );
         if (isStale) { stale.push(row); continue; }
         const values = op.values ?? {};
-        // A printed pass can't change at all until Printed is unticked (in a separate step).
-        const differs = (Object.keys(values) as Field[]).some((k) => row[k] !== values[k]);
+        // A printed pass can't change until Printed is unticked (in a separate step), except who it was issued to.
+        const differs = (Object.keys(values) as Field[]).some((k) => locksWhenPrinted(k) && row[k] !== values[k]);
         if (row.printed_at !== null && differs) { locked.push(row); continue; }
         // A pass is printed first, then handed over: Given needs Printed (unticking either is always allowed).
         if (op.given && row.given_at === null && !(op.printed ?? row.printed_at !== null)) { unprinted.push(row); continue; }
@@ -135,11 +135,12 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         ? (await sql<PassRow>`
             UPDATE passes AS p SET
               name = v.name, dept = v.dept, area = v.area, phone = v.phone, vehicle = v.vehicle, vehicle_no = v.vehicle_no, incharge = v.incharge,
+              issued_to = v.issued_to,
               printed_at = CASE WHEN v.printed IS NULL THEN p.printed_at WHEN v.printed THEN coalesce(p.printed_at, now()) ELSE NULL END,
               given_at = CASE WHEN v.given IS NULL THEN p.given_at WHEN v.given THEN coalesce(p.given_at, now()) ELSE NULL END,
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed boolean, given boolean)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -147,13 +148,13 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       const createRows = create.map((c) => ({ type: c.type, serial: c.serial, printed: c.printed ?? false, given: c.given ?? false, ...c.values }));
       const created = create.length
         ? (await sql<PassRow>`
-            INSERT INTO passes (type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, printed_at, given_at, created_by, updated_by, rev)
+            INSERT INTO passes (type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, created_by, updated_by, rev)
             SELECT v.type::pass_type, v.serial,
                    coalesce(v.name, ''), coalesce(v.dept, ''), coalesce(v.area, ''), coalesce(v.phone, ''),
-                   coalesce(v.vehicle, ''), coalesce(v.vehicle_no, ''), coalesce(v.incharge, ''),
+                   coalesce(v.vehicle, ''), coalesce(v.vehicle_no, ''), coalesce(v.incharge, ''), coalesce(v.issued_to, ''),
                    CASE WHEN v.printed THEN now() END, CASE WHEN v.given THEN now() END, ${userId}, ${userId}, ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(createRows)}::jsonb)
-              AS v(type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed boolean, given boolean)
+              AS v(type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean)
             ON CONFLICT (type, serial) DO NOTHING
             RETURNING *`.execute(trx)).rows
         : [];
@@ -211,7 +212,18 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
       const byId = new Map(current.map((r) => [r.id, r]));
       if (ids.some((id) => !byId.has(id))) throw conflict("Can't undo: some of these passes were removed since.");
       const moved = current.filter((r) => r.rev !== ch.rev);
-      if (moved.length) {
+      // Changed since only by changes that were undone since (Undo pressed twice): they are back as
+      // this change left them, so it can be undone too.
+      const later = moved.length
+        ? (await sql<{ id: number }>`
+            SELECT c.id FROM changes c
+            WHERE c.rev > ${ch.rev} AND c.action <> 'undo' AND c.undone_at IS NULL AND (
+              EXISTS (SELECT 1 FROM jsonb_array_elements(c.before->'rows') r WHERE (r->>'id')::int = ANY(${moved.map((r) => r.id)}::int[]))
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(c.before->'created') x WHERE x::int = ANY(${moved.map((r) => r.id)}::int[]))
+              OR EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(c.before->'deleted', '[]'::jsonb)) d WHERE (d->>'id')::int = ANY(${moved.map((r) => r.id)}::int[])))
+            LIMIT 1`.execute(trx)).rows
+        : [];
+      if (later.length) {
         const who = await userName(trx, moved[0].updated_by);
         throw conflict(`Can't undo: ${serialList(moved.map((r) => r.serial))} ${isAre(moved.length)} changed afterwards (by ${who}). Change ${moved.length === 1 ? 'it' : 'them'} by hand instead.`);
       }
@@ -228,9 +240,10 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
         ? (await sql<PassRow>`
             UPDATE passes AS p SET
               name = v.name, dept = v.dept, area = v.area, phone = v.phone, vehicle = coalesce(v.vehicle, ''), vehicle_no = v.vehicle_no,
-              incharge = v.incharge, printed_at = v.printed_at, given_at = v.given_at, updated_at = now(), updated_by = ${userId}, rev = ${rev}
+              incharge = v.incharge, issued_to = coalesce(v.issued_to, ''), -- empty in changes saved before Issued To existed
+              printed_at = v.printed_at, given_at = v.given_at, updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(beforeRows)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed_at timestamptz, given_at timestamptz)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -307,12 +320,12 @@ async function putBack(trx: Transaction<Database>, userId: number, rev: number, 
     throw conflict(`Can't undo: ${TYPE_INFO[taken[0].type].label} ${serialList(taken.map((t) => t.serial))} ${taken.length === 1 ? 'was' : 'were'} added again since.`);
   }
   const back = (await sql<PassRow>`
-    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, printed_at, given_at, created_at, created_by, updated_by, rev)
+    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, created_at, created_by, updated_by, rev)
     OVERRIDING SYSTEM VALUE
-    SELECT v.id, v.type::pass_type, v.serial, v.name, v.dept, v.area, v.phone, v.vehicle, v.vehicle_no, v.incharge,
+    SELECT v.id, v.type::pass_type, v.serial, v.name, v.dept, v.area, v.phone, v.vehicle, v.vehicle_no, v.incharge, coalesce(v.issued_to, ''),
            v.printed_at, v.given_at, v.created_at, v.created_by, ${userId}, ${rev}
     FROM jsonb_to_recordset(${json}::jsonb)
-      AS v(id int, type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text,
+      AS v(id int, type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text,
            printed_at timestamptz, given_at timestamptz, created_at timestamptz, created_by int)
     RETURNING *`.execute(trx)).rows;
   await trx.deleteFrom('deleted_passes').where('id', 'in', rows.map((r) => r.id)).execute();

@@ -83,6 +83,7 @@ body {
 .sheet-grid:has(input[data-k="vehicle"]:focus) th[data-col="vehicle"],
 .sheet-grid:has(input[data-k="vehicle_no"]:focus) th[data-col="vehicle_no"],
 .sheet-grid:has(input[data-k="incharge"]:focus) th[data-col="incharge"],
+.sheet-grid:has(input[data-k="issued_to"]:focus) th[data-col="issued_to"],
 .sheet-grid:has(input[data-col="printed"]:focus) th[data-col="printed"],
 .sheet-grid:has(input[data-col="given"]:focus) th[data-col="given"] {
   background: var(--color-rule);

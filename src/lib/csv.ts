@@ -1,5 +1,5 @@
 import {
-  cleanText, type CreateOp, type Field, FIELD_LABELS, fieldsFor, fmtSerial, isPassType, PASS_TYPES, type Pass, type PassType,
+  cleanField, cleanText, type CreateOp, type Field, FIELD_LABELS, fieldsFor, fmtSerial, isPassType, locksWhenPrinted, PASS_TYPES, type Pass, type PassType,
   type SetOp, TYPE_INFO,
 } from '@/shared/types';
 import { isGiven, isPrinted, localDay, parseSerial } from './passes';
@@ -40,12 +40,14 @@ const excelText = (v: string) => (/^\+|^0|^\d{12,}$/.test(v) ? `="${v}"` : v);
 
 /** One sheet's passes as a table (header row first), as plain text. `names`: user id → name, for Added by. */
 export function exportTable(rows: Pass[], type: PassType, names: Map<number, string> = new Map()): string[][] {
-  const cols = fieldsFor(type);
+  // As in the sheet: the handover columns (Issued To) come after Given.
+  const cols = fieldsFor(type).filter(locksWhenPrinted);
+  const after = fieldsFor(type).filter((k) => !locksWhenPrinted(k));
   return [
-    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Printed', 'Given', 'Added', 'Added by'],
+    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Printed', 'Given', ...after.map((k) => FIELD_LABELS[k]), 'Added', 'Added by'],
     ...rows.map((p) => [
       fmtSerial(p.serial), TYPE_INFO[p.type].label, ...cols.map((k) => p[k]),
-      isPrinted(p) ? 'Yes' : '', isGiven(p) ? 'Yes' : '', localDay(p.created_at), names.get(p.created_by) ?? '',
+      isPrinted(p) ? 'Yes' : '', isGiven(p) ? 'Yes' : '', ...after.map((k) => p[k]), localDay(p.created_at), names.get(p.created_by) ?? '',
     ]),
   ];
 }
@@ -109,6 +111,7 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     oldType: find(/^type$/i),
     zone: find(/pandal/i),
     incharge: find(/in-?charge|given\s*to/i),
+    issued_to: find(/issued\s*to/i),
     dept: find(/dept|department/i),
     area: find(/area|centre|center|city/i),
     phone: find(/phone|contact|mobile\s*no/i),
@@ -134,7 +137,7 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     if (t && t !== type) { plan.otherSheet++; continue; }
     if (seen.has(serial)) continue; // a repeated row: the first one counts
     seen.add(serial);
-    const values = Object.fromEntries(cols.map((k) => [k, cell(r, c[k])]).filter(([, v]) => v)) as Partial<Record<Field, string>>;
+    const values = Object.fromEntries(cols.map((k) => [k, cleanField(k, cell(r, c[k]))]).filter(([, v]) => v)) as Partial<Record<Field, string>>;
     const yes = (i: number) => /^(y|true|1|✓)/i.test(cell(r, i));
     const printed = yes(c.printed);
     const p = bySerial.get(serial);
@@ -152,7 +155,7 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     const tick = printed && !isPrinted(p);
     const tickGiven = given && !isGiven(p);
     if (clash) plan.clashes.push(`${fmtSerial(serial)} (${FIELD_LABELS[clash]})`);
-    else if (changed.length && isPrinted(p)) plan.clashes.push(`${fmtSerial(serial)} (printed)`);
+    else if (isPrinted(p) && changed.some(locksWhenPrinted)) plan.clashes.push(`${fmtSerial(serial)} (printed)`);
     else if (!changed.length && !tick && !tickGiven) plan.same++;
     else {
       plan.set.push({

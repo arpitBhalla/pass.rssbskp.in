@@ -5,17 +5,17 @@ import { addedBy, useUserNames } from '@/client/users';
 import {
   type ClipboardEvent, type FocusEvent, type KeyboardEvent, memo, type MouseEvent, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted } from '@/lib/passes';
-import { cleanText, type Field, FIELD_LABELS, fieldsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
+import { cleanField, cleanText, type Field, FIELD_LABELS, fieldsFor, fmtSerial, locksWhenPrinted, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 
 const ROW_H = 30; // keep in step with h-[30px] below
 /** Columns with typing suggestions (datalists rendered by SheetScreen). */
 const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
-const WIDTH: Partial<Record<Field, number>> = { dept: 130, area: 130, phone: 120, vehicle: 150, vehicle_no: 130 };
-/** Name and Incharge take the spare width, but never less than this: the table scrolls sideways first. */
-const FLEX_MIN = 128;
+const WIDTH: Partial<Record<Field, number>> = { dept: 118, area: 118, phone: 112, vehicle: 140, vehicle_no: 124 };
+/** Name, Incharge and Issued To take the spare width, but never less than this: the table scrolls sideways first. */
+const FLEX_MIN = 112;
 /** The other columns' widths. Mobile sheets fit beside the side panel on a 1440 px screen. */
-const COL = { serial: 128, added: 70, by: 110, printed: 66, given: 64 };
+const COL = { serial: 128, added: 70, by: 92, printed: 66, given: 64 };
 
 export interface Span {
   lo: number;
@@ -33,6 +33,14 @@ type Item =
   | { kind: 'empty'; key: string; serial: number }
   | { kind: 'new'; key: string };
 
+/**
+ * The sheet's columns: its fields up to Incharge, then Printed and Given, the handover fields
+ * (Issued To), and Added, Added by. Cells are numbered by their place in the sheet's fields (`data-c`),
+ * which is also the order a paste or fill goes rightward in.
+ */
+const before = (fields: readonly Field[]) => fields.filter(locksWhenPrinted);
+const after = (fields: readonly Field[]) => fields.filter((k) => !locksWhenPrinted(k));
+
 /** A cell: its row (by item key, so it survives rows moving) and column (index into the sheet's fields). */
 interface Cell { key: string; c: number }
 /** A block of cells: rows r0–r1 (item indexes) and columns c0–c1. */
@@ -46,6 +54,22 @@ const toClipboard = (rows: string[][]) => ({
   text: rows.map((r) => r.join('\t')).join('\n'),
   html: `<table>${rows.map((r) => `<tr>${r.map((v) => `<td style="mso-number-format:'\\@'">${escHtml(v)}</td>`).join('')}</tr>`).join('')}</table>`,
 });
+
+/** What Ctrl+C / Ctrl+X takes: the cells as text, the passes behind them and their columns. */
+interface Clip {
+  rows: string[][];
+  passes: Pass[];
+  keys: readonly Field[];
+  /** "9 cells", "3 rows" */
+  what: string;
+  /** Rows picked by Sr. No.: copied with their Sr. No. first. */
+  withSerial?: boolean;
+  /** One cell: no "Copied" note, and the cursor stays in it after a cut. */
+  cell?: { i: number; k: Field };
+}
+/** The last rows copied with their Sr. No.: pasted back into the sheet, they fill from Name (without the Sr. No.). */
+let copiedRows: { text: string; cells: string } | null = null;
+const trimLines = (t: string) => t.replace(/\r/g, '').replace(/\n+$/, '');
 
 /** The passes behind a row. An unfilled row stands for a pass that doesn't exist yet. */
 const itemPasses = (type: PassType, it: Item): Pass[] =>
@@ -68,16 +92,20 @@ export interface SheetProps {
   /** Adds this serial with these values. */
   onCreate: (serial: number, values: Values) => Promise<boolean>;
   /** Pastes (or, `fill`, fills from the fill handle) these lines of cells from row `start`, column `key`. */
-  onPaste: (rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean, fill?: boolean) => void;
+  onPaste: (rows: Pass[][], start: number, key: Field, text: string | string[][], canCreate: boolean, fill?: boolean) => void;
+  /** Ctrl+X (`cut`: these cells were copied) or Delete: empty columns `keys` of these passes. */
+  onClear: (passes: Pass[], keys: readonly Field[], what: string, cut: boolean) => void;
   onPrinted: (passes: Pass[], printed: boolean) => void;
   onGiven: (passes: Pass[], given: boolean) => void;
   onSelect: (span: Span) => void;
   onSelectEnd: () => void;
+  /** A cell got the cursor: the rows picked by Sr. No. are let go (as in Excel). */
+  onClearSelection: () => void;
 }
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onPrinted, onGiven, onSelect, onSelectEnd } = props;
+  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onSelect, onSelectEnd, onClearSelection } = props;
   const fields = fieldsFor(type);
   const cols = 5 + fields.length;
   const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0);
@@ -167,8 +195,8 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     return it ? (itemPasses(type, it)[0]?.[k] ?? '') : '';
   };
 
-  /** Copies the fill source into `to` (rows below it, or columns to its right), saved like a paste. */
-  const fill = (from: Rect, to: Rect) => {
+  /** Copies the fill source into `to` (rows below it, or columns to its right), saved like a paste. Selects both after. */
+  const fill = (from: Rect, to: Rect, select = true) => {
     const lines: string[][] = [];
     const h = from.r1 - from.r0 + 1, w = from.c1 - from.c0 + 1;
     for (let i = to.r0; i <= to.r1; i++) {
@@ -182,13 +210,51 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     }
     const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
     const start = items[to.r0]?.kind === 'new' ? rows.length : to.r0;
-    onPaste(rows, start, fields[to.c0], lines.map((l) => l.join('\t')).join('\n'), canAdd, true);
-    setBlock({ a: { key: items[Math.min(from.r0, to.r0)].key, c: Math.min(from.c0, to.c0) }, b: { key: items[Math.max(from.r1, to.r1)].key, c: Math.max(from.c1, to.c1) } });
+    onPaste(rows, start, fields[to.c0], lines, canAdd, true);
+    if (select) setBlock({ a: { key: items[Math.min(from.r0, to.r0)].key, c: Math.min(from.c0, to.c0) }, b: { key: items[Math.max(from.r1, to.r1)].key, c: Math.max(from.c1, to.c1) } });
+  };
+
+  /**
+   * What Ctrl+C / Ctrl+X takes: the selected block; else the cell with the cursor (its whole value,
+   * unless some of its text is selected or it's being typed in: then the box's own copy / cut); else
+   * the rows picked by Sr. No. Null: leave it to the browser.
+   */
+  const collect = (): Clip | null => {
+    const el = document.activeElement;
+    const inSheet = !!el && !!scrollRef.current?.contains(el);
+    const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+    if (multi && rect && (inSheet || !typing)) {
+      const rows: string[][] = [];
+      const passes: Pass[] = [];
+      for (let i = rect.r0; i <= rect.r1; i++) {
+        const it = items[i];
+        if (!it || it.kind === 'new') continue;
+        const line: string[] = [];
+        for (let c = rect.c0; c <= rect.c1; c++) line.push(valueAt(i, c));
+        rows.push(line);
+        passes.push(...itemPasses(type, it));
+      }
+      const n = rows.length * (rect.c1 - rect.c0 + 1);
+      return { rows, passes, keys: fields.slice(rect.c0, rect.c1 + 1), what: `${n} cell${n === 1 ? '' : 's'}` };
+    }
+    if (inSheet && el instanceof HTMLInputElement && el.dataset.k && el.selectionStart === el.selectionEnd) {
+      const k = el.dataset.k as Field;
+      if (cleanField(k, el.value) !== cleanField(k, el.defaultValue)) return null; // being typed in
+      const i = Number(el.closest('tr')?.dataset.i);
+      const it = items[i];
+      return { rows: [[cleanText(el.value)]], passes: it ? itemPasses(type, it) : [], keys: [k], what: '1 cell', cell: { i, k } };
+    }
+    if (selection && !typing && !window.getSelection()?.toString()) {
+      const ps = view.filter((p) => inSpan(selection, p));
+      if (!ps.length) return null;
+      return { rows: ps.map((p) => [fmtSerial(p.serial), ...fields.map((k) => p[k])]), passes: ps, keys: fields, what: `${ps.length} row${ps.length === 1 ? '' : 's'}`, withSerial: true };
+    }
+    return null;
   };
 
   // Latest state for the document-level mouse and copy listeners below.
-  const live = useRef({ cellAt, rect, source, multi, fill, valueAt, items, selection, view, fields, setFillTo });
-  useEffect(() => { live.current = { cellAt, rect, source, multi, fill, valueAt, items, selection, view, fields, setFillTo }; });
+  const live = useRef({ cellAt, rect, source, multi, fill, valueAt, items, selection, view, fields, setFillTo, collect, onClear, focusCell: (_i: number, _k: string) => {} });
+  useEffect(() => { live.current = { cellAt, rect, source, multi, fill, valueAt, items, selection, view, fields, setFillTo, collect, onClear, focusCell }; });
 
   useEffect(() => {
     let raf = 0;
@@ -241,39 +307,73 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     };
   }, []);
 
-  // Ctrl+C: the block of cells; else the cell with the cursor (whole value); else rows picked by Sr. No.
+  // Typed into a cell but not left it yet: start saving it now, and have the browser ask before closing.
   useEffect(() => {
-    const onCopy = (e: globalThis.ClipboardEvent) => {
-      const { rect: r, multi: m, valueAt: val, selection: sel, view: v, fields: fs } = live.current;
+    const leaving = (e: BeforeUnloadEvent) => {
+      const typed = [...(scrollRef.current?.querySelectorAll<HTMLInputElement>('input[data-k]') ?? [])]
+        .some((el) => !el.readOnly && cleanField(el.dataset.k as Field, el.value) !== cleanField(el.dataset.k as Field, el.defaultValue));
+      if (!typed) return;
+      e.preventDefault();
+      e.returnValue = '';
       const el = document.activeElement;
-      const inSheet = !!el && !!scrollRef.current?.contains(el);
-      const typing = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
-      let rows: string[][] | null = null;
-      let what = '';
-      if (m && r && (inSheet || !typing)) {
-        rows = [];
-        for (let i = r.r0; i <= r.r1; i++) {
-          if (live.current.items[i]?.kind === 'new') continue;
-          const line: string[] = [];
-          for (let c = r.c0; c <= r.c1; c++) line.push(val(i, c));
-          rows.push(line);
-        }
-        what = `${rows.length * (r.c1 - r.c0 + 1)} cells`;
-      } else if (inSheet && el instanceof HTMLInputElement && el.dataset.k && el.selectionStart === el.selectionEnd) {
-        rows = [[cleanText(el.value)]];
-      } else if (sel && !typing && !window.getSelection()?.toString()) {
-        rows = v.filter((p) => inSpan(sel, p)).map((p) => [fmtSerial(p.serial), ...fs.map((k) => p[k])]);
-        what = `${rows.length} row${rows.length === 1 ? '' : 's'}, with Sr. No.`;
-      }
-      if (!rows?.length || !e.clipboardData) return;
-      const { text, html } = toClipboard(rows);
+      if (el instanceof HTMLElement && scrollRef.current?.contains(el)) el.blur(); // starts saving it
+    };
+    window.addEventListener('beforeunload', leaving);
+    return () => window.removeEventListener('beforeunload', leaving);
+  }, []);
+
+  // Ctrl+C copies, Ctrl+X copies then empties (one change, so Undo brings it back): see `collect`.
+  // The keys are handled here because a Mac browser ignores ⌘C / ⌘X when no text is selected.
+  // Delete / Backspace empties a block of cells, or the rows picked by Sr. No. (the passes stay).
+  useEffect(() => {
+    let cutting = false;
+    const onCopy = (e: globalThis.ClipboardEvent) => {
+      const got = live.current.collect();
+      if (!got?.rows.length || !e.clipboardData) return;
+      const { text, html } = toClipboard(got.rows);
       e.clipboardData.setData('text/plain', text);
       e.clipboardData.setData('text/html', html);
       e.preventDefault();
-      if (what) toast(`Copied ${what}`);
+      copiedRows = got.withSerial ? { text, cells: got.rows.map((r) => r.slice(1).join('\t')).join('\n') } : null;
+      if (!got.cell && !cutting) toast(`Copied ${got.what}${got.withSerial ? ', with Sr. No.' : ''}`);
+    };
+    const refuse = (locked: number[], what: string) =>
+      toast(`${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed, so nothing was ${what}. Untick Printed first.`, 'error');
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        const got = live.current.collect();
+        if (!got?.rows.length || got.cell) return; // one cell: the box edits its text
+        e.preventDefault();
+        const { locked } = planClear(got.passes, got.keys);
+        if (locked.length) return refuse(locked, 'cleared');
+        return live.current.onClear(got.passes, got.keys, got.what, false);
+      }
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'c' && key !== 'x') return;
+      const got = live.current.collect();
+      if (!got?.rows.length) return; // the browser's own copy / cut
+      e.preventDefault();
+      if (key === 'x') {
+        const { locked } = planClear(got.passes, got.keys);
+        if (locked.length) return refuse(locked, 'cut');
+      }
+      cutting = key === 'x';
+      const copied = document.execCommand('copy'); // runs onCopy above
+      cutting = false;
+      if (!copied) void navigator.clipboard?.writeText(toClipboard(got.rows).text);
+      if (key !== 'x') return;
+      live.current.onClear(got.passes, got.keys, got.what, true);
+      const c = got.cell;
+      if (c) requestAnimationFrame(() => live.current.focusCell(c.i, c.k)); // the cursor stays in the cell
     };
     document.addEventListener('copy', onCopy);
-    return () => document.removeEventListener('copy', onCopy);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   const onMouseDown = (e: MouseEvent<HTMLTableSectionElement>) => {
@@ -315,7 +415,9 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   };
   const onFocusCell = (e: FocusEvent<HTMLTableSectionElement>) => {
     const cell = (e.target as HTMLElement).dataset.k ? cellAt(e.target as Element) : null;
-    if (cell) setActive(cell);
+    if (!cell) return;
+    setActive(cell);
+    if (selection) onClearSelection();
   };
   const onMouseOver = (e: MouseEvent<HTMLTableSectionElement>) => {
     onMouseOverCells(e);
@@ -339,11 +441,23 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     requestAnimationFrame(() => go(find()));
   };
 
-  // Enter / ↓ moves down, Shift+Enter / ↑ moves up, like Excel.
+  // Enter / ↓ moves down, Shift+Enter / ↑ moves up, Ctrl+D fills down, like Excel.
   const onKeyDown = (e: KeyboardEvent<HTMLTableSectionElement>) => {
     const el = e.target as HTMLInputElement;
     const k = el.dataset.k as Field | undefined;
     if (!k || e.defaultPrevented) return;
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd') {
+      e.preventDefault(); // not the browser's "bookmark this page"
+      const i = Number(el.closest('tr')!.dataset.i);
+      const c = fields.indexOf(k);
+      if (multi && rect && rect.r1 > rect.r0) { // the block's top row into the rows below it
+        fill({ ...rect, r1: rect.r0 }, { ...rect, r0: rect.r0 + 1 }, false);
+      } else if (!multi && i > 0 && items[i].kind !== 'new') { // one cell: the cell above into it
+        fill({ r0: i - 1, r1: i - 1, c0: c, c1: c }, { r0: i, r1: i, c0: c, c1: c }, false);
+        requestAnimationFrame(() => focusCell(i, k)); // the cursor stays in the cell
+      }
+      return;
+    }
     let dir = 0;
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) setBlock(null); // typing edits the one cell
     if (e.key === 'Enter') dir = e.shiftKey ? -1 : 1;
@@ -360,8 +474,10 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   // Cells copied from Excel fill downward (one line per row) and rightward.
   const onPasteCells = (e: ClipboardEvent<HTMLTableSectionElement>) => {
     const el = e.target as HTMLInputElement;
-    const k = el.dataset.k as Field | undefined;
-    const text = e.clipboardData.getData('text');
+    let k = el.dataset.k as Field | undefined;
+    let text = e.clipboardData.getData('text');
+    // Rows copied from the sheet by Sr. No.: fill this row from Name, leaving the Sr. No. out.
+    if (copiedRows && trimLines(text) === copiedRows.text) { text = copiedRows.cells; k = fields[0]; }
     if (!k || !isMultiCell(text)) return;
     e.preventDefault();
     setBlock(null);
@@ -377,20 +493,24 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       <table className={`sheet-grid w-full table-fixed border-separate border-spacing-0 ${multi ? 'has-block' : ''}`} style={{ minWidth: tableMin }}>
         <colgroup>
           <col style={{ width: COL.serial }} />
-          {fields.map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
-          <col style={{ width: COL.added }} />
-          <col style={{ width: COL.by }} />
+          {before(fields).map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
           <col style={{ width: COL.printed }} />
           <col style={{ width: COL.given }} />
+          {after(fields).map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
+          <col style={{ width: COL.added }} />
+          <col style={{ width: COL.by }} />
         </colgroup>
         <thead className="sticky top-0 z-10">
           <tr className="h-[30px] text-left">
             <th className={`${th} ${margin}`}>Sr. No.</th>
-            {fields.map((k) => <th key={k} data-col={k} className={th}>{FIELD_LABELS[k]}</th>)}
-            <th className={th}>Added</th>
-            <th className={th}>Added by</th>
+            {before(fields).map((k) => <th key={k} data-col={k} className={th}>{FIELD_LABELS[k]}</th>)}
             <th data-col="printed" className={`${th} text-center`}>Printed</th>
             <th data-col="given" className={`${th} text-center`}>Given</th>
+            {after(fields).map((k) => (
+              <th key={k} data-col={k} className={th} title="Who collected the pass. Can be filled in after printing.">{FIELD_LABELS[k]}</th>
+            ))}
+            <th className={th}>Added</th>
+            <th className={th}>Added by</th>
           </tr>
         </thead>
         <tbody onKeyDown={onKeyDown} onPaste={onPasteCells} onMouseDown={onMouseDown} onMouseOver={onMouseOver} onFocus={onFocusCell}>
@@ -480,17 +600,19 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
 }) {
   const printed = isPrinted(p);
   const given = isGiven(p);
+  const cell = (k: Field) => {
+    const c = fields.indexOf(k);
+    return (
+      <td key={k} data-c={c} className={cellTd(c, mark)}>
+        <CellInput key={p[k]} target={[p]} k={k} saved={p[k]} locked={printed && locksWhenPrinted(k)} onEdit={onEdit} />
+        {mark?.handle === c && <FillHandle />}
+      </td>
+    );
+  };
   return (
     <tr data-i={i} className={rowCls(selected)}>
       <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} cursor-pointer select-none ${selected ? picked : ''}`} title="Click to select. Shift+click or drag for more.">{fmtSerial(p.serial)}</td>
-      {fields.map((k, c) => (
-        <td key={k} data-c={c} className={cellTd(c, mark)}>
-          <CellInput key={p[k]} target={[p]} k={k} saved={p[k]} locked={printed} onEdit={onEdit} />
-          {mark?.handle === c && <FillHandle />}
-        </td>
-      ))}
-      <td className={`${td} text-[13.5px] text-muted-foreground`} title={new Date(p.created_at).toLocaleString()}>{shortDate(p.created_at)}</td>
-      <AddedBy ids={[p.created_by]} />
+      {before(fields).map(cell)}
       <td className={`${td} text-center`}>
         <TickBox col="printed" checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
       </td>
@@ -500,6 +622,9 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
           title={given ? `Given ${new Date(p.given_at!).toLocaleString()}. Untick if it wasn't handed over.` : printed ? 'Not given yet: tick when the pass is handed over' : 'Not printed yet: print it first, then tick Given when it is handed over'}
         />
       </td>
+      {after(fields).map(cell)}
+      <td className={`${td} text-[13.5px] text-muted-foreground`} title={new Date(p.created_at).toLocaleString()}>{shortDate(p.created_at)}</td>
+      <AddedBy ids={[p.created_by]} />
     </tr>
   );
 });
@@ -512,6 +637,15 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
   const first = passes[0];
   const printed = isPrinted(first);
   const given = isGiven(first);
+  const cell = (k: Field) => {
+    const c = fields.indexOf(k);
+    return (
+      <td key={k} data-c={c} className={cellTd(c, mark)}>
+        <CellInput key={first[k]} target={passes} k={k} saved={first[k]} locked={printed && locksWhenPrinted(k)} onEdit={onEdit} />
+        {mark?.handle === c && <FillHandle />}
+      </td>
+    );
+  };
   return (
     <tr data-i={i} className={rowCls(selected, '[&>td]:bg-sand-50')}>
       <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} !pl-0.5 cursor-pointer select-none ${selected ? picked : ''}`} title={`${passes.length} passes. Click to select them.`}>
@@ -523,14 +657,7 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
         </button>
         {fmtSerial(first.serial)}…{fmtSerial(passes[passes.length - 1].serial)}
       </td>
-      {fields.map((k, c) => (
-        <td key={k} data-c={c} className={cellTd(c, mark)}>
-          <CellInput key={first[k]} target={passes} k={k} saved={first[k]} locked={printed} onEdit={onEdit} />
-          {mark?.handle === c && <FillHandle />}
-        </td>
-      ))}
-      <td className={`${td} text-[13.5px] text-muted-foreground`}>{addedSpan(passes)}</td>
-      <AddedBy ids={passes.map((p) => p.created_by)} />
+      {before(fields).map(cell)}
       <td className={`${td} text-center`}>
         <TickBox col="printed" checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
       </td>
@@ -540,6 +667,9 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
           title={given ? 'Given. Untick if they weren\'t handed over.' : printed ? 'Not given yet: tick when these passes are handed over' : 'Not printed yet: print them first, then tick Given when they are handed over'}
         />
       </td>
+      {after(fields).map(cell)}
+      <td className={`${td} text-[13.5px] text-muted-foreground`}>{addedSpan(passes)}</td>
+      <AddedBy ids={passes.map((p) => p.created_by)} />
     </tr>
   );
 }
@@ -583,6 +713,15 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }:
     e.preventDefault();
     void commit(true);
   };
+  const cell = (k: Field) => {
+    const c = fields.indexOf(k);
+    return (
+      <td key={k} data-c={c} className={cellTd(c, mark)}>
+        <input data-k={k} list={SUGGEST[k]} placeholder={last && c === 0 ? 'type or paste…' : ''} className={cellCls(false, k)} />
+        {mark?.handle === c && <FillHandle />}
+      </td>
+    );
+  };
   // Typed something, then scrolled away before leaving the row: still add it.
   useEffect(() => {
     const row = ref.current;
@@ -597,16 +736,12 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }:
       <td data-pick={last ? undefined : true} className={`${td} ${margin} ${serialCls} ${rowHead} !font-normal !text-muted-foreground/80 ${last ? '' : 'cursor-pointer select-none'} ${selected ? picked : ''}`} title={last ? 'Type or paste here to add the next pass' : 'Not in the register yet: type or paste to fill it'}>
         {last && <span aria-hidden className="mr-1">+</span>}{fmtSerial(serial)}
       </td>
-      {fields.map((k, c) => (
-        <td key={k} data-c={c} className={cellTd(c, mark)}>
-          <input data-k={k} list={SUGGEST[k]} placeholder={last && c === 0 ? 'type or paste…' : ''} className={cellCls(false, k)} />
-          {mark?.handle === c && <FillHandle />}
-        </td>
-      ))}
-      <td className={td} />
-      <td className={td} />
+      {before(fields).map(cell)}
       <td className={td} />
       <td className={`${td} text-[13.5px] text-muted-foreground/60`}>{last ? '' : 'Free'}</td>
+      {after(fields).map(cell)}
+      <td className={td} />
+      <td className={td} />
     </tr>
   );
 }
@@ -644,7 +779,7 @@ function TickBox({ col, checked, disabled, onChange, title }: {
 }
 
 const cellCls = (locked: boolean, k: Field) =>
-  `h-[29px] w-full bg-transparent px-2 outline-none placeholder:text-muted-foreground/50 ${locked ? 'cursor-default text-muted-foreground' : ''} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''}`;
+  `h-[29px] w-full bg-transparent px-2 outline-none placeholder:text-muted-foreground/50 ${locked ? 'cursor-default text-muted-foreground' : ''} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
 
 /**
  * Uncontrolled box that saves on blur. Keyed by its value, so it redraws when the value changes
@@ -659,8 +794,9 @@ function CellInput({ target, k, saved, locked, onEdit }: { target: Pass[]; k: Fi
 
   const save = (raw: string) => {
     const { target: t, onEdit: edit, locked: l } = latest.current;
-    const v = cleanText(raw);
-    if (l || v === sent.current) return;
+    const v = cleanField(k, raw);
+    if (l) return;
+    if (v === sent.current) { if (ref.current) ref.current.value = v; return; } // e.g. a plate typed without dashes
     sent.current = v;
     void edit(t, k, v, saved).then((ok) => {
       if (ok || !ref.current) return;

@@ -13,16 +13,27 @@ export const PASS_TYPES = [
   'tractor-trolley',
   'gate3-entry',
   'bav-entry',
+  'vip-gate',
+  'admin',
 ] as const;
 export type PassType = (typeof PASS_TYPES)[number];
 
 /** Text columns. A sheet shows its own subset, in its own order (see `fields` below). */
-export const FIELDS = ['name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge'] as const;
+export const FIELDS = ['name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to'] as const;
 export type Field = (typeof FIELDS)[number];
 
 export const FIELD_LABELS: Record<Field, string> = {
   name: 'Name', dept: 'Dept', area: 'Area', phone: 'Phone', vehicle: 'Vehicle', vehicle_no: 'Reg. No.', incharge: 'Incharge',
+  issued_to: 'Issued To',
 };
+
+/**
+ * Filled in when a pass is handed over, which is after it's printed: these stay editable on printed
+ * passes (everything else on a printed pass is locked), and the sheet shows them after Given.
+ */
+export const HANDOVER_FIELDS: readonly Field[] = ['issued_to'];
+/** False for the handover columns: a printed pass can still record who it was issued to. */
+export const locksWhenPrinted = (k: Field) => !HANDOVER_FIELDS.includes(k);
 
 /** Which printed template a sheet uses (the RSSB SKP pass templates). */
 export type Layout = 'mobile' | 'bike' | 'vehicle';
@@ -41,19 +52,22 @@ export interface PassTypeInfo {
   color: { name: string; band: string; stripe: string; bg: string; logo: string; title?: string };
 }
 
-const MOBILE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'incharge'];
-const BIKE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'vehicle_no', 'phone', 'incharge'];
-const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area', 'dept', 'phone', 'incharge'];
+// The handover columns (Issued To) come last.
+const MOBILE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'incharge', 'issued_to'];
+const BIKE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'vehicle_no', 'phone', 'incharge', 'issued_to'];
+const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area', 'dept', 'phone', 'incharge', 'issued_to'];
 
 // Colours sampled from the templates (Downloads/passes-template). Pandal is blue, Non Pandal grey,
 // vehicle passes green; Mobile (portrait) and Bike (landscape, tinted card) differ by shape.
-// Gate 3 Entry (orange) and BAV Parking (purple) have no template: the Sewa Vehicle pass in their colour,
-// title included, so the gate tells them apart at a glance.
+// Gate 3 Entry (orange), BAV Parking (purple), VIP Gate (red) and Admin (teal) have no template: the
+// Sewa Vehicle pass in their colour, title included, so the gate tells them apart at a glance.
 const BLUE = { name: 'Blue', band: '#2e3192', logo: '#231f20' };
 const GREY = { name: 'Grey', band: '#808285', logo: '#9e0b0f' };
 const GREEN = { name: 'Green', band: '#007236', stripe: '#bcbec0', bg: '#ffffff', logo: '#939598' };
 const ORANGE = { ...GREEN, name: 'Orange', band: '#d35400', title: '#d35400' };
 const PURPLE = { ...GREEN, name: 'Purple', band: '#5b2c83', title: '#5b2c83' };
+const RED = { ...GREEN, name: 'Red', band: '#b3122e', title: '#b3122e' };
+const TEAL = { ...GREEN, name: 'Teal', band: '#00727a', title: '#00727a' };
 
 export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'mobile-pandal': {
@@ -76,6 +90,8 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'tractor-trolley': { label: 'Tractor Trolley', short: 'TT', layout: 'vehicle', title: 'TRACTOR TROLLEY PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'vehicle', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, color: ORANGE },
   'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'vehicle', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
+  'vip-gate': { label: 'VIP Gate', short: 'VG', layout: 'vehicle', title: 'VIP GATE PASS', fields: VEHICLE_FIELDS, color: RED },
+  admin: { label: 'Admin', short: 'AD', layout: 'vehicle', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, color: TEAL },
 };
 
 export const isPassType = (v: unknown): v is PassType => PASS_TYPES.includes(v as PassType);
@@ -94,6 +110,19 @@ export const fmtSerial = (n: number) => String(n).padStart(4, '0');
 /** Trims, flattens tabs / line breaks to spaces and caps the length. */
 export const cleanText = (v: string) => v.replace(/[\t\r\n]+/g, ' ').trim().slice(0, MAX_TEXT);
 
+/**
+ * A number plate written one way: "hr 24 ab 9168", "HR24AB9168" and "HR-24-AB-9168" all become
+ * "HR-24AB-9168" (state, district and series, number). Anything else ("E-SCOOTY") stays as typed.
+ */
+export function formatRegNo(v: string): string {
+  const s = v.toUpperCase().replace(/[\s.\-/]+/g, '');
+  const m = s.length >= 6 && s.match(/^([A-Z]{2})(\d{1,2})([A-Z]{0,3})(\d{1,4})$/); // not a half-typed "HR26"
+  return m ? `${m[1]}-${m[2]}${m[3]}-${m[4]}` : v;
+}
+
+/** A value as it's saved in this column: cleaned, and number plates written one way. */
+export const cleanField = (k: Field, v: string) => (k === 'vehicle_no' ? formatRegNo(cleanText(v)) : cleanText(v));
+
 /** A pass as the browser sees it. */
 export interface Pass {
   id: number;
@@ -108,6 +137,8 @@ export interface Pass {
   /** Registration no. (Bike, Sewa Vehicle, Tractor Trolley). */
   vehicle_no: string;
   incharge: string;
+  /** Who collected the pass at the desk (filled in at handover; not printed on the pass). */
+  issued_to: string;
   /** ISO time, or null if not printed yet. */
   printed_at: string | null;
   /** ISO time Given was ticked (handed over), or null. */

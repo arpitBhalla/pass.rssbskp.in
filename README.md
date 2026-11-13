@@ -1,7 +1,7 @@
 # Pass Register: RSSB SKP
 
-The register for numbered passes, with eight sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
-Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Parking**. Each sheet has its own serial
+The register for numbered passes, with ten sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
+Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, VIP Gate and Admin**. Each sheet has its own serial
 numbers from 0001. Every printed pass carries a QR code that the gate checks with a phone.
 Several desks can work at once; every change is saved in Postgres with who made it.
 
@@ -36,30 +36,39 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 
 - **Pick passes:** select rows (click a Sr. No., then Shift+click or drag) or enter From and To in the
   right panel. The bar above the sheet then prints them, ticks them Given or deletes them; **Clear**
-  drops the selection. The sheet's name is written faintly behind the rows, so it's clear which sheet
+  (or clicking into a cell) drops the selection. The sheet's name is written faintly behind the rows, so it's clear which sheet
   you are typing into.
 - **Give a range:** pick the passes, fill Area / Incharge / Dept / … in the right panel and click **Give**. It needs the Incharge, or
   at least one of Name, Dept and Phone; the rest is optional. Missing serials are added. The sheet
   shows when each pass was added and by whom (**Added**, **Added by**).
-  Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Parking have Vehicle
-  and Reg. No.
+  Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, VIP Gate and
+  Admin have Vehicle and Reg. No. A number plate is written one way however it's typed: `hr 24 ab 9168` becomes
+  `HR-24AB-9168`; anything else (`E-SCOOTY`) stays as typed. Searching `hr24ab` finds it.
   Values already filled are never overwritten: those passes are listed and left alone.
 - **Type or paste from Excel:** click a cell and type (Enter moves down). Copy cells in Excel and paste
   into the first cell: lines fill downward, columns fill rightward, and a copied header row is skipped.
   Empty rows are serials not in the register yet. Typing or pasting into one adds that serial, and the
   row at the bottom adds the next one.
-- **Like Excel:** drag across cells (or click one, then Shift+click another) to select a block, and
-  **Ctrl+C** copies it for Excel or for pasting elsewhere in the sheet. With only the cursor in a cell,
-  Ctrl+C copies that cell; with rows picked by Sr. No., it copies them with their Sr. No. Drag the small
-  square at the corner of the cell (or block) down or right to copy it into the cells it passes, saved
-  as one change (**Undo** reverses it). Printed passes are never overwritten. The row and column of the
-  cell being typed in are highlighted.
+- **Like Excel** (on a Mac, ⌘ instead of Ctrl): drag across cells (or click one, then Shift+click
+  another) to select a block, and **Ctrl+C** copies it for Excel or for pasting elsewhere in the sheet
+  (**Ctrl+V**). With only the cursor in a cell, Ctrl+C copies that cell; with rows picked by Sr. No., it
+  copies them with their Sr. No. (pasted back into the sheet, they fill from Name). **Ctrl+X** cuts:
+  copies, then empties those cells. **Delete** (or Backspace) empties a block of cells, or the rows
+  picked by Sr. No.; the passes stay in the register (to remove passes, use **Delete … passes** in the
+  bar). **Ctrl+D** fills down: a cell gets the value of the cell above it, and
+  a block copies its top row into the rows below. Or drag the small square at the corner of the cell
+  (or block) down or right to copy it into the cells it passes. A fill is saved as one change (**Undo**
+  reverses it), and printed passes are never overwritten. **Esc** clears the block. The row and column
+  of the cell being typed in are highlighted.
 - **Collapsed ranges:** consecutive passes given to one incharge with the same details show as one row
   (▸ 0003…0022). Click ▸ to see each. Editing the collapsed row changes all of them.
+- **Issued To** (after Given): who collected the pass at the desk. It can be filled in after the pass
+  is printed (the rest of a printed row is locked), and pasted, filled or imported the same way. It
+  isn't printed on the pass; the gate check shows it.
 - **Given:** tick **Given** in a row when the pass is handed over (filling in details doesn't tick it;
   a collapsed row ticks all of its passes). A pass is printed first: Given can't be ticked until
   Printed is (unticking Printed later, e.g. to reprint, leaves Given as it is). For a range, use **Mark … given** / **Untick … given** in the
-  bar above the sheet. It can be ticked on printed passes too. A printed pass that isn't ticked Given checks
+  bar above the sheet. A printed pass that isn't ticked Given checks
   **CHECK** at the gate.
 - **Delete:** pick the passes, click **Delete … passes** in the bar above the sheet and confirm.
   Printed passes are skipped (untick Printed first). The serials become empty rows again. It is in
@@ -75,7 +84,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   | --- | --- | --- | --- |
   | Mobile Pandal / Non Pandal | 63.5 × 88.9 mm | 25 (edges touching: one cut separates two) | 9 |
   | Bike Pandal / Non Pandal | 88 × 60 mm | 25 (turned sideways) | 8 |
-  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple) | 150 × 100 mm | 9 (turned sideways) | 2 |
+  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), VIP Gate (red), Admin (teal) | 150 × 100 mm | 9 (turned sideways) | 2 |
 
   Pick **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4** in the preview; each desk remembers
   its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and
@@ -85,8 +94,11 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 - **Mark printed:** passes printed some other way? Pick them and click **Mark … printed**. Same
   rules as printing; **Undo** reverses it.
 - **Printed passes are locked:** nothing in a printed row can change until **Printed** is unticked
-  (on its own, as a separate step).
-- **Undo:** the **Undo** button (or Ctrl+Z) undoes your last change. The **History** tab lists every
+  (on its own, as a separate step), except **Issued To** and **Given**.
+- **Undo:** the **Undo** button (or Ctrl+Z, ⌘Z on a Mac) undoes your last change in the sheet you are
+  in (each sheet has its own), also with the cursor in a cell, as in Excel (while typing in a cell,
+  Ctrl+Z undoes the typing). Press it again for the change before. It shows at once and is saved in the
+  background; if the server refuses (someone changed those passes since), it comes back with the reason. The **History** tab lists every
   change with who made it and can undo any of them, unless those passes were changed again afterwards.
 - **Import / Export** (top right of the sheet): **Import CSV…** adds or fills passes from a CSV file;
   **Export this sheet** saves the open sheet (what's shown, if searching) as CSV for Excel; **Export all
@@ -118,7 +130,8 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 ## Safety
 
 - Changes show on screen the moment you make them and are sent to the server in the background, one
-  at a time in order; **Saving…** shows at the top meanwhile (closing the tab then asks first). If the
+  at a time in order; **Saving…** shows at the top meanwhile. Closing the tab then asks first, and so
+  does closing it with text typed into a cell that hasn't been left yet (that text is saved meanwhile). If the
   server refuses a change, it comes off the screen again and the message says why.
 - Every action saves completely or not at all. If someone else changed the same passes a moment
   earlier, nothing is saved, the sheet refreshes, and you're told who changed them.

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Pass, PassType } from '@/shared/types';
-import { exportCSV, planImport } from './csv';
+import { formatRegNo, type Pass, type PassType } from '@/shared/types';
+import { exportCSV, exportTable, planImport } from './csv';
 import {
-  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planDelete, planFill, planGiven, planPaste,
+  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste,
   planPrint, ranges,
 } from './passes';
 import { buildReport, reportCSV } from './report';
@@ -10,7 +10,7 @@ import { buildReport, reportCSV } from './report';
 let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
   return {
-    id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '',
+    id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '',
     printed_at: null, given_at: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
   };
 }
@@ -72,7 +72,7 @@ describe('paste from Excel', () => {
       text: 'Vehicle\tReg. No.\nSwift car\tHR 26 AB 1234\n',
     });
     expect(plan.skippedHeader).toBe(true);
-    expect(plan.set[0].values).toEqual({ vehicle: 'Swift car', vehicle_no: 'HR 26 AB 1234' });
+    expect(plan.set[0].values).toEqual({ vehicle: 'Swift car', vehicle_no: 'HR-26AB-1234' });
   });
 
   it('refuses to paste over printed passes, and counts what it overwrites', () => {
@@ -162,6 +162,66 @@ describe('CSV', () => {
   });
 });
 
+describe('cut and clear', () => {
+  it('empties the columns once per pass, skips unfilled rows, refuses printed passes', () => {
+    const a = pass(1, { name: 'Amit', dept: 'Langar' });
+    const plan = planClear([a, a, blankPass('mobile-pandal', 2), pass(3)], ['name', 'dept']);
+    expect(plan.set).toEqual([{ id: a.id, values: { name: '', dept: '' }, expect: { name: 'Amit', dept: 'Langar' } }]);
+    expect(plan.cells).toBe(2);
+    expect(planClear([pass(4, { name: 'Raj', printed_at: '2026-11-12T10:00:00Z' })], ['name']).locked).toEqual([4]);
+    expect(planClear([pass(5, { issued_to: 'Raj', printed_at: '2026-11-12T10:00:00Z' })], ['issued_to']).set).toHaveLength(1);
+  });
+
+  it('a fill from an empty cell empties every row below, not just the first', () => {
+    const s = sheet(1, 3, { dept: 'Langar' });
+    const plan = planPaste({ type: 'mobile-pandal', rows: s.map((p) => [p]), start: 0, key: 'dept', nextSerial: 4, canCreate: false, text: [[''], [''], ['']] });
+    expect(plan.set.map((o) => o.values)).toEqual([{ dept: '' }, { dept: '' }, { dept: '' }]);
+  });
+});
+
+describe('Issued To and Reg. No.', () => {
+  const rowsOf = (s: Pass[]) => s.map((p) => [p]);
+  const printed = { printed_at: '2026-11-12T10:00:00Z', name: 'Amit' };
+
+  it('writes number plates one way, and leaves anything else as typed', () => {
+    expect(formatRegNo('hr24ab9168')).toBe('HR-24AB-9168');
+    expect(formatRegNo('HR 24 H 4877')).toBe('HR-24H-4877');
+    expect(formatRegNo('HR-24-T-1457')).toBe('HR-24T-1457');
+    expect(formatRegNo('HR-24AB-9168')).toBe('HR-24AB-9168');
+    expect(formatRegNo('dl3cab1234')).toBe('DL-3CAB-1234');
+    expect(formatRegNo('HR26 1234')).toBe('HR-26-1234');
+    for (const v of ['E-SCOOTY', 'Swift car', '22BH1234AA', 'Applied for', 'HR26']) expect(formatRegNo(v)).toBe(v);
+  });
+
+  it('a pasted or given plate is written one way, and search finds it typed without dashes', () => {
+    const s = [pass(1, {}, 'bike-pandal')];
+    const plan = planPaste({ type: 'bike-pandal', rows: rowsOf(s), start: 0, key: 'vehicle_no', nextSerial: 2, canCreate: false, text: 'hr 24 ab 9168\tSecurity\n' });
+    expect(plan.set[0].values).toMatchObject({ vehicle_no: 'HR-24AB-9168' });
+    expect(cleanFill('bike-pandal', { vehicle_no: 'hr24h4877' })).toEqual({ vehicle_no: 'HR-24H-4877' });
+    const found = filterPasses([pass(1, { vehicle_no: 'HR-24AB-9168' }, 'bike-pandal'), pass(2, { vehicle_no: 'HR-24T-1457' }, 'bike-pandal')], { ...NO_FILTERS, q: 'hr24ab' });
+    expect(found.map((p) => p.serial)).toEqual([1]);
+  });
+
+  it('Issued To can be pasted onto a printed pass; the other columns stay locked', () => {
+    const s = [pass(1, printed)];
+    const ok = planPaste({ type: 'mobile-pandal', rows: rowsOf(s), start: 0, key: 'issued_to', nextSerial: 2, canCreate: false, text: 'Harjit\n' });
+    expect(ok.error).toBe('');
+    expect(ok.set[0]).toMatchObject({ values: { issued_to: 'Harjit' }, expect: { issued_to: '' } });
+    const no = planPaste({ type: 'mobile-pandal', rows: rowsOf(s), start: 0, key: 'incharge', nextSerial: 2, canCreate: false, text: 'Mohan\tHarjit\n' });
+    expect(no.error).toMatch(/0001 is printed/);
+  });
+
+  it('exports Issued To after Given, and imports it onto printed passes too', () => {
+    const s = [pass(1, { ...printed, given_at: '2026-11-12T11:00:00Z', issued_to: 'Harjit' })];
+    const [head, row] = exportTable(s, 'mobile-pandal');
+    expect(head.slice(head.indexOf('Given'))).toEqual(['Given', 'Issued To', 'Added', 'Added by']);
+    expect(row[head.indexOf('Issued To')]).toBe('Harjit');
+    const plan = planImport([pass(1, printed)], 'mobile-pandal', 'Sr. No.,Name,Issued To\n0001,Amit,Harjit\n');
+    expect(plan.clashes).toEqual([]);
+    expect(plan.set[0].values).toEqual({ issued_to: 'Harjit' });
+  });
+});
+
 describe('report', () => {
   it('counts each sheet by area then dept, ignoring case', () => {
     const ps = [
@@ -173,7 +233,7 @@ describe('report', () => {
     expect(r.groups.map((g) => [g.label, g.total])).toEqual([['Delhi', 1], ['Sirsa', 2]]);
     expect(r.groups[1].lines[0]).toMatchObject({ label: 'Langar', serials: 'MP 0001 · BP 0002' });
     expect(r.total.counts['sewa-vehicle']).toBe(1);
-    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,3,,');
+    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,3,,');
   });
 });
 

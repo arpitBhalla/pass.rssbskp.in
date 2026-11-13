@@ -23,7 +23,7 @@ const WORD = { valid: 'VALID', check: 'CHECK', invalid: 'NOT VALID' } as const;
 const ADVICE = { valid: 'Let in.', check: 'Genuine pass, but the register disagrees. Look closer:', invalid: "Don't let in." } as const;
 const BAND = { valid: 'bg-[#007236] text-white', check: 'bg-[#f2b705] text-[#231f20]', invalid: 'bg-[#9e0b0f] text-white', none: 'bg-[#6d6e71] text-white' };
 const RESULT = { valid: 'text-[#007236]', check: 'text-[#8a6100]', invalid: 'text-[#9e0b0f]' } as Record<string, string>;
-const LABELS = { name: 'Name', dept: 'Dept', area: 'Area', incharge: 'Incharge', vehicle: 'Vehicle', vehicle_no: 'Reg. No.' } as const;
+const LABELS = { name: 'Name', dept: 'Dept', area: 'Area', incharge: 'Incharge', issued_to: 'Issued To', vehicle: 'Vehicle', vehicle_no: 'Reg. No.' } as const;
 const login = (next: string) => `/login?next=${encodeURIComponent(next)}`;
 
 /**

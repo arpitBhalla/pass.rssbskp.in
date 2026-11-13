@@ -1,5 +1,5 @@
 import {
-  cleanText, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, MAX_BATCH, MAX_SERIAL, type Pass,
+  cleanField, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass,
   type PassType, type SetOp, type Values,
 } from '@/shared/types';
 
@@ -31,7 +31,7 @@ export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
 
 /** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
 export const blankPass = (type: PassType, serial: number): Pass => ({
-  id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '',
+  id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '',
   printed_at: null, given_at: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
 });
 
@@ -72,10 +72,14 @@ export function localDay(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** A number plate without spaces, dashes or dots, for searching. */
+const squash = (s: string) => s.toLowerCase().replace(/[\s.\-/]+/g, '');
+
 export function filterPasses(sheet: Pass[], f: Filters): Pass[] {
   if (!hasFilters(f)) return sheet;
   const q = f.q.trim().toLowerCase();
   const qNum = /^\d+$/.test(q) ? parseInt(q, 10) : null;
+  const plate = /[a-z]/.test(q) && /\d/.test(q) ? squash(q) : ''; // "hr24ab" finds HR-24AB-9168
   const [from, to] = f.from && f.to && f.from > f.to ? [f.to, f.from] : [f.from, f.to];
   return sheet.filter(
     (p) =>
@@ -89,7 +93,7 @@ export function filterPasses(sheet: Pass[], f: Filters): Pass[] {
       (!q ||
         (qNum !== null
           ? p.serial === qNum || (q.length >= 5 && p.phone.includes(q)) // a plain number = that serial (gate check), or a phone
-          : FIELDS.some((k) => p[k].toLowerCase().includes(q)))),
+          : FIELDS.some((k) => p[k].toLowerCase().includes(q)) || (plate !== '' && squash(p.vehicle_no).includes(plate)))),
   );
 }
 
@@ -118,7 +122,7 @@ export function groupRuns(view: Pass[]): Pass[][] {
 export function cleanFill(type: PassType, values: Values): Values {
   const out: Values = {};
   for (const k of fieldsFor(type)) {
-    const v = values[k] && cleanText(values[k]!);
+    const v = values[k] && cleanField(k, values[k]!);
     if (v) out[k] = v;
   }
   return out;
@@ -199,14 +203,15 @@ export interface PastePlan {
  * A block copied from Excel, pasted at on-screen row `start`, column `key`: each line fills one
  * row downward and tab-separated cells fill the columns to the right. `rows` lists the passes
  * behind each on-screen row (a collapsed series is one row of many passes). Lines past the last
- * row become new passes when `canCreate`. Printed passes are never pasted over.
+ * row become new passes when `canCreate`. Printed passes are never pasted over (except Issued To).
  */
 export function planPaste(opts: {
   type: PassType;
   rows: Pass[][];
   start: number;
   key: Field;
-  text: string;
+  /** Copied text, or the cells themselves (a fill: may be blank, and is never a header). */
+  text: string | string[][];
   nextSerial: number;
   canCreate: boolean;
 }): PastePlan {
@@ -214,12 +219,12 @@ export function planPaste(opts: {
   const cols = fieldsFor(type);
   const c0 = cols.indexOf(key);
   const plan: PastePlan = { set: [], create: [], rows: 0, extra: 0, overwritten: 0, skippedHeader: false, error: '' };
-  let lines = opts.text.replace(/\r/g, '').replace(/\n+$/, '').split('\n').map((l) => l.split('\t'));
+  let lines = typeof opts.text !== 'string' ? opts.text : opts.text.replace(/\r/g, '').replace(/\n+$/, '').split('\n').map((l) => l.split('\t'));
 
   // A copied header row ("Name  Dept  Area …") is skipped.
-  const first = lines[0];
+  const first = lines[0] ?? [];
   const labelHits = first.filter((cell, c) => cols[c0 + c] && norm(cell) === norm(FIELD_LABELS[cols[c0 + c]])).length;
-  if (lines.length > 1 && labelHits > 0 && labelHits >= Math.ceil(first.length / 2)) {
+  if (typeof opts.text === 'string' && lines.length > 1 && labelHits > 0 && labelHits >= Math.ceil(first.length / 2)) {
     lines = lines.slice(1);
     plan.skippedHeader = true;
   }
@@ -230,7 +235,7 @@ export function planPaste(opts: {
     const values: Values = {};
     cells.forEach((cell, c) => {
       const k = cols[c0 + c];
-      if (k) values[k] = cleanText(cell);
+      if (k) values[k] = cleanField(k, cell);
     });
     const keys = Object.keys(values) as Field[];
     const targets = rows[start + i];
@@ -251,7 +256,7 @@ export function planPaste(opts: {
       }
       const changed = keys.filter((k) => p[k] !== values[k]);
       if (!changed.length) continue;
-      if (isPrinted(p)) { locked.push(p.serial); continue; }
+      if (isPrinted(p) && changed.some(locksWhenPrinted)) { locked.push(p.serial); continue; }
       plan.overwritten += changed.filter((k) => p[k]).length;
       plan.set.push({
         id: p.id,
@@ -263,6 +268,35 @@ export function planPaste(opts: {
   if (locked.length) plan.error = `${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed. Untick Printed first, or paste somewhere else.`;
   else if (nextSerial + made - 1 > MAX_SERIAL) plan.error = `Serial numbers go up to ${MAX_SERIAL}.`;
   else if (plan.set.length + plan.create.length > MAX_BATCH) plan.error = `Please paste at most ${MAX_BATCH} rows at a time.`;
+  return plan;
+}
+
+/* ---------------- cutting cells ---------------- */
+
+export interface ClearPlan {
+  set: SetOp[];
+  /** Passes that will change. */
+  passes: Pass[];
+  /** Filled cells that will be emptied. */
+  cells: number;
+  /** Printed passes with something to clear in a locked column: nothing is cut then. */
+  locked: number[];
+}
+
+/** Empties columns `keys` of these passes (after Ctrl+X). Each pass counts once; unfilled rows are skipped. */
+export function planClear(passes: Pass[], keys: readonly Field[]): ClearPlan {
+  const plan: ClearPlan = { set: [], passes: [], cells: 0, locked: [] };
+  const seen = new Set<number>();
+  for (const p of passes) {
+    if (p.id < 0 || seen.has(p.id)) continue;
+    seen.add(p.id);
+    const changed = keys.filter((k) => p[k] !== '');
+    if (!changed.length) continue;
+    if (isPrinted(p) && changed.some(locksWhenPrinted)) { plan.locked.push(p.serial); continue; }
+    plan.cells += changed.length;
+    plan.passes.push(p);
+    plan.set.push({ id: p.id, values: Object.fromEntries(changed.map((k) => [k, ''])), expect: Object.fromEntries(changed.map((k) => [k, p[k]])) });
+  }
   return plan;
 }
 

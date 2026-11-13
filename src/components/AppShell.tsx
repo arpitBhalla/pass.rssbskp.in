@@ -8,6 +8,7 @@ import { store, useCounts, useStatus } from '@/client/store';
 import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { PASS_TYPES, type PassType, TYPE_INFO, type User } from '@/shared/types';
+import { nPasses } from '@/lib/passes';
 
 const MeContext = createContext<User | null>(null);
 /** The logged-in user. */
@@ -65,17 +66,17 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
             </button>
           </div>
           {/* The sheets, as tabs of the register. The open one joins the page below. */}
-          {/* Mobile, Bike and Vehicle sheets in three groups. */}
+          {/* Mobile, Bike and Vehicle sheets in three groups. Below 1440 px only the open tab shows its count (the others on hover). */}
           <nav ref={tabsRef} className="flex items-end overflow-x-auto px-2" aria-label="Sheets">
             {PASS_TYPES.map((t, i) => {
               const on = path === `/s/${t}`;
               const newGroup = i > 0 && TYPE_INFO[t].layout !== TYPE_INFO[PASS_TYPES[i - 1]].layout;
               return (
                 <Fragment key={t}>
-                  {newGroup && <span aria-hidden className="mx-1.5 mb-2.5 h-4 w-px shrink-0 bg-white/25 max-[1439px]:mx-1" />}
+                  {newGroup && <span aria-hidden className="mx-1.5 mb-2.5 h-4 w-px shrink-0 bg-white/25 max-[1599px]:mx-1" />}
                   <Link
-                    href={`/s/${t}`} prefetch aria-current={on ? 'page' : undefined}
-                    className={`flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[4px] border-t-[3px] px-2.5 text-[14.5px] max-[1439px]:gap-1 max-[1439px]:px-2 max-[1439px]:text-[13.5px] ${
+                    href={`/s/${t}`} prefetch aria-current={on ? 'page' : undefined} title={`${TYPE_INFO[t].label}: ${nPasses(counts[t])}`}
+                    className={`flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[4px] border-t-[3px] px-2.5 text-[14.5px] max-[1599px]:gap-1 max-[1599px]:px-[7px] max-[1599px]:text-[13px] ${
                       on ? 'bg-background font-semibold text-foreground' : 'border-transparent text-white/80 hover:bg-white/10 hover:text-white'
                     }`}
                     style={on ? { borderTopColor: TYPE_INFO[t].color.band } : undefined}
@@ -83,8 +84,8 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
                     <PassMark type={t} />
                     {TYPE_INFO[t].label}
                     <span
-                      className={`ml-0.5 min-w-[1.7em] rounded-full px-1.5 text-center max-[1439px]:px-1 font-condensed text-[12.5px] font-normal leading-[18px] tabular-nums ${
-                        on ? 'bg-muted text-muted-foreground' : counts[t] ? 'bg-white/15 text-white/90' : 'text-white/40'
+                      className={`ml-0.5 min-w-[1.7em] rounded-full px-1.5 text-center max-[1599px]:px-1 font-condensed text-[12.5px] font-normal leading-[18px] tabular-nums ${
+                        on ? 'bg-muted text-muted-foreground' : `max-[1439px]:hidden ${counts[t] ? 'bg-white/15 text-white/90' : 'text-white/40'}`
                       }`}
                     >
                       {counts[t]}

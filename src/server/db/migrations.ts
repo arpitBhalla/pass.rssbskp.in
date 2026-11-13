@@ -148,4 +148,20 @@ export const migrations: Record<string, Migration> = {
       await sql.raw('ALTER TABLE passes ADD COLUMN given_at timestamptz;').execute(db);
     },
   },
+  // Two more sheets laid out like the Sewa Vehicle pass: VIP Gate (red) and Admin (teal). Added at the
+  // end: a pass's QR code holds its sheet's position in the list.
+  '0007_vip_admin': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'vip-gate';
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'admin';
+      `).execute(db);
+    },
+  },
+  // Who collected the pass at the desk, filled in at handover (after printing). Not printed on the pass.
+  '0006_issued_to': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`ALTER TABLE passes ADD COLUMN issued_to text NOT NULL DEFAULT '' CHECK (length(issued_to) <= 120);`).execute(db);
+    },
+  },
 };

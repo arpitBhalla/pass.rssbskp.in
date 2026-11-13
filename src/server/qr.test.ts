@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { db, ensureDatabase, migrate } from './db';
 import { checkPass, passCodes } from './gate';
+import { PASS_TYPES } from '@/shared/types';
 import { claimOf, codeIn } from '../lib/gateCode';
 import { checkCode, hashOfName, makeCode, newSecret, toKeys } from './qr';
 
@@ -15,6 +16,14 @@ describe('pass codes', () => {
       const r = checkCode(keys, code);
       expect(r).toMatchObject({ why: 'valid', type: 'bike-non-pandal', serial: 1234 });
       if (r.why !== 'unreadable') expect(hashOfName(r.nameHash, ` ${name.toLowerCase()} `)).toBe(true);
+    }
+  });
+
+  it('every sheet, VIP Gate and Admin included, reads back as itself on the server and the gate phone', () => {
+    for (const t of PASS_TYPES) {
+      const code = makeCode(keys, t, 7, 'AMARJIT SINGH');
+      expect(checkCode(keys, code)).toMatchObject({ why: 'valid', type: t, serial: 7 });
+      expect(claimOf(code)).toEqual({ type: t, serial: 7 });
     }
   });
 

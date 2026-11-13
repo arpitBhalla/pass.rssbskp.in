@@ -43,6 +43,7 @@ export interface PassesTable {
   vehicle: Generated<string>;
   vehicle_no: Generated<string>;
   incharge: Generated<string>;
+  issued_to: Generated<string>;
   printed_at: Date | null;
   given_at: Generated<Date | null>;
   created_at: Generated<Date>;

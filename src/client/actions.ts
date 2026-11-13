@@ -1,8 +1,8 @@
 'use client';
 import { useCallback, useEffect } from 'react';
 import { blankPass } from '@/lib/passes';
-import { type ApplyRequest, type ApplyResult, cleanText, type DeleteRequest, type DeleteResult, type Pass, type PassType, type Values } from '@/shared/types';
-import { store } from './store';
+import { type ApplyRequest, type ApplyResult, cleanField, type DeleteRequest, type DeleteResult, type Field, type Pass, type PassType, type Values } from '@/shared/types';
+import { store, type UndoEntry } from './store';
 import { toast } from './toast';
 import { errorMessage, isConflict, isUnauthorized, useTRPCClient } from './trpc';
 
@@ -39,8 +39,12 @@ export function useSyncLoop() {
     }
     store.resync = () => { if (!busy) { clearTimeout(timer); void tick(); } };
     const wake = () => { if (!document.hidden) store.resync(); };
-    // Closing the tab while changes are still being sent would lose them: ask first.
-    const leaving = (e: BeforeUnloadEvent) => { if (waiting) e.preventDefault(); };
+    // Closing the tab while changes are still being sent would lose them: the browser asks first.
+    const leaving = (e: BeforeUnloadEvent) => {
+      if (!waiting) return;
+      e.preventDefault();
+      e.returnValue = ''; // older browsers ask only when this is set
+    };
     void tick();
     document.addEventListener('visibilitychange', wake);
     window.addEventListener('focus', wake);
@@ -78,7 +82,15 @@ const realId = (id: number) => (id < 0 ? realIds.get(id) : id);
 /** Each pass's rev after this tab last saved it: a Delete planned before that save still applies. */
 const ownRev = new Map<number, number>();
 
-const clean = (v: Values = {}): Values => Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cleanText(x ?? '')]));
+const clean = (v: Values = {}): Values => Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cleanField(k as Field, x ?? '')]));
+
+/** The server saved a change: Undo can now send its number. Passes added meanwhile have their real ids. */
+function saved(entry: UndoEntry, changeId: number) {
+  entry.changeId = changeId;
+  entry.before = entry.before.map((p) => ({ ...p, id: realId(p.id) ?? p.id }));
+  entry.hide = entry.hide.map((id) => realId(id) ?? id);
+  store.touchUndo();
+}
 
 /** The passes as they will be once `req` is saved. */
 function preview(req: ApplyRequest) {
@@ -111,13 +123,16 @@ export function useActions() {
   /** Saves a change: on screen now, on the server in the background. Resolves when the server answers (null if refused). */
   const apply = useCallback(
     (req: ApplyRequest, opts: { toast?: string | false } = {}): Promise<ApplyResult | null> => {
+      const before = (req.set ?? []).flatMap((op) => store.get(op.id) ?? []);
       const { rows, added } = preview(req);
       const shown = store.show(rows);
+      const entry = rows.length ? store.pushUndo({ type: rows[0].type, summary: req.summary, changeId: null, before, hide: added.map((a) => a.id) }) : null;
       return inOrder(async () => {
         // Changes to passes added a moment ago go to their real ids; skip any whose adding failed.
         const set = (req.set ?? []).flatMap((op) => { const id = realId(op.id); return id === undefined ? [] : [{ ...op, id }]; });
         if (!set.length && !req.create?.length) {
           store.settle(shown);
+          if (entry) store.dropUndo(entry);
           return null;
         }
         try {
@@ -129,11 +144,12 @@ export function useActions() {
             if (row) { realIds.set(a.id, row.id); store.rename(a.id, row.id); }
           }
           for (const row of r.rows) ownRev.set(row.id, row.rev);
-          store.pushUndo(r.changeId, req.summary);
+          if (entry) saved(entry, r.changeId);
           if (opts.toast !== false) toast(opts.toast ?? req.summary);
           return r;
         } catch (e) {
           store.settle(shown);
+          if (entry) store.dropUndo(entry);
           toast(errorMessage(e), 'error');
           if (isConflict(e)) store.resync();
           return null;
@@ -146,7 +162,9 @@ export function useActions() {
   /** Deletes passes: gone from the screen now, from the server in the background. */
   const remove = useCallback(
     (req: DeleteRequest): Promise<DeleteResult | null> => {
+      const before = req.items.flatMap((i) => store.get(i.id) ?? []);
       const shown = store.show([], req.items.map((i) => i.id));
+      const entry = before.length ? store.pushUndo({ type: before[0].type, summary: req.summary, changeId: null, before, hide: [] }) : null;
       return inOrder(async () => {
         const items = req.items.flatMap((i) => {
           const id = realId(i.id);
@@ -157,17 +175,19 @@ export function useActions() {
         });
         if (!items.length) {
           store.settle(shown);
+          if (entry) store.dropUndo(entry);
           return null;
         }
         try {
           const r = await client.passes.remove.mutate({ ...req, items });
           store.merge([], r.deleted);
           store.settle(shown);
-          store.pushUndo(r.changeId, req.summary);
+          if (entry) saved(entry, r.changeId);
           toast(req.summary);
           return r;
         } catch (e) {
           store.settle(shown);
+          if (entry) store.dropUndo(entry);
           toast(errorMessage(e), 'error');
           if (isConflict(e)) store.resync();
           return null;
@@ -177,12 +197,55 @@ export function useActions() {
     [client],
   );
 
-  /** Undoes a change (default: this tab's last one, after any changes still being sent). */
+  /**
+   * Undoes one of this tab's changes: off the screen at once, on the server in the background (after
+   * any changes still being sent, the change itself included). If the server refuses, it comes back.
+   */
+  const undoEntry = useCallback(
+    (e: UndoEntry): Promise<boolean> => {
+      e.undoing = true;
+      store.touchUndo();
+      const shown = store.show(e.before, e.hide);
+      return inOrder(async () => {
+        if (e.changeId === null) { // its save was refused, so there is nothing to undo
+          store.settle(shown);
+          store.dropUndo(e);
+          return false;
+        }
+        try {
+          const r = await client.passes.undo.mutate({ changeId: e.changeId });
+          store.merge(r.rows, r.deleted);
+          store.settle(shown);
+          store.dropUndo(e);
+          toast(`↶ Undone: ${r.summary}`);
+          return true;
+        } catch (err) {
+          store.settle(shown);
+          const final = isConflict(err) || /already undone|no longer exists|cannot be undone/.test(errorMessage(err));
+          if (final) store.dropUndo(e); // can't be undone any more
+          else { e.undoing = false; store.touchUndo(); } // e.g. offline: can be tried again
+          toast(errorMessage(err), 'error');
+          if (isConflict(err)) store.resync();
+          return false;
+        }
+      });
+    },
+    [client],
+  );
+
+  /** Undo in a sheet: this tab's last change there. */
+  const undoLast = useCallback((type: PassType): Promise<boolean> => {
+    const e = store.lastUndo(type);
+    return e ? undoEntry(e) : Promise.resolve(false);
+  }, [undoEntry]);
+
+  /** Undoes a change by its number (History, "Didn't print? Undo"): at once if this tab made it. */
   const undo = useCallback(
-    (changeId?: number): Promise<boolean> =>
-      inOrder(async () => {
-        const target = changeId ?? store.status.undo?.changeId;
-        if (!target) return false;
+    (changeId: number): Promise<boolean> => {
+      const mine = store.status.undo.find((u) => u.changeId === changeId && !u.undoing);
+      if (mine) return undoEntry(mine);
+      return inOrder(async () => {
+        const target = changeId;
         try {
           const r = await client.passes.undo.mutate({ changeId: target });
           store.merge(r.rows, r.deleted);
@@ -199,9 +262,10 @@ export function useActions() {
           store.resync();
           return false;
         }
-      }),
-    [client],
+      });
+    },
+    [client, undoEntry],
   );
 
-  return { apply, remove, undo };
+  return { apply, remove, undo, undoLast };
 }
