@@ -11,8 +11,8 @@ export function parseSerial(s: string): number {
 
 export const nPasses = (n: number) => `${n} pass${n === 1 ? '' : 'es'}`;
 
-/** Given = handed to someone: it has an Incharge, or the holder's Name, Dept or Phone (the Give box's rule). */
-export const isGiven = (p: Pick<Pass, 'incharge' | 'name' | 'dept' | 'phone'>) => Boolean(p.incharge || p.name || p.dept || p.phone);
+/** Given = handed over: ticked by hand in the sheet or the side panel (filling in details doesn't tick it). */
+export const isGiven = (p: Pick<Pass, 'given_at'>) => p.given_at !== null;
 export const isPrinted = (p: Pass) => p.printed_at !== null;
 
 /** Compresses serials into readable ranges: "0101–0145, 0150". */
@@ -32,7 +32,7 @@ export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
 /** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
 export const blankPass = (type: PassType, serial: number): Pass => ({
   id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '',
-  printed_at: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
+  printed_at: null, given_at: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
 });
 
 /** Serials 1 … highest in the sheet that aren't in the register yet. `sheet` is sorted by serial. */
@@ -53,7 +53,7 @@ export const nextSerial = (sheet: Pass[]) => (sheet.length ? sheet[sheet.length 
 
 export type Show = 'all' | 'given' | 'free' | 'unprinted' | 'printed';
 export const SHOW_LABEL: Record<Show, string> = {
-  all: 'All', given: 'Given', free: 'Free', unprinted: 'Not printed', printed: 'Printed',
+  all: 'All passes', given: 'Given', free: 'Not given', unprinted: 'Not printed', printed: 'Printed',
 };
 
 export interface Filters {
@@ -104,7 +104,8 @@ export function groupRuns(view: Pass[]): Pass[][] {
   for (const p of view) {
     const run = runs[runs.length - 1];
     const prev = run?.[run.length - 1];
-    const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && FIELDS.every((k) => prev[k] === p[k]);
+    const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && isGiven(prev) === isGiven(p)
+      && FIELDS.every((k) => prev[k] === p[k]);
     if (joins) run.push(p);
     else runs.push([p]);
   }
@@ -306,6 +307,66 @@ export function planPrint(sheet: Pass[], type: PassType, from: string, to: strin
     // If anything on the card changed after the preview, nothing is marked and the user is told.
     const seen = { name: p.name, dept: p.dept, area: p.area, phone: p.phone, vehicle: p.vehicle, vehicle_no: p.vehicle_no };
     plan.set.push({ id: p.id, printed: true, expect: { ...seen, printed: false } });
+  }
+  return plan;
+}
+
+/* ---------------- Given and Delete for a range ---------------- */
+
+/** The serials from–to (either order), or why not. */
+function serialRange(from: string, to: string): { lo: number; hi: number } | { err: string } {
+  const f = parseSerial(from);
+  const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
+  if (Number.isNaN(f)) return { err: 'Enter the From and To serial numbers.' };
+  const [lo, hi] = [Math.min(f, t), Math.max(f, t)];
+  if (lo < 1 || hi > MAX_SERIAL) return { err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
+  if (hi - lo + 1 > MAX_BATCH) return { err: `Please do at most ${MAX_BATCH} passes at a time.` };
+  return { lo, hi };
+}
+
+/** The passes in the register between from and to (serials not in it are left out). */
+function passesIn(sheet: Pass[], lo: number, hi: number): Pass[] {
+  return sheet.filter((p) => p.serial >= lo && p.serial <= hi);
+}
+
+export interface GivenPlan {
+  /** Passes to tick, and to untick. */
+  tick: SetOp[];
+  untick: SetOp[];
+  tickSerials: number[];
+  untickSerials: number[];
+  err: string;
+}
+
+/** Ticking or unticking Given for the passes from–to. */
+export function planGiven(sheet: Pass[], from: string, to: string): GivenPlan {
+  const plan: GivenPlan = { tick: [], untick: [], tickSerials: [], untickSerials: [], err: '' };
+  const r = serialRange(from, to);
+  if ('err' in r) return { ...plan, err: r.err };
+  for (const p of passesIn(sheet, r.lo, r.hi)) {
+    const given = isGiven(p);
+    (given ? plan.untick : plan.tick).push({ id: p.id, given: !given, expect: { given } });
+    (given ? plan.untickSerials : plan.tickSerials).push(p.serial);
+  }
+  return plan;
+}
+
+export interface DeletePlan {
+  items: { id: number; rev: number }[];
+  serials: number[];
+  /** Printed: can't be deleted (untick Printed first). */
+  printed: number[];
+  err: string;
+}
+
+/** The passes from–to that can be deleted: those in the register and not printed. */
+export function planDelete(sheet: Pass[], from: string, to: string): DeletePlan {
+  const plan: DeletePlan = { items: [], serials: [], printed: [], err: '' };
+  const r = serialRange(from, to);
+  if ('err' in r) return { ...plan, err: r.err };
+  for (const p of passesIn(sheet, r.lo, r.hi)) {
+    if (isPrinted(p)) plan.printed.push(p.serial);
+    else { plan.items.push({ id: p.id, rev: p.rev }); plan.serials.push(p.serial); }
   }
   return plan;
 }

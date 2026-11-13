@@ -5,7 +5,9 @@ import { useActions } from '@/client/actions';
 import { useTRPC } from '@/client/trpc';
 import { btn } from './ui';
 
-const ACTION_LABEL: Record<string, string> = { give: 'Give', edit: 'Edit', paste: 'Paste', print: 'Print', import: 'Import', undo: 'Undo' };
+const ACTION_LABEL: Record<string, string> = {
+  give: 'Give', given: 'Given', edit: 'Edit', paste: 'Paste', print: 'Print', import: 'Import', delete: 'Delete', undo: 'Undo',
+};
 
 /** Every change, newest first, with who made it. Any change can be undone if nothing touched those passes since. */
 export function HistoryScreen() {

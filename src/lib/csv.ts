@@ -3,6 +3,7 @@ import {
   type SetOp, TYPE_INFO,
 } from '@/shared/types';
 import { isGiven, isPrinted, localDay, parseSerial } from './passes';
+import { workbook } from './xlsx';
 
 /** Parses CSV (comma or semicolon separated, quoted fields, optional BOM). */
 export function parseCSV(text: string): string[][] {
@@ -37,23 +38,38 @@ export function toCSV(rows: string[][]): string {
 /** Excel turns "+919876543210" into 9.19E+11 and drops leading zeros; ="..." keeps it as text. */
 const excelText = (v: string) => (/^\+|^0|^\d{12,}$/.test(v) ? `="${v}"` : v);
 
+/** One sheet's passes as a table (header row first), as plain text. `names`: user id → name, for Added by. */
+export function exportTable(rows: Pass[], type: PassType, names: Map<number, string> = new Map()): string[][] {
+  const cols = fieldsFor(type);
+  return [
+    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Given', 'Printed', 'Added', 'Added by'],
+    ...rows.map((p) => [
+      fmtSerial(p.serial), TYPE_INFO[p.type].label, ...cols.map((k) => p[k]),
+      isGiven(p) ? 'Yes' : '', isPrinted(p) ? 'Yes' : '', localDay(p.created_at), names.get(p.created_by) ?? '',
+    ]),
+  ];
+}
+
 /** `names`: user id → name, for the Added by column. */
 export function exportCSV(rows: Pass[], type: PassType, names: Map<number, string> = new Map()): string {
-  const cols = fieldsFor(type);
-  return toCSV([
-    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Status', 'Printed', 'Added', 'Added by'],
-    ...rows.map((p) => [
-      `="${fmtSerial(p.serial)}"`, TYPE_INFO[p.type].label,
-      ...cols.map((k) => (k === 'phone' ? excelText(p[k]) : p[k])),
-      isGiven(p) ? 'Given' : 'Free', isPrinted(p) ? 'Yes' : '', localDay(p.created_at), names.get(p.created_by) ?? '',
-    ]),
-  ]);
+  const [head, ...body] = exportTable(rows, type, names);
+  const phone = head.indexOf(FIELD_LABELS.phone);
+  return toCSV([head, ...body.map((r) => r.map((v, i) => (i === 0 ? `="${v}"` : i === phone ? excelText(v) : v)))]);
 }
+
+/** All sheets as one Excel workbook, a tab per sheet. `sheets`: each sheet's passes. */
+export function exportWorkbook(sheets: Record<PassType, Pass[]>, names: Map<number, string> = new Map()): Promise<Uint8Array<ArrayBuffer>> {
+  return workbook(PASS_TYPES.map((t) => ({ name: TYPE_INFO[t].label, rows: exportTable(sheets[t], t, names) })));
+}
+
+/** Sheets' former names, so files exported before a rename still import. */
+const FORMER_LABELS: Record<string, PassType> = { 'bav entry': 'bav-entry' };
 
 /** Which sheet a CSV row belongs to: from a "Pass type" column (new exports) or Type + Pandal (old app). */
 function rowType(passType: string, oldType: string, zone: string): PassType | 'unknown' | null {
   if (passType) {
-    const t = PASS_TYPES.find((x) => TYPE_INFO[x].label.toLowerCase() === passType.trim().toLowerCase() || x === passType.trim());
+    const v = passType.trim().toLowerCase();
+    const t = PASS_TYPES.find((x) => TYPE_INFO[x].label.toLowerCase() === v || x === v) ?? FORMER_LABELS[v];
     return t ?? 'unknown';
   }
   if (!oldType) return null; // no type info: goes into the open sheet
@@ -97,6 +113,7 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     vehicle_no: find(/reg(istration)?\.?\s*no|vehicle\s*no|veh\.?\s*reg/i),
     vehicle: find(/^vehicle$|vehicle\s*(type|model|make|name)/i),
     printed: find(/printed/i),
+    given: find(/^given$/i), // not "Given to" (an incharge) nor an old export's Status column
     name: -1,
   };
   c.name = find(/name/i, c.incharge);
@@ -116,25 +133,31 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     if (seen.has(serial)) continue; // a repeated row: the first one counts
     seen.add(serial);
     const values = Object.fromEntries(cols.map((k) => [k, cell(r, c[k])]).filter(([, v]) => v)) as Partial<Record<Field, string>>;
-    const printed = /^(y|true|1|✓)/i.test(cell(r, c.printed));
+    const yes = (i: number) => /^(y|true|1|✓)/i.test(cell(r, i));
+    const printed = yes(c.printed);
+    const given = yes(c.given);
     const p = bySerial.get(serial);
     if (!p) {
-      plan.create.push({ type, serial, values, printed });
+      plan.create.push({ type, serial, values, printed, given });
       continue;
     }
     const keys = Object.keys(values) as Field[];
     const clash = keys.find((k) => p[k] && p[k] !== values[k]);
     const changed = keys.filter((k) => p[k] !== values[k]);
     const tick = printed && !isPrinted(p);
+    const tickGiven = given && !isGiven(p);
     if (clash) plan.clashes.push(`${fmtSerial(serial)} (${FIELD_LABELS[clash]})`);
     else if (changed.length && isPrinted(p)) plan.clashes.push(`${fmtSerial(serial)} (printed)`);
-    else if (!changed.length && !tick) plan.same++;
+    else if (!changed.length && !tick && !tickGiven) plan.same++;
     else {
       plan.set.push({
         id: p.id,
         values: Object.fromEntries(changed.map((k) => [k, values[k]])),
         ...(tick ? { printed: true } : {}),
-        expect: { ...Object.fromEntries(changed.map((k) => [k, p[k]])), ...(tick ? { printed: false } : {}) },
+        ...(tickGiven ? { given: true } : {}),
+        expect: {
+          ...Object.fromEntries(changed.map((k) => [k, p[k]])), ...(tick ? { printed: false } : {}), ...(tickGiven ? { given: false } : {}),
+        },
       });
     }
   }

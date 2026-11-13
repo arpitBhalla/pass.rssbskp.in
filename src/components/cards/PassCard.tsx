@@ -300,7 +300,7 @@ function BikeCard({ p, texts, code }: CardProps) {
   );
 }
 
-/* ---------- Sewa Vehicle / Tractor Trolley / Gate 3 Entry / BAV Entry pass: 150 × 100 mm ---------- */
+/* ---------- Sewa Vehicle / Tractor Trolley / Gate 3 Entry / BAV Parking pass: 150 × 100 mm ---------- */
 
 const VALUE_X = 68.6;
 /** `max`: room for the value; Area and Dept end before the QR code. */

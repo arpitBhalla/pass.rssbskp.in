@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
 import { exportCSV, planImport } from './csv';
 import {
-  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planFill, planPaste, planPrint, ranges,
+  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planDelete, planFill, planGiven, planPaste,
+  planPrint, ranges,
 } from './passes';
 import { buildReport, reportCSV } from './report';
 
@@ -10,7 +11,7 @@ let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
   return {
     id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '',
-    printed_at: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
+    printed_at: null, given_at: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
   };
 }
 const sheet = (from: number, to: number, extra: Partial<Pass> = {}) =>
@@ -135,14 +136,14 @@ describe('date range', () => {
 
 describe('CSV', () => {
   it('round-trips through export and import into the same sheet', () => {
-    const s = [pass(1, { name: 'Kaur, Harpreet', phone: '+919996577213', printed_at: '2026-01-01T00:00:00Z' }), pass(2, { incharge: 'Mohan' })];
+    const s = [pass(1, { name: 'Kaur, Harpreet', phone: '+919996577213', printed_at: '2026-01-01T00:00:00Z', given_at: '2026-01-02T00:00:00Z' }), pass(2, { incharge: 'Mohan' })];
     const plan = planImport([], 'mobile-pandal', exportCSV(s, 'mobile-pandal'));
     expect(plan.create).toEqual([
-      { type: 'mobile-pandal', serial: 1, values: { name: 'Kaur, Harpreet', phone: '+919996577213' }, printed: true },
-      { type: 'mobile-pandal', serial: 2, values: { incharge: 'Mohan' }, printed: false },
+      { type: 'mobile-pandal', serial: 1, values: { name: 'Kaur, Harpreet', phone: '+919996577213' }, printed: true, given: true },
+      { type: 'mobile-pandal', serial: 2, values: { incharge: 'Mohan' }, printed: false, given: false },
     ]);
     // Importing it again changes nothing.
-    const again = planImport([pass(1, { name: 'Kaur, Harpreet', phone: '+919996577213', printed_at: 'x' }), pass(2, { incharge: 'Mohan' })], 'mobile-pandal', exportCSV(s, 'mobile-pandal'));
+    const again = planImport([pass(1, { name: 'Kaur, Harpreet', phone: '+919996577213', printed_at: 'x', given_at: 'x' }), pass(2, { incharge: 'Mohan' })], 'mobile-pandal', exportCSV(s, 'mobile-pandal'));
     expect(again).toMatchObject({ set: [], create: [], same: 2 });
   });
 
@@ -151,7 +152,7 @@ describe('CSV', () => {
     const plan = planImport([], 'mobile-pandal', old);
     expect(plan.create.map((c) => c.serial)).toEqual([1]);
     expect(plan).toMatchObject({ otherSheet: 2, unknownSheet: 1 });
-    expect(planImport([], 'bike-pandal', old).create).toEqual([{ type: 'bike-pandal', serial: 1, values: { incharge: 'Mohan' }, printed: false }]);
+    expect(planImport([], 'bike-pandal', old).create).toEqual([{ type: 'bike-pandal', serial: 1, values: { incharge: 'Mohan' }, printed: false, given: false }]);
   });
 
   it('never overwrites a different saved value', () => {
@@ -185,5 +186,30 @@ describe('print', () => {
     expect(plan.set).toEqual([{ id: s[0].id, printed: true, expect: { name: 'Amit', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', printed: false } }]);
     expect(plan.create).toEqual([{ type: 'mobile-pandal', serial: 3, values: {}, printed: true }]);
     expect(planPrint([], 'mobile-pandal', '1', '1000').err).toMatch(/at most 900/);
+  });
+});
+
+describe('Given and Delete for a range', () => {
+  it('Given: ticks what is unticked, unticks what is ticked, ignores serials not in the register', () => {
+    const s = [pass(1), pass(2, { given_at: 'x' }), pass(4, { incharge: 'Mohan' })];
+    const plan = planGiven(s, '1', '5');
+    expect(plan.tickSerials).toEqual([1, 4]);
+    expect(plan.untickSerials).toEqual([2]);
+    expect(plan.tick[0]).toEqual({ id: s[0].id, given: true, expect: { given: false } });
+    expect(planGiven(s, '', '').err).toMatch(/Enter the From/);
+  });
+
+  it('Delete: passes in the register, printed ones left out', () => {
+    const s = [pass(1), pass(2, { printed_at: 'x' }), pass(3, { incharge: 'Mohan', rev: 7 })];
+    const plan = planDelete(s, '3', '1');
+    expect(plan.serials).toEqual([1, 3]);
+    expect(plan.items[1]).toEqual({ id: s[2].id, rev: 7 });
+    expect(plan.printed).toEqual([2]);
+  });
+
+  it('a filled-in pass is not Given until ticked, and filters follow the tick', () => {
+    const s = [pass(1, { incharge: 'Mohan' }), pass(2, { given_at: 'x' })];
+    expect(filterPasses(s, { ...NO_FILTERS, show: 'given' }).map((p) => p.serial)).toEqual([2]);
+    expect(filterPasses(s, { ...NO_FILTERS, show: 'free' }).map((p) => p.serial)).toEqual([1]);
   });
 });

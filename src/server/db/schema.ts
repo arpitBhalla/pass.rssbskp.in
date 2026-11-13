@@ -44,6 +44,7 @@ export interface PassesTable {
   vehicle_no: Generated<string>;
   incharge: Generated<string>;
   printed_at: Date | null;
+  given_at: Generated<Date | null>;
   created_at: Generated<Date>;
   created_by: number;
   updated_at: Generated<Date>;
@@ -52,14 +53,17 @@ export interface PassesTable {
 }
 export type PassRow = Selectable<PassesTable>;
 
-/** What Undo needs: the passes as they were before, and the ones the change created. */
+/** What Undo needs: the passes as they were before, the ones the change created, and the ones it deleted. */
 export interface ChangeBefore {
   rows: PassRowJson[];
   created: number[];
+  deleted?: PassRowJson[];
 }
 /** A pass row after a trip through jsonb (dates become strings). */
-export type PassRowJson = Omit<PassRow, 'printed_at' | 'created_at' | 'updated_at'> & {
+export type PassRowJson = Omit<PassRow, 'printed_at' | 'given_at' | 'created_at' | 'updated_at'> & {
   printed_at: string | null;
+  /** Missing in changes saved before Given existed. */
+  given_at?: string | null;
   created_at: string;
   updated_at: string;
 };

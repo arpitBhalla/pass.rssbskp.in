@@ -5,12 +5,16 @@ import {
   type ClipboardEvent, type FocusEvent, type KeyboardEvent, memo, type MouseEvent, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted } from '@/lib/passes';
-import { cleanText, type Field, FIELD_LABELS, fieldsFor, fmtSerial, type Pass, type PassType, type Values } from '@/shared/types';
+import { cleanText, type Field, FIELD_LABELS, fieldsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 
 const ROW_H = 30; // keep in step with h-[30px] below
 /** Columns with typing suggestions (datalists rendered by SheetScreen). */
 const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
 const WIDTH: Partial<Record<Field, number>> = { dept: 130, area: 130, phone: 120, vehicle: 150, vehicle_no: 130 };
+/** Name and Incharge take the spare width, but never less than this: the table scrolls sideways first. */
+const FLEX_MIN = 128;
+/** The other columns' widths. Mobile sheets fit beside the side panel on a 1440 px screen. */
+const COL = { n: 56, serial: 118, added: 70, by: 110, given: 64, printed: 66 };
 
 export interface Span {
   lo: number;
@@ -50,15 +54,17 @@ export interface SheetProps {
   onCreate: (serial: number, values: Values) => Promise<boolean>;
   onPaste: (rows: Pass[][], start: number, key: Field, text: string, canCreate: boolean) => void;
   onPrinted: (passes: Pass[], printed: boolean) => void;
+  onGiven: (passes: Pass[], given: boolean) => void;
   onSelect: (span: Span) => void;
   onSelectEnd: () => void;
 }
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onPrinted, onSelect, onSelectEnd } = props;
+  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onPrinted, onGiven, onSelect, onSelectEnd } = props;
   const fields = fieldsFor(type);
   const cols = 5 + fields.length;
+  const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
@@ -175,16 +181,18 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   };
 
   return (
-    <div ref={scrollRef} className="relative min-w-0 flex-1 overflow-auto bg-background">
-      <table className="w-full min-w-[1100px] table-fixed border-separate border-spacing-0">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+    <Watermark type={type} />
+    <div ref={scrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto">
+      <table className="w-full table-fixed border-separate border-spacing-0" style={{ minWidth: tableMin }}>
         <colgroup>
-          <col style={{ width: 56 }} />
-          <col style={{ width: 118 }} />
+          <col style={{ width: COL.n }} />
+          <col style={{ width: COL.serial }} />
           {fields.map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
-          <col style={{ width: 70 }} />
-          <col style={{ width: 120 }} />
-          <col style={{ width: 64 }} />
-          <col style={{ width: 66 }} />
+          <col style={{ width: COL.added }} />
+          <col style={{ width: COL.by }} />
+          <col style={{ width: COL.given }} />
+          <col style={{ width: COL.printed }} />
         </colgroup>
         <thead className="sticky top-0 z-10">
           <tr className="h-[30px] text-left">
@@ -193,7 +201,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
             {fields.map((k) => <th key={k} className={th}>{FIELD_LABELS[k]}</th>)}
             <th className={th}>Added</th>
             <th className={th}>Added by</th>
-            <th className={th}>Status</th>
+            <th className={`${th} text-center`}>Given</th>
             <th className={`${th} text-center`}>Printed</th>
           </tr>
         </thead>
@@ -202,14 +210,14 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
           {vItems.map((v) => {
             const it = items[v.index];
             if (it.kind === 'row') {
-              return <Row key={v.key} p={it.p} i={v.index} n={it.n} fields={fields} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} />;
+              return <Row key={v.key} p={it.p} i={v.index} n={it.n} fields={fields} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} />;
             }
             if (it.kind === 'group') {
               return (
                 <GroupRow
                   key={v.key} passes={it.passes} i={v.index} open={it.open} fields={fields}
                   selected={it.passes.every((p) => inSpan(selection, p))}
-                  onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted}
+                  onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
                 />
               );
             }
@@ -230,8 +238,24 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
         </p>
       )}
     </div>
+    </div>
   );
 });
+
+/** The sheet's name, large and faint behind the rows in its template colour, so nobody types into the wrong sheet. */
+function Watermark({ type }: { type: PassType }) {
+  const { label, color } = TYPE_INFO[type];
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 grid place-items-center overflow-hidden pt-8 print:hidden">
+      <div
+        className="max-w-[92%] text-center font-condensed text-[clamp(64px,10vw,168px)] font-bold uppercase leading-[0.9] tracking-[0.01em] select-none"
+        style={{ color: color.band, opacity: 0.075 }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
 
 // Ruled like the desk's register: pale blue lines, and a double maroon margin rule after the serial.
 const th = 'border-b border-r border-b-input border-r-rule bg-panel px-2 font-condensed text-[14.5px] font-semibold text-foreground/70';
@@ -243,8 +267,9 @@ const serialCls = 'font-condensed text-[16px] font-semibold tabular-nums trackin
 const rowCls = (selected: boolean, extra = '') =>
   `${selected ? '[&>td]:bg-sand-100' : 'hover:[&>td]:bg-muted/60'} ${extra}`;
 
-const Row = memo(function Row({ p, i, n, fields, selected, onEdit, onPrinted }: {
+const Row = memo(function Row({ p, i, n, fields, selected, onEdit, onPrinted, onGiven }: {
   p: Pass; i: number; n: number; fields: readonly Field[]; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
+  onGiven: SheetProps['onGiven'];
 }) {
   const printed = isPrinted(p);
   const given = isGiven(p);
@@ -259,21 +284,24 @@ const Row = memo(function Row({ p, i, n, fields, selected, onEdit, onPrinted }: 
       ))}
       <td className={`${td} text-[13.5px] text-muted-foreground`} title={new Date(p.created_at).toLocaleString()}>{shortDate(p.created_at)}</td>
       <AddedBy ids={[p.created_by]} />
-      <td className={`${td} text-[13.5px] ${given ? 'font-semibold text-primary' : 'text-muted-foreground/70'}`}>{given ? 'Given' : 'Free'}</td>
       <td className={`${td} text-center`}>
-        <PrintedBox checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
+        <TickBox checked={given} onChange={(v) => onGiven([p], v)} title={given ? `Given ${new Date(p.given_at!).toLocaleString()}. Untick if it wasn't handed over.` : 'Not given yet: tick when the pass is handed over'} />
+      </td>
+      <td className={`${td} text-center`}>
+        <TickBox checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
       </td>
     </tr>
   );
 });
 
 /** A series given to one incharge, shown as "0003…0017". Edits apply to every pass in it. */
-function GroupRow({ passes, i, open, fields, selected, onToggle, onEdit, onPrinted }: {
+function GroupRow({ passes, i, open, fields, selected, onToggle, onEdit, onPrinted, onGiven }: {
   passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; selected: boolean; onToggle: () => void;
-  onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
+  onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven'];
 }) {
   const first = passes[0];
   const printed = isPrinted(first);
+  const given = isGiven(first);
   return (
     <tr data-i={i} className={rowCls(selected, '[&>td]:bg-sand-50')}>
       <td className={`${td} text-right`}>
@@ -291,9 +319,11 @@ function GroupRow({ passes, i, open, fields, selected, onToggle, onEdit, onPrint
       ))}
       <td className={`${td} text-[13.5px] text-muted-foreground`}>{addedSpan(passes)}</td>
       <AddedBy ids={passes.map((p) => p.created_by)} />
-      <td className={`${td} text-[13.5px] font-semibold text-primary`}>Given</td>
       <td className={`${td} text-center`}>
-        <PrintedBox checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
+        <TickBox checked={given} onChange={(v) => onGiven(passes, v)} title={given ? 'Given. Untick if they weren\'t handed over.' : 'Not given yet: tick when these passes are handed over'} />
+      </td>
+      <td className={`${td} text-center`}>
+        <TickBox checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
       </td>
     </tr>
   );
@@ -389,7 +419,7 @@ function addedSpan(passes: Pass[]) {
   return a === b ? a : `${a}–${b}`;
 }
 
-function PrintedBox({ checked, onChange, title }: { checked: boolean; onChange: (v: boolean) => void; title: string }) {
+function TickBox({ checked, onChange, title }: { checked: boolean; onChange: (v: boolean) => void; title: string }) {
   return (
     <input type="checkbox" className="size-4 cursor-pointer align-middle accent-primary" checked={checked} title={title} onChange={(e) => onChange(e.target.checked)} />
   );

@@ -2,19 +2,31 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { useUserNames } from '@/client/users';
-import { useAllPasses, useSheet, useStatus } from '@/client/store';
+import { store, useAllPasses, useSheet, useStatus } from '@/client/store';
 import { toast } from '@/client/toast';
 import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
-import { exportCSV, type ImportPlan, planImport } from '@/lib/csv';
+import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
 import { filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planPaste, ranges, type Show, SHOW_LABEL } from '@/lib/passes';
-import { type Field, FIELD_LABELS, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
-import { PassMark } from './AppShell';
+import { type Field, FIELD_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { Menu, Popover } from './Menu';
+import { RangeBar } from './RangeBar';
 import { RangePanel } from './RangePanel';
 import { Sheet, type Span } from './Sheet';
-import { btn, btnPrimary, card, input } from './ui';
+import { btn, btnPrimary, card, input, label } from './ui';
 
 const NONE: number[] = [];
+
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const today = () => new Date().toISOString().slice(0, 10);
+
+function download(blob: Blob, name: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export function SheetScreen({ type }: { type: PassType }) {
   const info = TYPE_INFO[type];
@@ -40,6 +52,7 @@ export function SheetScreen({ type }: { type: PassType }) {
   const [range, setRange] = useState({ from: '', to: '' });
   const selRef = useRef(selection);
   useEffect(() => { selRef.current = selection; });
+  const clearRange = useCallback(() => { setRange({ from: '', to: '' }); setSelection(null); }, []);
   const onSelectEnd = useCallback(() => {
     const s = selRef.current;
     if (s) setRange({ from: fmtSerial(s.lo), to: fmtSerial(s.hi) });
@@ -83,6 +96,13 @@ export function SheetScreen({ type }: { type: PassType }) {
     void apply({ action: 'print', summary, set });
   }, [apply, info.label]);
 
+  const onGiven = useCallback((passes: Pass[], given: boolean) => {
+    const set = passes.filter((p) => isGiven(p) !== given).map((p) => ({ id: p.id, given, expect: { given: !given } }));
+    if (!set.length) return;
+    const summary = `${given ? 'Ticked' : 'Unticked'} Given · ${info.label} ${passRanges(passes)}`;
+    void apply({ action: 'given', summary, set });
+  }, [apply, info.label]);
+
   // Ctrl/Cmd+Z outside a text box undoes this tab's last change.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -102,12 +122,11 @@ export function SheetScreen({ type }: { type: PassType }) {
   const [importPlan, setImportPlan] = useState<{ name: string; plan: ImportPlan } | null>(null);
   const exportFile = () => {
     const list = hasFilters(filters) ? view : sheet;
-    const blob = new Blob([exportCSV(list, type, names)], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${type}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    download(new Blob([exportCSV(list, type, names)], { type: 'text/csv;charset=utf-8' }), `${type}-${today()}.csv`);
+  };
+  const exportAll = async () => {
+    const sheets = Object.fromEntries(PASS_TYPES.map((t) => [t, store.getSheet(t)])) as Record<PassType, Pass[]>;
+    download(new Blob([await exportWorkbook(sheets, names)], { type: XLSX }), `rssb-skp-passes-${today()}.xlsx`);
   };
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
@@ -128,45 +147,51 @@ export function SheetScreen({ type }: { type: PassType }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-rule bg-background px-4 pt-3 pb-2.5">
-          <div className="flex items-center gap-3">
-            <h1 className="flex items-center gap-2 font-condensed text-[22px] font-bold leading-none">
-              <PassMark type={type} size={18} />
-              {info.label}
-            </h1>
-            <span className="text-[14px] text-muted-foreground">
-              {hasFilters(deferred) ? `${view.length} of ${sheet.length} shown` : `${nPasses(sheet.length)}, ${given} given`}
-            </span>
-            <span className="flex-1" />
-            <button className={btn} disabled={!status.undo} onClick={() => void undo()} title={status.undo ? `Undo: ${status.undo.summary} (Ctrl+Z)` : 'Nothing to undo'}>
-              Undo
-            </button>
-            <button className={btn} onClick={() => fileRef.current?.click()} title="Add or fill passes from a CSV file (e.g. saved from Excel)">Import CSV</button>
-            <button className={btn} onClick={exportFile} title="Opens in Excel">Export CSV</button>
-          </div>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-rule bg-background px-4 py-2.5">
+          <h1 className="sr-only">{info.label}</h1>
+          <label className="relative">
+            <span className="sr-only">Search</span>
+            <svg aria-hidden width="15" height="15" viewBox="0 0 16 16" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground">
+              <circle cx="6.8" cy="6.8" r="4.8" fill="none" stroke="currentColor" strokeWidth="1.7" />
+              <path d="M10.4 10.4L14 14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
             <input
-              className={`${input} !w-52`}
-              placeholder="Search, or a serial no."
+              type="search"
+              className={`${input} !w-64 !pl-8`}
+              placeholder="Name, phone or serial no."
               value={filters.q}
               onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
             />
-            <select className={`${input} !w-auto`} value={filters.show} onChange={(e) => setFilters((f) => ({ ...f, show: e.target.value as Show }))}>
-              {(Object.keys(SHOW_LABEL) as Show[]).map((s) => <option key={s} value={s}>{SHOW_LABEL[s]}</option>)}
-            </select>
-            <label className="flex items-center gap-1.5 text-[13.5px] text-muted-foreground" title="Passes added to the register (given) between these dates">
-              Added
-              <input type="date" className={`${input} !w-auto !py-1`} value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} />
-              to
-              <input type="date" className={`${input} !w-auto !py-1`} value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} />
-            </label>
-            {hasFilters(filters) && <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => setFilters(NO_FILTERS)}>Clear</button>}
+          </label>
+          <select className={`${input} !w-auto`} aria-label="Show" value={filters.show} onChange={(e) => setFilters((f) => ({ ...f, show: e.target.value as Show }))}>
+            {(Object.keys(SHOW_LABEL) as Show[]).map((s) => <option key={s} value={s}>{SHOW_LABEL[s]}</option>)}
+          </select>
+          <DateFilter from={filters.from} to={filters.to} onChange={(from, to) => setFilters((f) => ({ ...f, from, to }))} />
+          {hasFilters(filters) && <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => setFilters(NO_FILTERS)}>Clear</button>}
+          <span className="pl-1.5 text-[14px] text-muted-foreground tabular-nums" aria-live="polite">
+            {hasFilters(deferred)
+              ? <><b className="font-semibold text-foreground">{view.length}</b> of {sheet.length} shown</>
+              : <><b className="font-semibold text-foreground">{sheet.length}</b> {sheet.length === 1 ? 'pass' : 'passes'}, <b className="font-semibold text-foreground">{given}</b> given</>}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+          <button className={btn} disabled={!status.undo} onClick={() => void undo()} title={status.undo ? `Undo: ${status.undo.summary} (Ctrl+Z)` : 'Nothing to undo'}>
+            Undo
+          </button>
+          <Menu
+            label="Import / Export"
+            items={[
+              { label: 'Import CSV…', hint: `Add or fill ${info.label} passes from a CSV file (e.g. saved from Excel)`, onSelect: () => fileRef.current?.click() },
+              { label: 'Export this sheet', hint: "CSV for Excel: this sheet, or what's shown while searching", onSelect: exportFile },
+              { label: 'Export all sheets', hint: 'One Excel workbook, a tab per sheet', onSelect: () => void exportAll() },
+            ]}
+          />
           </div>
           <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ''; }} />
         </div>
+        <RangeBar type={type} sheet={sheet} range={range} onClear={clearRange} />
         <Sheet
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} next={next} missing={missing}
-          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onPrinted={onPrinted}
+          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onPrinted={onPrinted} onGiven={onGiven}
           onSelect={setSelection} onSelectEnd={onSelectEnd}
         />
       </section>
@@ -189,6 +214,21 @@ export function SheetScreen({ type }: { type: PassType }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** "Date added" filter: two dates in a drop-down, so the toolbar stays one line. */
+function DateFilter({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
+  const day = (d: string) => new Date(`${d}T00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const text = from && to ? `Added ${day(from)} – ${day(to)}` : from ? `Added from ${day(from)}` : to ? `Added until ${day(to)}` : 'Date added';
+  return (
+    <Popover label={text} active={!!(from || to)} title="Passes added to the register between these dates">
+      <div className="flex items-end gap-2">
+        <label className={label}>From<input type="date" className={`${input} !w-[9.5rem]`} value={from} onChange={(e) => onChange(e.target.value, to)} /></label>
+        <label className={label}>To<input type="date" className={`${input} !w-[9.5rem]`} value={to} onChange={(e) => onChange(from, e.target.value)} /></label>
+      </div>
+      {(from || to) && <button className="mt-2.5 text-[13.5px] font-semibold text-primary hover:underline" onClick={() => onChange('', '')}>Any date</button>}
+    </Popover>
   );
 }
 

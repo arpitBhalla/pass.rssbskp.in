@@ -72,10 +72,12 @@ describe('gate check (database)', () => {
   });
   afterAll(async () => { await db.destroy(); });
 
-  const addPass = (serial: number, v: { name?: string; incharge?: string; printed?: boolean }) =>
+  // Printed and Given unless told otherwise.
+  const addPass = (serial: number, v: { name?: string; incharge?: string; printed?: boolean; given?: boolean }) =>
     db.insertInto('passes').values({
       type: 'mobile-pandal', serial, name: v.name ?? '', incharge: v.incharge ?? '',
-      printed_at: v.printed === false ? null : new Date(), created_by: ramesh, updated_by: ramesh, rev: 1,
+      printed_at: v.printed === false ? null : new Date(), given_at: v.given === false ? null : new Date(),
+      created_by: ramesh, updated_by: ramesh, rev: 1,
     }).execute();
 
   it('says VALID for a printed, given pass and records each scan', async () => {
@@ -102,6 +104,14 @@ describe('gate check (database)', () => {
     expect((await checkPass(db, gate, blank.code)).verdict).toBe('valid');
     await db.updateTable('passes').set({ printed_at: null }).where('serial', '=', 3).execute();
     expect((await checkPass(db, gate, blank.code)).verdict).toBe('check');
+  });
+
+  it('says CHECK for a genuine pass whose Given is not ticked, even with details filled in', async () => {
+    await addPass(5, { name: 'Harpreet Singh', incharge: 'Ramesh', given: false });
+    const [{ code }] = await passCodes(db, ramesh, 'mobile-pandal', [5]);
+    const r = await checkPass(db, gate, code);
+    expect(r.verdict).toBe('check');
+    expect(r.reasons.join(' ')).toContain('Given not ticked');
   });
 
   it('says NOT VALID for a pass not in the register, a fake, and after a new key', async () => {

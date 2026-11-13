@@ -2,7 +2,7 @@
 import { useMutation } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { createContext, type ReactNode, use } from 'react';
+import { createContext, Fragment, type ReactNode, use, useEffect, useRef } from 'react';
 import { useSyncLoop } from '@/client/actions';
 import { useCounts, useStatus } from '@/client/store';
 import { dismissToast, useToast } from '@/client/toast';
@@ -19,6 +19,9 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   const counts = useCounts();
   const status = useStatus();
   const trpc = useTRPC();
+  // On narrow screens the tabs scroll sideways: keep the open sheet's tab in view.
+  const tabsRef = useRef<HTMLElement>(null);
+  useEffect(() => { tabsRef.current?.querySelector('[aria-current=page]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [path]);
   const logout = useMutation(trpc.auth.logout.mutationOptions({ onSettled: () => window.location.assign('/login') }));
   const pages = [
     { href: '/report', label: 'Report' },
@@ -30,38 +33,62 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
     <MeContext value={user}>
       <div className="flex h-dvh flex-col print:block print:h-auto">
         <header className="shrink-0 bg-primary text-primary-foreground print:hidden">
-          <div className="flex h-11 items-center gap-6 px-4">
-            <Link href="/s/mobile-pandal" className="font-condensed text-[19px] font-bold leading-none">RSSB SKP Pass Register</Link>
-            <nav className="flex items-center gap-5 text-[14.5px]">
-              {pages.map((l) => (
-                <Link
-                  key={l.href} href={l.href} aria-current={path === l.href ? 'page' : undefined}
-                  className={path === l.href ? 'font-semibold underline decoration-2 underline-offset-[7px]' : 'text-white/75 hover:text-white'}
-                >
-                  {l.label}
-                </Link>
-              ))}
+          <div className="flex h-11 items-center gap-5 px-4">
+            <Link href="/s/mobile-pandal" className="flex items-baseline gap-1.5 font-condensed text-[19px] leading-none">
+              <span className="font-bold">RSSB SKP</span>
+              <span className="text-white/75">Pass Register</span>
+            </Link>
+            <nav className="flex items-center gap-1 text-[14.5px]">
+              {pages.map((l) => {
+                const on = path === l.href;
+                return (
+                  <Link
+                    key={l.href} href={l.href} aria-current={on ? 'page' : undefined}
+                    className={`rounded-[3px] px-2.5 py-1 ${on ? 'bg-white/15 font-semibold text-white' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
+                  >
+                    {l.label}
+                  </Link>
+                );
+              })}
             </nav>
             <span className="flex-1" />
-            <span className="text-white/75">{user.name}</span>
-            <button className="text-white/75 hover:text-white hover:underline" onClick={() => logout.mutate()}>Log out</button>
+            <span className="flex items-center gap-2 text-[14.5px] text-white/90">
+              <span aria-hidden className="grid size-6 place-items-center rounded-full bg-white/15 text-[12.5px] font-bold">
+                {user.name.trim().charAt(0).toUpperCase()}
+              </span>
+              {user.name}
+            </span>
+            <button className="-mr-2 rounded-[3px] px-2 py-1 text-[14px] text-white/75 hover:bg-white/10 hover:text-white" onClick={() => logout.mutate()}>
+              Log out
+            </button>
           </div>
           {/* The sheets, as tabs of the register. The open one joins the page below. */}
-          <nav className="flex items-end gap-0.5 overflow-x-auto px-3" aria-label="Sheets">
-            {PASS_TYPES.map((t) => {
+          {/* Mobile, Bike and Vehicle sheets in three groups. */}
+          <nav ref={tabsRef} className="flex items-end overflow-x-auto px-2" aria-label="Sheets">
+            {PASS_TYPES.map((t, i) => {
               const on = path === `/s/${t}`;
+              const newGroup = i > 0 && TYPE_INFO[t].layout !== TYPE_INFO[PASS_TYPES[i - 1]].layout;
               return (
-                <Link
-                  key={t} href={`/s/${t}`} prefetch aria-current={on ? 'page' : undefined}
-                  className={`flex h-9 items-center gap-2 whitespace-nowrap rounded-t-[4px] border-t-[3px] px-3 text-[14.5px] ${
-                    on ? 'bg-background font-semibold text-foreground' : 'border-transparent text-white/80 hover:bg-white/10 hover:text-white'
-                  }`}
-                  style={on ? { borderTopColor: TYPE_INFO[t].color.band } : undefined}
-                >
-                  <PassMark type={t} />
-                  {TYPE_INFO[t].label}
-                  <span className={`font-condensed tabular-nums ${on ? 'font-normal text-muted-foreground' : 'text-white/60'}`}>{counts[t]}</span>
-                </Link>
+                <Fragment key={t}>
+                  {newGroup && <span aria-hidden className="mx-1.5 mb-2.5 h-4 w-px shrink-0 bg-white/25 max-[1439px]:mx-1" />}
+                  <Link
+                    href={`/s/${t}`} prefetch aria-current={on ? 'page' : undefined}
+                    className={`flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[4px] border-t-[3px] px-2.5 text-[14.5px] max-[1439px]:gap-1 max-[1439px]:px-2 max-[1439px]:text-[13.5px] ${
+                      on ? 'bg-background font-semibold text-foreground' : 'border-transparent text-white/80 hover:bg-white/10 hover:text-white'
+                    }`}
+                    style={on ? { borderTopColor: TYPE_INFO[t].color.band } : undefined}
+                  >
+                    <PassMark type={t} />
+                    {TYPE_INFO[t].label}
+                    <span
+                      className={`ml-0.5 min-w-[1.7em] rounded-full px-1.5 text-center max-[1439px]:px-1 font-condensed text-[12.5px] font-normal leading-[18px] tabular-nums ${
+                        on ? 'bg-muted text-muted-foreground' : counts[t] ? 'bg-white/15 text-white/90' : 'text-white/40'
+                      }`}
+                    >
+                      {counts[t]}
+                    </span>
+                  </Link>
+                </Fragment>
               );
             })}
           </nav>

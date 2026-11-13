@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ACTIONS, MAX_BATCH, MAX_SERIAL, PASS_TYPES } from '@/shared/types';
 import { backupError } from '../backup';
 import { passCodes } from '../gate';
-import { applyChange, listChanges, syncSince, undoChange } from '../passes';
+import { applyChange, deletePasses, listChanges, syncSince, undoChange } from '../passes';
 import { authedProcedure, router } from '../trpc';
 
 const text = z.string().max(500).optional();
@@ -16,13 +16,15 @@ const applyInput = z.object({
     id: z.number().int().positive(),
     values: values.optional(),
     printed: z.boolean().optional(),
-    expect: values.extend({ printed: z.boolean().optional() }),
+    given: z.boolean().optional(),
+    expect: values.extend({ printed: z.boolean().optional(), given: z.boolean().optional() }),
   })).max(MAX_BATCH).optional(),
   create: z.array(z.object({
     type: z.enum(PASS_TYPES),
     serial: z.number().int().min(1).max(MAX_SERIAL),
     values,
     printed: z.boolean().optional(),
+    given: z.boolean().optional(),
   })).max(MAX_BATCH).optional(),
 });
 
@@ -39,6 +41,14 @@ export const passesRouter = router({
     .mutation(({ ctx, input }) => passCodes(ctx.db, ctx.user.id, input.type, input.serials)),
 
   save: authedProcedure.input(applyInput).mutation(({ ctx, input }) => applyChange(ctx.db, ctx.user.id, input)),
+
+  /** Deletes passes (not printed ones); Undo puts them back. */
+  remove: authedProcedure
+    .input(z.object({
+      summary: z.string().trim().min(1).max(300),
+      items: z.array(z.object({ id: z.number().int().positive(), rev: z.number().int().min(0) })).min(1).max(MAX_BATCH),
+    }))
+    .mutation(({ ctx, input }) => deletePasses(ctx.db, ctx.user.id, input)),
 
   undo: authedProcedure
     .input(z.object({ changeId: z.number().int().positive() }))

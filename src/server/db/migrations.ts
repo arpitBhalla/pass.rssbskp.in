@@ -141,4 +141,11 @@ export const migrations: Record<string, Migration> = {
       `).execute(db);
     },
   },
+  // Given is ticked by hand when a pass is handed over (until now a pass counted as given once it had
+  // an incharge, name, dept or phone). Every existing pass starts unticked.
+  '0005_given': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw('ALTER TABLE passes ADD COLUMN given_at timestamptz;').execute(db);
+    },
+  },
 };

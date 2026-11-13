@@ -47,7 +47,7 @@ const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area
 
 // Colours sampled from the templates (Downloads/passes-template). Pandal is blue, Non Pandal grey,
 // vehicle passes green; Mobile (portrait) and Bike (landscape, tinted card) differ by shape.
-// Gate 3 Entry (orange) and BAV Entry (purple) have no template: the Sewa Vehicle pass in their colour,
+// Gate 3 Entry (orange) and BAV Parking (purple) have no template: the Sewa Vehicle pass in their colour,
 // title included, so the gate tells them apart at a glance.
 const BLUE = { name: 'Blue', band: '#2e3192', logo: '#231f20' };
 const GREY = { name: 'Grey', band: '#808285', logo: '#9e0b0f' };
@@ -75,7 +75,7 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'sewa-vehicle': { label: 'Sewa Vehicle', short: 'SV', layout: 'vehicle', title: 'SEWA VEHICLE PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'tractor-trolley': { label: 'Tractor Trolley', short: 'TT', layout: 'vehicle', title: 'TRACTOR TROLLEY PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'vehicle', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, color: ORANGE },
-  'bav-entry': { label: 'BAV Entry', short: 'BA', layout: 'vehicle', title: 'BAV ENTRY PASS', fields: VEHICLE_FIELDS, color: PURPLE },
+  'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'vehicle', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
 };
 
 export const isPassType = (v: unknown): v is PassType => PASS_TYPES.includes(v as PassType);
@@ -110,6 +110,8 @@ export interface Pass {
   incharge: string;
   /** ISO time, or null if not printed yet. */
   printed_at: string | null;
+  /** ISO time Given was ticked (handed over), or null. */
+  given_at: string | null;
   /** ISO time the pass entered the register (when its range was given, or it was added). */
   created_at: string;
   /** User id of the last change. */
@@ -137,7 +139,8 @@ export interface SetOp {
   id: number;
   values?: Values;
   printed?: boolean;
-  expect: Values & { printed?: boolean };
+  given?: boolean;
+  expect: Values & { printed?: boolean; given?: boolean };
 }
 
 /** Create a pass. Fails if that serial already exists in the sheet. */
@@ -146,9 +149,10 @@ export interface CreateOp {
   serial: number;
   values: Values;
   printed?: boolean;
+  given?: boolean;
 }
 
-export const ACTIONS = ['give', 'edit', 'paste', 'print', 'import'] as const;
+export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import'] as const;
 export type Action = (typeof ACTIONS)[number];
 
 /** One user action. All of it is saved, or none of it. */
@@ -168,6 +172,17 @@ export interface UndoResult {
   rows: Pass[];
   deleted: number[];
   summary: string;
+}
+
+/** Delete these passes. `rev`: the version the user saw; if a pass changed since, nothing is deleted. */
+export interface DeleteRequest {
+  summary: string;
+  items: { id: number; rev: number }[];
+}
+
+export interface DeleteResult {
+  changeId: number;
+  deleted: { id: number; rev: number }[];
 }
 
 export interface SyncResult {

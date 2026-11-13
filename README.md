@@ -1,7 +1,7 @@
 # Pass Register: RSSB SKP
 
 The register for numbered passes, with eight sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
-Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Entry**. Each sheet has its own serial
+Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Parking**. Each sheet has its own serial
 numbers from 0001. Every printed pass carries a QR code that the gate checks with a phone.
 Several desks can work at once; every change is saved in Postgres with who made it.
 
@@ -34,11 +34,14 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 
 ## Use it
 
-- **Give a range:** in the right panel enter From and To (or select rows: click a Sr. No., then
-  Shift+click or drag), fill Area / Incharge / Dept / … and click **Give**. It needs the Incharge, or
+- **Pick passes:** select rows (click a Sr. No., then Shift+click or drag) or enter From and To in the
+  right panel. The bar above the sheet then prints them, ticks them Given or deletes them; **Clear**
+  drops the selection. The sheet's name is written faintly behind the rows, so it's clear which sheet
+  you are typing into.
+- **Give a range:** pick the passes, fill Area / Incharge / Dept / … in the right panel and click **Give**. It needs the Incharge, or
   at least one of Name, Dept and Phone; the rest is optional. Missing serials are added. The sheet
   shows when each pass was added and by whom (**Added**, **Added by**).
-  Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Entry have Vehicle
+  Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry and BAV Parking have Vehicle
   and Reg. No.
   Values already filled are never overwritten: those passes are listed and left alone.
 - **Type or paste from Excel:** click a cell and type (Enter moves down). Copy cells in Excel and paste
@@ -47,9 +50,16 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   row at the bottom adds the next one.
 - **Collapsed ranges:** consecutive passes given to one incharge with the same details show as one row
   (▸ 20). Click ▸ to see each. Editing the collapsed row changes all of them.
+- **Given:** tick **Given** in a row when the pass is handed over (filling in details doesn't tick it;
+  a collapsed row ticks all of its passes). For a range, use **Mark … given** / **Untick … given** in the
+  bar above the sheet. It can be ticked on printed passes too. A printed pass that isn't ticked Given checks
+  **CHECK** at the gate.
+- **Delete:** pick the passes, click **Delete … passes** in the bar above the sheet and confirm.
+  Printed passes are skipped (untick Printed first). The serials become empty rows again. It is in
+  **History**, and **Undo** brings the passes back as they were, unless a serial was used again.
 - **Search:** type a serial number to check a pass at the gate, or any name / area / phone. Filter by
-  Given / Free / Printed, or by the dates passes were added.
-- **Print:** enter a range in the right panel and click **Preview & print**. The passes are the RSSB
+  Given / Not given / Printed, or by **Date added**.
+- **Print:** pick the passes and click **Preview & print** in the bar above the sheet. The passes are the RSSB
   SKP templates redrawn to measure, as vector graphics (sharp at any size), with the changes of design
   v1: every pass has the tab with the Tag (`NOV - 2026`) at the bottom, the 150 × 100 mm passes are
   headed RSSB SIKANDERPUR-M.C., and Bike passes have no Valid For line:
@@ -58,19 +68,22 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   | --- | --- | --- | --- |
   | Mobile Pandal / Non Pandal | 63.5 × 88.9 mm | 25 (edges touching: one cut separates two) | 9 |
   | Bike Pandal / Non Pandal | 88 × 60 mm | 25 (turned sideways) | 8 |
-  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Entry (purple) | 150 × 100 mm | 9 (turned sideways) | 2 |
+  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple) | 150 × 100 mm | 9 (turned sideways) | 2 |
 
   Pick **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4** in the preview; each desk remembers
   its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and
   headers and footers off. When the dialog closes the passes are ticked **Printed**. If it didn't
   print, click **Didn't print? Undo**. Printed passes are skipped next time. Missing serials in the
   range print as blank passes. Print one sheet first and measure a pass with a ruler.
-- **Mark printed:** passes printed some other way? Enter the range and click **Mark … printed**. Same
+- **Mark printed:** passes printed some other way? Pick them and click **Mark … printed**. Same
   rules as printing; **Undo** reverses it.
 - **Printed passes are locked:** nothing in a printed row can change until **Printed** is unticked
   (on its own, as a separate step).
 - **Undo:** the **Undo** button (or Ctrl+Z) undoes your last change. The **History** tab lists every
   change with who made it and can undo any of them, unless those passes were changed again afterwards.
+- **Import / Export** (top right of the sheet): **Import CSV…** adds or fills passes from a CSV file;
+  **Export this sheet** saves the open sheet (what's shown, if searching) as CSV for Excel; **Export all
+  sheets** saves every sheet as one Excel file (.xlsx), a tab per sheet.
 - **Report:** passes per sheet by Area then Dept (or Dept then Area), with serial numbers and
   incharges. Export it to Excel or print it.
 - **Gate check:** every printed pass has a QR code holding only its code (44 digits, no address).
@@ -78,7 +91,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   QR code to open it on a phone), log in once (any user; the admin adds them under **Users**) and add
   it to the home screen. For each pass: tap **Scan a pass** and photograph the QR code from 10–20 cm.
   The page says **VALID** (green), **CHECK** (yellow: genuine, but the register disagrees, e.g. the
-  name was changed after printing or it isn't marked printed) or **NOT VALID** (red: a fake, not in
+  name was changed after printing, or it isn't marked printed or Given) or **NOT VALID** (red: a fake, not in
   the register, or printed before a new key), or **TRY AGAIN** if the photo has no readable QR code.
   It shows the register's details (name, dept, area, incharge, vehicle, Reg. No.) and when the pass
   was scanned before; every scan is recorded. It takes a photo rather than showing the camera live
@@ -91,7 +104,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   **Gate check page** address for phones (shown when Settings is opened by the network address, not
   `localhost`) and the **QR key** (**Make a new key** cancels every pass printed before it: they check NOT VALID). Set once;
   every desk uses them. Settings also shows every pass as it prints. An SVG signature stays vector.
-  The Print box says when one is missing.
+  The bar above the sheet says when one is missing.
 - Dept suggestions come from the sip app's department list (`src/lib/depts.ts`), and area suggestions
   from `src/lib/areas.ts`. Any other text is accepted too.
 
@@ -107,13 +120,13 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   ```
 
   Open desks reload by themselves.
-- **Several desks:** each open sheet asks the server for changes every 2 seconds (every 15 seconds
+- **Several desks:** each open sheet asks the server for changes every 5 seconds (every 15 seconds
   in a background tab). Only changed rows are sent, so it's light.
 
 ## Moving data from the old app
 
 Open the old app (`legacy/old-app.html`) in the browser that has the data, click **Export to Excel**,
-then in each sheet of the new app click **Import CSV** with that file. Each sheet takes its own rows:
+then in each sheet of the new app use **Import / Export → Import CSV…** with that file. Each sheet takes its own rows:
 Mobile / Bike and Pandal / Non Pandal pick the sheet, serials like `M-0105` become 105, and
 Printed = Yes keeps them printed. Rows without Pandal / Non Pandal are counted and skipped.
 

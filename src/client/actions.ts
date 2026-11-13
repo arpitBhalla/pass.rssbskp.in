@@ -1,14 +1,14 @@
 'use client';
 import { useCallback, useEffect } from 'react';
-import type { ApplyRequest, ApplyResult } from '@/shared/types';
+import type { ApplyRequest, ApplyResult, DeleteRequest, DeleteResult } from '@/shared/types';
 import { store } from './store';
 import { toast } from './toast';
 import { errorMessage, isConflict, isUnauthorized, useTRPCClient } from './trpc';
 
-const ACTIVE_MS = 2000;
+const ACTIVE_MS = 5000;
 const HIDDEN_MS = 15000;
 
-/** Keeps the store in step with the server: every 2 s while the tab is visible, 15 s when hidden. */
+/** Keeps the store in step with the server: every 5 s while the tab is visible, 15 s when hidden. */
 export function useSyncLoop() {
   const client = useTRPCClient();
   useEffect(() => {
@@ -71,6 +71,24 @@ export function useActions() {
     [client],
   );
 
+  /** Deletes passes. Errors are shown as a toast; on a conflict the sheet refreshes at once. */
+  const remove = useCallback(
+    async (req: DeleteRequest): Promise<DeleteResult | null> => {
+      try {
+        const r = await client.passes.remove.mutate(req);
+        store.merge([], r.deleted);
+        store.pushUndo(r.changeId, req.summary);
+        toast(req.summary);
+        return r;
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+        if (isConflict(e)) store.resync();
+        return null;
+      }
+    },
+    [client],
+  );
+
   /** Undoes a change (default: this tab's last one). */
   const undo = useCallback(
     async (changeId?: number): Promise<boolean> => {
@@ -96,5 +114,5 @@ export function useActions() {
     [client],
   );
 
-  return { apply, undo };
+  return { apply, remove, undo };
 }

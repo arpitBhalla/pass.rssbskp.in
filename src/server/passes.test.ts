@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ApplyRequest, Pass, Values } from '@/shared/types';
 import { db, ensureDatabase, migrate } from './db';
-import { applyChange, syncSince, undoChange } from './passes';
+import { applyChange, deletePasses, syncSince, undoChange } from './passes';
 
 // Runs against TEST_DATABASE_URL (default: postgres://localhost:5432/passes_test), wiped first.
 let ramesh: number;
@@ -118,5 +118,77 @@ describe('sync', () => {
     const s2 = await syncSince(db, s1.rev);
     expect(s2.deleted.map((d) => d.id).sort()).toEqual(g.rows.map((p) => p.id).sort());
     expect((await syncSince(db, s2.rev + 100)).reset).toBe(true); // database replaced: reload everything
+  });
+});
+
+describe('Given', () => {
+  it('starts unticked whatever is filled in; ticking is saved, refused if stale, allowed on printed passes', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet'))).rows;
+    expect(p.given_at).toBeNull();
+    const t = await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] });
+    expect(t.rows[0].given_at).not.toBeNull();
+    // Another desk still saw it unticked: refused.
+    await expect(applyChange(db, suresh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] }))
+      .rejects.toThrow(/just changed by Ramesh/);
+    await applyChange(db, ramesh, { action: 'print', summary: 'print', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
+    const u = await applyChange(db, ramesh, { action: 'given', summary: 'untick', set: [{ id: p.id, given: false, expect: { given: true } }] });
+    expect(u.rows[0]).toMatchObject({ given_at: null });
+    expect(u.rows[0].printed_at).not.toBeNull();
+  });
+
+  it('undo restores Given as it was', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'Gurpreet'))).rows;
+    const t = await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: p.id, given: true, expect: { given: false } }] });
+    expect((await undoChange(db, ramesh, t.changeId)).rows[0].given_at).toBeNull();
+  });
+});
+
+describe('delete', () => {
+  const items = (rows: Pass[]) => rows.map((p) => ({ id: p.id, rev: p.rev }));
+
+  it('deletes several passes as one change; sync reports them; undo brings them back as they were', async () => {
+    const g = await applyChange(db, ramesh, give(1, 5, 'Gurpreet'));
+    await applyChange(db, ramesh, { action: 'given', summary: 'tick', set: [{ id: g.rows[1].id, given: true, expect: { given: false } }] });
+    const before = (await syncSince(db, 0)).rows.sort((a, b) => a.serial - b.serial);
+    const rev = (await syncSince(db, 0)).rev;
+    const d = await deletePasses(db, suresh, { summary: 'Deleted 0002–0004', items: items(before.slice(1, 4)) });
+    expect(d.deleted).toHaveLength(3);
+    expect((await syncSince(db, 0)).rows.map((p) => p.serial).sort()).toEqual([1, 5]);
+    expect((await syncSince(db, rev)).deleted.map((x) => x.id).sort()).toEqual(before.slice(1, 4).map((p) => p.id).sort());
+    expect(await db.selectFrom('changes').select(['action', 'count', 'serial_from', 'serial_to']).where('id', '=', d.changeId).executeTakeFirst())
+      .toMatchObject({ action: 'delete', count: 3, serial_from: 2, serial_to: 4 });
+
+    const u = await undoChange(db, ramesh, d.changeId);
+    const back = u.rows.sort((a, b) => a.serial - b.serial);
+    expect(back.map((p) => [p.id, p.serial, p.incharge, p.created_at])).toEqual(before.slice(1, 4).map((p) => [p.id, p.serial, p.incharge, p.created_at]));
+    expect(back[0].given_at).toBe(before[1].given_at);
+    expect(await db.selectFrom('deleted_passes').select('id').execute()).toHaveLength(0);
+    // A client that saw the delete gets them back on its next sync.
+    const after = await syncSince(db, d.deleted[0].rev);
+    expect(after.rows.map((p) => p.serial).sort()).toEqual([2, 3, 4]);
+  });
+
+  it('refuses printed passes and passes changed since; deletes nothing then', async () => {
+    const g = await applyChange(db, ramesh, give(1, 3, 'Gurpreet'));
+    await applyChange(db, ramesh, { action: 'print', summary: 'p', set: [{ id: g.rows[2].id, printed: true, expect: { printed: false } }] });
+    const now = (await syncSince(db, 0)).rows.sort((a, b) => a.serial - b.serial);
+    await expect(deletePasses(db, ramesh, { summary: 'x', items: items(now) })).rejects.toThrow(/0003 is printed and can't be deleted/);
+    await expect(deletePasses(db, ramesh, { summary: 'x', items: items(g.rows.slice(0, 2)).map((i) => ({ ...i, rev: i.rev - 1 })) }))
+      .rejects.toThrow(/just changed by/);
+    expect((await syncSince(db, 0)).rows).toHaveLength(3);
+  });
+
+  it("can't undo a delete once a serial is used again", async () => {
+    const g = await applyChange(db, ramesh, give(1, 2, 'Gurpreet'));
+    const d = await deletePasses(db, ramesh, { summary: 'x', items: items(g.rows) });
+    await applyChange(db, suresh, give(2, 2, 'Harjit'));
+    await expect(undoChange(db, ramesh, d.changeId)).rejects.toThrow(/Mobile Pandal 0002 was added again since/);
+    expect((await syncSince(db, 0)).rows.map((p) => p.incharge)).toEqual(['Harjit']);
+  });
+
+  it('undoing a give of passes deleted since is refused', async () => {
+    const g = await applyChange(db, ramesh, give(1, 2, 'Gurpreet'));
+    await deletePasses(db, ramesh, { summary: 'x', items: items(g.rows.slice(0, 1)) });
+    await expect(undoChange(db, ramesh, g.changeId)).rejects.toThrow(/removed since/);
   });
 });

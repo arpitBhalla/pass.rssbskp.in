@@ -1,6 +1,5 @@
 import 'server-only';
 import { type Kysely, sql } from 'kysely';
-import { isGiven } from '@/lib/passes';
 import { type PassType, TYPE_INFO } from '@/shared/types';
 import type { Database } from './db/schema';
 import { checkCode, currentKeys, hashOfName, keysFor, makeCode, printedName } from './qr';
@@ -41,7 +40,7 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
     reasons.push('Not made with the current key: a fake, or printed before the key was changed in Settings.');
   } else {
     const row = await db.selectFrom('passes')
-      .select(['name', 'dept', 'area', 'phone', 'incharge', 'vehicle', 'vehicle_no', 'printed_at'])
+      .select(['name', 'dept', 'area', 'phone', 'incharge', 'vehicle', 'vehicle_no', 'printed_at', 'given_at'])
       .where('type', '=', c.type).where('serial', '=', c.serial).executeTakeFirst();
     if (!row) {
       verdict = 'invalid';
@@ -55,7 +54,7 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
           : 'The name printed on this pass has since been removed from the register.');
       }
       if (!row.printed_at) reasons.push("The register doesn't show this pass as printed.");
-      if (!isGiven(row)) reasons.push('Not given to anyone in the register.');
+      if (!row.given_at) reasons.push("The register doesn't show this pass as given (Given not ticked).");
       if (reasons.length) verdict = 'check';
     }
   }

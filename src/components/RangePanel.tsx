@@ -1,17 +1,9 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
-import Link from 'next/link';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
-import { usePaper } from '@/client/paper';
-import { useTRPC } from '@/client/trpc';
-import { cleanFill, nPasses, parseSerial, planFill, planPrint, ranges } from '@/lib/passes';
-import { PAPER, sheetPlan } from '@/lib/sheets';
+import { cleanFill, nPasses, parseSerial, planFill, ranges } from '@/lib/passes';
 import { type Field, FIELD_LABELS, fieldsFor, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
-import { useMe } from './AppShell';
-import type { PrintTexts } from './cards/PassCard';
-import { PrintView } from './PrintView';
-import { btn, btnPrimary, heading, input, label } from './ui';
+import { btnPrimary, heading, input, label } from './ui';
 
 const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
 /** Give box order: Area first, then who it's given to. */
@@ -20,8 +12,8 @@ const GIVE_ORDER: Field[] = ['area', 'incharge', 'dept', 'name', 'phone', 'vehic
 const WHO: Field[] = ['incharge', 'name', 'dept', 'phone'];
 
 /**
- * Side panel: pick a range of serials (or select rows in the sheet), then Give them to someone
- * or Print them. Both show exactly what will happen before anything is saved.
+ * Side panel: pick a range of serials (or select rows in the sheet) and Give them to someone. It shows
+ * exactly what will happen before anything is saved. Print / Given / Delete are in the RangeBar.
  */
 export function RangePanel({ type, sheet, range, setRange }: {
   type: PassType;
@@ -30,7 +22,7 @@ export function RangePanel({ type, sheet, range, setRange }: {
   setRange: (r: { from: string; to: string }) => void;
 }) {
   const info = TYPE_INFO[type];
-  const { apply, undo } = useActions();
+  const { apply } = useActions();
 
   /* ----- give ----- */
   const fields = GIVE_ORDER.filter((k) => fieldsFor(type).includes(k));
@@ -47,35 +39,6 @@ export function RangePanel({ type, sheet, range, setRange }: {
     const summary = `Gave ${info.label} ${ranges(give.serials)} to ${who}`;
     const r = await apply({ action: 'give', summary, set: give.set, create: give.create });
     if (r) setValues({});
-  };
-
-  /* ----- print ----- */
-  const print = useMemo(() => (hasRange ? planPrint(sheet, type, range.from, range.to) : null), [hasRange, sheet, type, range]);
-  const [printing, setPrinting] = useState<NonNullable<typeof print> | null>(null);
-  const trpc = useTRPC();
-  const sig = useQuery(trpc.settings.get.queryOptions());
-  const signature = sig.data?.signature ?? '';
-  const texts = useMemo(
-    () => ({ signature, tag: sig.data?.tag ?? '' }),
-    [signature, sig.data?.tag],
-  );
-  const layout = info.layout;
-  const paper = usePaper();
-  const sheets = print ? Math.ceil(print.cards.length / sheetPlan(paper, layout).perSheet) : 0;
-
-  const onMark = useCallback(async () => {
-    if (!printing) return { error: 'Nothing to mark.' };
-    const summary = `Printed ${info.label} ${ranges(printing.cards.map((c) => c.serial))}`;
-    const r = await apply({ action: 'print', summary, set: printing.set, create: printing.create });
-    if (!r) return { error: 'see the message below. Tick Printed in the sheet once it is sorted out.' };
-    return { undo: () => undo(r.changeId) };
-  }, [apply, undo, printing, info.label]);
-  const closePrint = useCallback(() => setPrinting(null), [setPrinting]);
-  /** Ticks Printed on the range without printing (printed elsewhere). Same rules as printing; Undo reverses it. */
-  const markPrinted = async () => {
-    if (!print || print.err || !print.cards.length) return;
-    const summary = `Marked ${info.label} ${ranges(print.cards.map((c) => c.serial))} printed`;
-    await apply({ action: 'print', summary, set: print.set, create: print.create });
   };
 
   const from = parseSerial(range.from);
@@ -129,52 +92,6 @@ export function RangePanel({ type, sheet, range, setRange }: {
         </button>
       </section>
 
-      <section className="space-y-2.5 border-t border-border pt-3">
-        <h2 className={heading}>Print</h2>
-        {print?.err && <p className="text-[13.5px] text-destructive">{print.err}</p>}
-        {print && !print.err && (
-          <div className="space-y-1 text-[13.5px] leading-snug text-muted-foreground">
-            <p>
-              <b className="text-foreground">{nPasses(print.cards.length)}</b> to print ({sheets} {PAPER[paper].label} sheet{sheets === 1 ? '' : 's'})
-              {print.create.length > 0 && <>, {print.create.length} blank (not given yet)</>}
-            </p>
-            {print.printed.length > 0 && <p>Skipping {print.printed.length} already printed ({ranges(print.printed)}). Untick Printed in the sheet to print again.</p>}
-          </div>
-        )}
-        <PrintSetup texts={texts} loading={sig.isLoading} />
-        <div className="flex gap-2">
-          <button className={`${btnPrimary} flex-1`} disabled={!print || !!print.err || !print.cards.length} onClick={() => print && setPrinting(print)}>
-            Preview &amp; print
-          </button>
-          <button
-            className={btn} disabled={!print || !!print.err || !print.cards.length} onClick={() => void markPrinted()}
-            title="Tick Printed for these passes without printing (printed some other way). Undo reverses it."
-          >
-            {print && !print.err && print.cards.length ? `Mark ${print.cards.length} printed` : 'Mark printed'}
-          </button>
-        </div>
-      </section>
-
-      {printing && <PrintView cards={printing.cards} texts={texts} onMark={onMark} onClose={closePrint} />}
     </aside>
-  );
-}
-
-/** What the passes print with (set once in Settings), and what's missing. */
-function PrintSetup({ texts, loading }: { texts: PrintTexts; loading: boolean }) {
-  const me = useMe();
-  if (loading) return null;
-  const missing = [
-    !texts.signature && 'signature',
-    !texts.tag && 'tag',
-  ].filter(Boolean) as string[];
-  const where = me.is_admin ? <Link href="/settings" className="font-semibold text-primary hover:underline">Settings</Link> : 'Settings (ask an admin)';
-  return (
-    <div className="space-y-1 text-[13.5px] leading-snug text-muted-foreground">
-      {texts.tag && <p>Tag: <span className="text-foreground">{texts.tag}</span></p>}
-      {missing.length > 0
-        ? <p className="rounded-[3px] bg-sand-100 px-2 py-1 text-sand-900">No {missing.join(' or ')} yet: printed blank. Set it in {where}.</p>
-        : me.is_admin && <p>Change these in {where}.</p>}
-    </div>
   );
 }

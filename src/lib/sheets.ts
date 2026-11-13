@@ -1,6 +1,6 @@
 import type { Layout } from '@/shared/types';
 
-/** Pass sizes in mm (Mobile: 9 per A4 / 25 per A3+, Bike: 8 / 25, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Entry: 2 / 9). */
+/** Pass sizes in mm (Mobile: 9 per A4 / 25 per A3+, Bike: 8 / 25, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking: 2 / 9). */
 export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
   mobile: { w: 63.5, h: 88.9 },
   bike: { w: 88, h: 60 },

@@ -3,21 +3,21 @@ import { TRPCError } from '@trpc/server';
 import { type Kysely, type Transaction, sql } from 'kysely';
 import {
   type ApplyRequest, type ApplyResult, type Change, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, cleanText,
-  MAX_BATCH, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
+  type DeleteRequest, type DeleteResult, MAX_BATCH, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
 } from '@/shared/types';
-import type { ChangeBefore, Database, PassRow } from './db/schema';
+import type { ChangeBefore, Database, PassRow, PassRowJson } from './db/schema';
 
 const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message });
 const conflict = (message: string) => new TRPCError({ code: 'CONFLICT', message });
 
-const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'printed_at', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
+const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'printed_at', 'given_at', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
 
 export function toPass(r: Pick<PassRow, (typeof PASS_COLUMNS)[number]>): Pass {
   return {
     id: r.id, type: r.type, serial: r.serial, name: r.name, dept: r.dept, area: r.area, phone: r.phone,
-    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, printed_at: iso(r.printed_at), created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
+    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, printed_at: iso(r.printed_at), given_at: iso(r.given_at), created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
   };
 }
 
@@ -103,7 +103,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const row = byId.get(op.id);
         if (!row) throw conflict('Some of these passes were removed meanwhile. The sheet has been refreshed.');
         const isStale = Object.entries(op.expect).some(([k, v]) =>
-          k === 'printed' ? (row.printed_at !== null) !== v : row[k as Field] !== v,
+          k === 'printed' ? (row.printed_at !== null) !== v : k === 'given' ? (row.given_at !== null) !== v : row[k as Field] !== v,
         );
         if (isStale) { stale.push(row); continue; }
         const values = op.values ?? {};
@@ -111,7 +111,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const differs = (Object.keys(values) as Field[]).some((k) => row[k] !== values[k]);
         if (row.printed_at !== null && differs) { locked.push(row); continue; }
         checkFields(row.type, values);
-        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null };
+        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null };
         for (const k of FIELDS) merged[k] = values[k] ?? row[k];
         updates.push(merged);
       }
@@ -128,23 +128,24 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
             UPDATE passes AS p SET
               name = v.name, dept = v.dept, area = v.area, phone = v.phone, vehicle = v.vehicle, vehicle_no = v.vehicle_no, incharge = v.incharge,
               printed_at = CASE WHEN v.printed IS NULL THEN p.printed_at WHEN v.printed THEN coalesce(p.printed_at, now()) ELSE NULL END,
+              given_at = CASE WHEN v.given IS NULL THEN p.given_at WHEN v.given THEN coalesce(p.given_at, now()) ELSE NULL END,
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed boolean)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed boolean, given boolean)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
 
-      const createRows = create.map((c) => ({ type: c.type, serial: c.serial, printed: c.printed ?? false, ...c.values }));
+      const createRows = create.map((c) => ({ type: c.type, serial: c.serial, printed: c.printed ?? false, given: c.given ?? false, ...c.values }));
       const created = create.length
         ? (await sql<PassRow>`
-            INSERT INTO passes (type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, printed_at, created_by, updated_by, rev)
+            INSERT INTO passes (type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, printed_at, given_at, created_by, updated_by, rev)
             SELECT v.type::pass_type, v.serial,
                    coalesce(v.name, ''), coalesce(v.dept, ''), coalesce(v.area, ''), coalesce(v.phone, ''),
                    coalesce(v.vehicle, ''), coalesce(v.vehicle_no, ''), coalesce(v.incharge, ''),
-                   CASE WHEN v.printed THEN now() END, ${userId}, ${userId}, ${rev}
+                   CASE WHEN v.printed THEN now() END, CASE WHEN v.given THEN now() END, ${userId}, ${userId}, ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(createRows)}::jsonb)
-              AS v(type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed boolean)
+              AS v(type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed boolean, given boolean)
             ON CONFLICT (type, serial) DO NOTHING
             RETURNING *`.execute(trx)).rows
         : [];
@@ -194,7 +195,7 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
       if (ch.undone_at) throw bad('That was already undone.');
       if (ch.action === 'undo') throw bad('An undo cannot be undone.');
 
-      const { rows: beforeRows, created } = ch.before;
+      const { rows: beforeRows, created, deleted = [] } = ch.before;
       const ids = [...beforeRows.map((r) => r.id), ...created];
       const current = ids.length
         ? await trx.selectFrom('passes').select(['id', 'serial', 'rev', 'updated_by']).where('id', 'in', ids).forUpdate().execute()
@@ -219,41 +220,112 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
         ? (await sql<PassRow>`
             UPDATE passes AS p SET
               name = v.name, dept = v.dept, area = v.area, phone = v.phone, vehicle = coalesce(v.vehicle, ''), vehicle_no = v.vehicle_no,
-              incharge = v.incharge, printed_at = v.printed_at, updated_at = now(), updated_by = ${userId}, rev = ${rev}
+              incharge = v.incharge, printed_at = v.printed_at, given_at = v.given_at, updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(beforeRows)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed_at timestamptz)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, printed_at timestamptz, given_at timestamptz)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
+      const back = deleted.length ? await putBack(trx, userId, rev, deleted) : [];
 
       await trx.updateTable('changes').set({ undone_at: new Date(), undone_by: userId }).where('id', '=', changeId).execute();
       await trx
         .insertInto('changes')
         .values({
           done_by: userId, action: 'undo', type: ch.type, serial_from: ch.serial_from, serial_to: ch.serial_to,
-          summary: `Undo: ${ch.summary}`.slice(0, 300), count: ids.length, rev,
+          summary: `Undo: ${ch.summary}`.slice(0, 300), count: ids.length + deleted.length, rev,
           before: JSON.stringify({ rows: [], created: [] } satisfies ChangeBefore),
         })
         .execute();
-      return { rows: restored.map(toPass), deleted: created, summary: ch.summary };
+      return { rows: [...restored, ...back].map(toPass), deleted: created, summary: ch.summary };
     });
   } catch (e) {
     throw explain(e);
   }
 }
 
-/** Everything that changed after version `since` (0 = everything). */
+/**
+ * Removes passes from the register; their serials become empty rows again. Printed passes can't be
+ * deleted (their cards are out there). Refused if any pass changed since the user saw it. Undo puts
+ * them back as they were.
+ */
+export async function deletePasses(db: Kysely<Database>, userId: number, req: DeleteRequest): Promise<DeleteResult> {
+  const ids = req.items.map((i) => i.id);
+  if (!ids.length) throw bad('Nothing to delete.');
+  if (ids.length > MAX_BATCH) throw bad(`Please do at most ${MAX_BATCH} passes at a time.`);
+  if (new Set(ids).size !== ids.length) throw bad('The same pass appears twice.');
+  const seen = new Map(req.items.map((i) => [i.id, i.rev]));
+  try {
+    return await db.transaction().execute(async (trx) => {
+      const rev = await bump(trx);
+      const rows = await trx.selectFrom('passes').selectAll().where('id', 'in', ids).forUpdate().execute();
+      if (rows.length < ids.length) throw conflict('Some of these passes were removed meanwhile. The sheet has been refreshed.');
+      const moved = rows.filter((r) => r.rev !== seen.get(r.id));
+      if (moved.length) {
+        const who = await userName(trx, moved[0].updated_by);
+        throw conflict(`${serialList(moved.map((r) => r.serial))} ${isAre(moved.length)} just changed by ${who}. The sheet has been refreshed: check and try again.`);
+      }
+      const printed = rows.filter((r) => r.printed_at !== null);
+      if (printed.length) {
+        throw bad(`${serialList(printed.map((r) => r.serial))} ${printed.length === 1 ? 'is' : 'are'} printed and can't be deleted. Untick Printed first.`);
+      }
+      await trx.deleteFrom('passes').where('id', 'in', ids).execute();
+      await trx.insertInto('deleted_passes').values(ids.map((id) => ({ id, rev })))
+        .onConflict((oc) => oc.column('id').doUpdateSet({ rev })).execute();
+      const types = new Set(rows.map((r) => r.type));
+      const serials = rows.map((r) => r.serial);
+      const before: ChangeBefore = { rows: [], created: [], deleted: JSON.parse(JSON.stringify(rows)) };
+      const { id: changeId } = await trx.insertInto('changes')
+        .values({
+          done_by: userId, action: 'delete', type: types.size === 1 ? [...types][0] : null,
+          serial_from: Math.min(...serials), serial_to: Math.max(...serials),
+          summary: req.summary.slice(0, 300), count: rows.length, rev, before: JSON.stringify(before),
+        })
+        .returning('id').executeTakeFirstOrThrow();
+      return { changeId, deleted: ids.map((id) => ({ id, rev })) };
+    });
+  } catch (e) {
+    throw explain(e);
+  }
+}
+
+/** Undoing a delete: the passes come back as they were (same id), unless their serials were used again. */
+async function putBack(trx: Transaction<Database>, userId: number, rev: number, rows: PassRowJson[]): Promise<PassRow[]> {
+  const json = JSON.stringify(rows);
+  const taken = (await sql<{ type: PassType; serial: number }>`
+    SELECT p.type, p.serial FROM passes p JOIN jsonb_to_recordset(${json}::jsonb) AS v(type text, serial int)
+      ON p.type::text = v.type AND p.serial = v.serial`.execute(trx)).rows;
+  if (taken.length) {
+    throw conflict(`Can't undo: ${TYPE_INFO[taken[0].type].label} ${serialList(taken.map((t) => t.serial))} ${taken.length === 1 ? 'was' : 'were'} added again since.`);
+  }
+  const back = (await sql<PassRow>`
+    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, printed_at, given_at, created_at, created_by, updated_by, rev)
+    OVERRIDING SYSTEM VALUE
+    SELECT v.id, v.type::pass_type, v.serial, v.name, v.dept, v.area, v.phone, v.vehicle, v.vehicle_no, v.incharge,
+           v.printed_at, v.given_at, v.created_at, v.created_by, ${userId}, ${rev}
+    FROM jsonb_to_recordset(${json}::jsonb)
+      AS v(id int, type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text,
+           printed_at timestamptz, given_at timestamptz, created_at timestamptz, created_by int)
+    RETURNING *`.execute(trx)).rows;
+  await trx.deleteFrom('deleted_passes').where('id', 'in', rows.map((r) => r.id)).execute();
+  return back;
+}
+
+/**
+ * Everything that changed after version `since` (0 = everything). One query, so one round trip to a
+ * database that may be far away; a single statement sees the database at one moment.
+ */
 export async function syncSince(db: Kysely<Database>, since: number): Promise<Omit<SyncResult, 'backupError'>> {
-  const { version } = await db.selectFrom('meta').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-  if (since === version) return { rev: version, rows: [], deleted: [], reset: false }; // the usual case: one cheap query
-  const reset = since > version; // the database was replaced (e.g. restored from a backup)
-  const from = reset ? 0 : since;
-  return db.transaction().setIsolationLevel('repeatable read').execute(async (trx) => {
-    const { version: rev } = await trx.selectFrom('meta').select('version').where('id', '=', 1).executeTakeFirstOrThrow();
-    const rows = await trx.selectFrom('passes').select(PASS_COLUMNS).where('rev', '>', from).execute();
-    const deleted = from > 0 ? await trx.selectFrom('deleted_passes').select(['id', 'rev']).where('rev', '>', from).execute() : [];
-    return { rev, rows: rows.map(toPass), deleted, reset };
-  });
+  type Row = { rev: number; rows: PassRow[] | null; deleted: { id: number; rev: number }[] | null };
+  const cols = sql.join(PASS_COLUMNS.map((c) => sql.ref(c)));
+  // A `since` ahead of the database means it was replaced (e.g. restored from a backup): send everything.
+  const { rows: [r] } = await sql<Row>`
+    WITH m AS (SELECT version, CASE WHEN ${since}::int > version THEN 0 ELSE ${since}::int END AS since FROM meta WHERE id = 1)
+    SELECT m.version AS rev,
+      (SELECT json_agg(p) FROM (SELECT ${cols} FROM passes WHERE rev > m.since) p) AS rows,
+      (SELECT json_agg(d) FROM (SELECT id, rev FROM deleted_passes WHERE m.since > 0 AND rev > m.since) d) AS deleted
+    FROM m`.execute(db);
+  return { rev: r.rev, rows: (r.rows ?? []).map(toPass), deleted: r.deleted ?? [], reset: since > r.rev };
 }
 
 export async function listChanges(db: Kysely<Database>, limit: number): Promise<Change[]> {
