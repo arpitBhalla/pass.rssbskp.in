@@ -80,11 +80,6 @@ async function prune() {
 export function startBackups() {
   const g = globalThis as typeof globalThis & { __passBackups?: NodeJS.Timeout };
   if (g.__passBackups) return;
-  if (process.env.VERCEL) {
-    // Vercel's disk is read-only and has no pg_dump. The database host keeps its own daily backups.
-    console.log('Automatic backups are off on Vercel: the database host keeps its own backups.');
-    return;
-  }
   const tick = (reason: string) => backupNow(reason).catch((e) => { state.error = `Automatic backup failed: ${e.message}`; console.error(state.error); });
   void tick('start');
   g.__passBackups = setInterval(() => tick('auto'), EVERY_MS);
