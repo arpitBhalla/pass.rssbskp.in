@@ -52,6 +52,9 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   drops the edit. While a cell is selected the arrow keys move between cells (after typing into it,
   ← → still do; after a double-click or F2 they move the caret), **Delete** empties it and
   **Backspace** empties it to type afresh. A printed pass's cells say they're locked.
+  **Shift+arrow** grows a block a cell at a time; **Ctrl+arrow** (⌘ on a Mac) jumps to the end of the
+  filled cells (or the next filled one), so Ctrl+↓ reaches the bottom row to add a pass; and
+  **Ctrl+Shift+arrow** grows the block to there. A plain arrow lets the block go.
 - **Type or paste from Excel:** click a cell and type (Enter moves down). Copy cells in Excel and paste
   into the first cell: lines fill downward, columns fill rightward, and a copied header row is skipped.
   If the paste would replace cells that already hold something, a yellow bar lists them first:

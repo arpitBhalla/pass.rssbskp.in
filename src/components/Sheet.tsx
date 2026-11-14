@@ -1,5 +1,5 @@
 'use client';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
 import { isUnsaved } from '@/client/store';
 import { toast } from '@/client/toast';
 import { addedBy, useUserNames } from '@/client/users';
@@ -10,6 +10,11 @@ import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted, planClear, range
 import { cleanField, cleanText, type Field, FIELD_LABELS, fieldsFor, fmtSerial, locksWhenPrinted, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 
 const ROW_H = 30; // keep in step with h-[30px] below
+
+type Arrow = { dr: number; dc: number };
+const ARROWS: Record<string, Arrow> = {
+  ArrowUp: { dr: -1, dc: 0 }, ArrowDown: { dr: 1, dc: 0 }, ArrowLeft: { dr: 0, dc: -1 }, ArrowRight: { dr: 0, dc: 1 },
+};
 /** Columns with typing suggestions (datalists rendered by SheetScreen). */
 const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
 const WIDTH: Partial<Record<Field, number>> = { dept: 118, area: 118, phone: 112, vehicle: 140, vehicle_no: 124 };
@@ -138,6 +143,11 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     return nextSet;
   });
 
+  const [active, setActive] = useState<Cell | null>(null); // the cell with the cursor
+  const indexOf = useMemo(() => new Map(items.map((it, i) => [it.key, i])), [items]);
+  // The row with the cursor stays drawn when scrolled out of view (e.g. a block grown far down from
+  // it), so the cell keeps the cursor and the keys keep working.
+  const keep = active ? indexOf.get(active.key) : undefined;
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollRef.current,
@@ -146,6 +156,10 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     paddingStart: ROW_H, // the sticky header sits above the first row
     scrollPaddingStart: ROW_H,
     overscan: 15,
+    rangeExtractor: (range) => {
+      const shown = defaultRangeExtractor(range);
+      return keep === undefined || shown.includes(keep) ? shown : [...shown, keep].sort((a, b) => a - b);
+    },
   });
   const vItems = virtualizer.getVirtualItems();
   const padTop = vItems.length ? vItems[0].start - ROW_H : 0;
@@ -165,13 +179,11 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     onSelect({ lo: Math.min(a.lo, span.lo), hi: Math.max(a.hi, span.hi) });
   };
   /* ----- cells, like Excel: drag or Shift+click for a block, Ctrl+C copies it, the corner square fills ----- */
-  const [active, setActive] = useState<Cell | null>(null); // the cell with the cursor
   const [block, setBlock] = useState<{ a: Cell; b: Cell } | null>(null);
   const [fillTo, setFillToState] = useState<Rect | null>(null);
   const fillRef = useRef<Rect | null>(null); // the same, for the mouseup that runs the fill
   const setFillTo = (r: Rect | null) => { fillRef.current = r; setFillToState(r); };
   const cellDrag = useRef<{ mode: 'block' | 'fill'; start: Cell } | null>(null);
-  const indexOf = useMemo(() => new Map(items.map((it, i) => [it.key, i])), [items]);
   const rectOf = (a: Cell, b: Cell): Rect | null => {
     const ia = indexOf.get(a.key), ib = indexOf.get(b.key);
     if (ia === undefined || ib === undefined) return null;
@@ -483,6 +495,31 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       }
       if (e.key === 'Delete' && !multi) { e.preventDefault(); clearCell(el); return; }
     }
+    // Shift+arrow grows the block a cell; Ctrl+arrow (⌘ on a Mac) jumps to the edge of the filled cells;
+    // Ctrl+Shift+arrow grows the block to there. As in Excel.
+    const arrow = ARROWS[e.key];
+    if (selected && arrow && !e.altKey && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const here = cellAt(el);
+      if (!here) return;
+      const jump = e.ctrlKey || e.metaKey;
+      if (e.shiftKey) {
+        const a = block?.a ?? here;
+        const b = block?.b ?? here;
+        // Jumps follow the line the cursor's cell is on (its column going up or down, its row sideways), from the block's far edge.
+        let to: Cell | null;
+        if (!jump) to = step(b, arrow);
+        else if (arrow.dr) { const end = edge({ key: b.key, c: a.c }, arrow); to = end && { key: end.key, c: b.c }; }
+        else { const end = edge({ key: a.key, c: b.c }, arrow); to = end && { key: b.key, c: end.c }; }
+        if (to) { setBlock({ a, b: to }); reveal(to); }
+      } else {
+        const to = edge(here, arrow);
+        setBlock(null);
+        if (to) focusCell(indexOf.get(to.key)!, fields[to.c]);
+      }
+      return;
+    }
+    if (selected && arrow && block) setBlock(null); // a plain arrow lets the block go
     if ((selected || typing) && plain && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
       e.preventDefault();
       const c = fields.indexOf(k) + (e.key === 'ArrowRight' ? 1 : -1);
@@ -503,6 +540,35 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const i = Number(el.closest('tr')!.dataset.i) + dir;
     if (i >= 0 && i < items.length) focusCell(i, k);
     else el.blur();
+  };
+
+  /** The next cell that way, if any. */
+  const step = (cell: Cell, d: Arrow): Cell | null => {
+    const i = indexOf.get(cell.key)! + d.dr, c = cell.c + d.dc;
+    return i >= 0 && i < items.length && c >= 0 && c < fields.length ? { key: items[i].key, c } : null;
+  };
+  /**
+   * Where Ctrl+arrow goes, as in Excel: from a filled cell with a filled one next to it, to the last filled
+   * cell of that run; otherwise to the next filled cell, or the far end if there's none.
+   */
+  const edge = (cell: Cell, d: Arrow): Cell | null => {
+    let i = indexOf.get(cell.key)!, c = cell.c;
+    const inside = (r: number, k: number) => r >= 0 && r < items.length && k >= 0 && k < fields.length;
+    const filled = (r: number, k: number) => valueAt(r, k) !== '';
+    if (!inside(i + d.dr, c + d.dc)) return null;
+    if (filled(i, c) && filled(i + d.dr, c + d.dc)) {
+      while (inside(i + d.dr, c + d.dc) && filled(i + d.dr, c + d.dc)) { i += d.dr; c += d.dc; }
+    } else {
+      do { i += d.dr; c += d.dc; } while (inside(i, c) && !filled(i, c));
+      if (!inside(i, c)) { i -= d.dr; c -= d.dc; }
+    }
+    return { key: items[i].key, c };
+  };
+  /** Scrolls a cell into view (the corner of a block being grown with the keys). */
+  const reveal = (cell: Cell) => {
+    const i = indexOf.get(cell.key)!;
+    virtualizer.scrollToIndex(i, { align: 'auto' });
+    requestAnimationFrame(() => scrollRef.current?.querySelector(`tr[data-i="${i}"] td[data-c="${cell.c}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
   };
 
   /** Delete on a selected cell empties it (saved as one change; Undo brings it back). */
@@ -542,6 +608,32 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     onPaste(rows, items[i].kind === 'new' ? rows.length : i, k, text, canAdd);
   };
 
+  /** One row of the sheet. */
+  const drawItem = (v: (typeof vItems)[number]) => {
+    const it = items[v.index];
+    const i = v.index;
+    let mark: Mark | undefined;
+    if (multi && rect && i >= rect.r0 && i <= rect.r1) mark = { sel: [rect.c0, rect.c1] };
+    if (fillTo && i >= fillTo.r0 && i <= fillTo.r1) mark = { ...mark, fill: [fillTo.c0, fillTo.c1] };
+    if (source && i === source.r1) mark = { ...mark, handle: source.c1 };
+    if (it.kind === 'row') {
+      return <Row key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} />;
+    }
+    if (it.kind === 'group') {
+      return (
+        <GroupRow
+          key={v.key} passes={it.passes} i={i} open={it.open} fields={fields} mark={mark}
+          selected={it.passes.every((p) => inSpan(selection, p))}
+          onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
+        />
+      );
+    }
+    if (it.kind === 'empty') {
+      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} />;
+    }
+    return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} last />;
+  };
+
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-background">
     <Watermark type={type} />
@@ -571,29 +663,10 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
         </thead>
         <tbody onKeyDown={onKeyDown} onPaste={onPasteCells} onMouseDown={onMouseDown} onMouseOver={onMouseOver} onFocus={onFocusCell} onBlur={onBlurCell}>
           {padTop > 0 && <tr style={{ height: padTop }}><td colSpan={cols} /></tr>}
-          {vItems.map((v) => {
-            const it = items[v.index];
-            const i = v.index;
-            let mark: Mark | undefined;
-            if (multi && rect && i >= rect.r0 && i <= rect.r1) mark = { sel: [rect.c0, rect.c1] };
-            if (fillTo && i >= fillTo.r0 && i <= fillTo.r1) mark = { ...mark, fill: [fillTo.c0, fillTo.c1] };
-            if (source && i === source.r1) mark = { ...mark, handle: source.c1 };
-            if (it.kind === 'row') {
-              return <Row key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} />;
-            }
-            if (it.kind === 'group') {
-              return (
-                <GroupRow
-                  key={v.key} passes={it.passes} i={i} open={it.open} fields={fields} mark={mark}
-                  selected={it.passes.every((p) => inSpan(selection, p))}
-                  onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
-                />
-              );
-            }
-            if (it.kind === 'empty') {
-              return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} />;
-            }
-            return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} last />;
+          {vItems.flatMap((v, j) => {
+            const gap = j > 0 ? v.start - vItems[j - 1].end : 0; // the row kept drawn, away from the rest
+            const row = drawItem(v);
+            return gap > 0 ? [<tr key={`gap${v.key}`} aria-hidden style={{ height: gap }}><td colSpan={cols} /></tr>, row] : [row];
           })}
           {padBottom > 0 && <tr style={{ height: padBottom }}><td colSpan={cols} /></tr>}
         </tbody>
