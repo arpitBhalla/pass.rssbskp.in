@@ -1,4 +1,5 @@
 import 'server-only';
+import { attachDatabasePool } from '@vercel/functions';
 import { Kysely, PostgresDialect } from 'kysely';
 import { Migrator } from 'kysely/migration';
 import pg from 'pg';
@@ -29,9 +30,27 @@ export function withoutSsl(url: URL): URL {
   return u;
 }
 
+/**
+ * Limits on every wait, so a request can never hang: a stuck one used to spin until Vercel cut it off after
+ * 5 minutes. The database gives up on a statement, or a wait for a lock, after 20 s; this end gives up on
+ * an answer that never comes (a connection dropped on the way) after 25 s; and a server that died in the
+ * middle of a change lets go of its locks after 30 s. The app then says so, and the desk sends again.
+ */
+export const LIMITS = {
+  connectionTimeoutMillis: 10_000,
+  statement_timeout: 20_000,
+  query_timeout: 25_000,
+  idle_in_transaction_session_timeout: 30_000,
+  keepAlive: true,
+} satisfies pg.ClientConfig;
+
 function create(url: string) {
-  const pool = new pg.Pool({ ...pgConfig(url), max: 10, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 });
+  // Vercel pauses a server between requests: idle connections close after 5 s there, and attachDatabasePool
+  // keeps the server awake until they have (it does nothing anywhere else).
+  const idleTimeoutMillis = process.env.VERCEL ? 5_000 : 30_000;
+  const pool = new pg.Pool({ ...pgConfig(url), ...LIMITS, max: 10, idleTimeoutMillis });
   pool.on('error', (e) => console.error('Postgres pool error:', e.message)); // a dropped idle connection must not crash the server
+  attachDatabasePool(pool);
   return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 }
 
@@ -41,7 +60,7 @@ export const db = (g.__passDb ??= create(DATABASE_URL));
 
 /** Creates the database if it doesn't exist yet. */
 export async function ensureDatabase(url = DATABASE_URL) {
-  const probe = new pg.Client(pgConfig(url));
+  const probe = new pg.Client({ ...pgConfig(url), ...LIMITS });
   try {
     await probe.connect();
     return;
@@ -54,7 +73,7 @@ export async function ensureDatabase(url = DATABASE_URL) {
   const name = decodeURIComponent(target.pathname.slice(1));
   if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Unusual database name "${name}": please create it yourself.`);
   target.pathname = '/postgres';
-  const admin = new pg.Client(pgConfig(target.toString()));
+  const admin = new pg.Client({ ...pgConfig(target.toString()), ...LIMITS });
   await admin.connect();
   try {
     await admin.query(`CREATE DATABASE "${name}"`);
