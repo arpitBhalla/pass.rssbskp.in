@@ -6,6 +6,9 @@ RozhaOne-400.woff2 — Rozha One, Copyright 2014 Indian Type Foundry.
 Archivo-87.5-600.woff2, Archivo-87.5-700.woff2 — Archivo (SemiCondensed cuts), Copyright 2019 The Archivo Project Authors.
 MartianMono-600.woff2 — Martian Mono, Copyright 2021 The Martian Mono Project Authors.
 BigShouldersDisplay-800.woff2 — Big Shoulders Display, Copyright 2019 The Big Shoulders Project Authors.
+Barlow-800.woff2, BarlowSemiCondensed-600/800.woff2, BarlowCondensed-500/600/700/800.woff2 — Barlow, Copyright 2017 The Barlow Project Authors.
+IBMPlexMono-600.woff2 — IBM Plex Mono, Copyright © 2017 IBM Corp.
+Marcellus-400.woff2 — Marcellus, Copyright 2012 The Marcellus Project Authors.
 
 All are licensed under the SIL Open Font License, Version 1.1: https://openfontlicense.org
 (downloaded from Google Fonts, Latin subset).

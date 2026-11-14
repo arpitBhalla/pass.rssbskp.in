@@ -8,7 +8,7 @@ import {
 } from './v2kit';
 
 /**
- * Design v2 "Rail" (round 6 A, Rozha masthead), the Admin pass: thin colour bars at the top and bottom
+ * Design v2 "Rail" (round 6 A, Rozha masthead), the Admin and Gate 1 & 12 Entry (BAV Parking) passes: thin colour bars at the top and bottom
  * edge (same colour on both, so passes printed edge to edge cut cleanly), the kind word in colour type,
  * the tag as a small solid pill. As picked (selected.html, 2026-11-14): the serial in Big Shoulders.
  */
@@ -88,10 +88,37 @@ function Fields({ p, ys, x0, x1, lw, cap, color }: {
   );
 }
 
-/** 150 × 100 mm. */
+/**
+ * The parking sign of Gate 1 & 12 Entry passes, `size` mm square at (x, y): a white "P" on a white-edged
+ * tile of the pass colour, drawn in a 24-unit box as in the preview.
+ */
+function ParkingTile({ x, y, size, color }: { x: number; y: number; size: number; color: string }) {
+  const pad = size * 0.1;
+  return (
+    <g>
+      <rect x={x} y={y} width={size} height={size} rx={mm(size * 0.12)} fill={color} />
+      <g transform={`translate(${x + pad} ${y + pad}) scale(${(size - 2 * pad) / 24})`}>
+        <rect x={0.5} y={0.5} width={23} height={23} rx={3.2} fill={WHITE} />
+        <text x={12.6} y={19.2} fontSize={21} textAnchor="middle" style={{ fontFamily: LEGIBLE.family, fontWeight: 800 }} fill={color}>P</text>
+      </g>
+    </g>
+  );
+}
+
+/** Gate 1 & 12 Entry passes print two lines of one size and colour where other passes print the kind word. */
+const BAV_LINES = ['GATE 1 & 12 ENTRY', 'BAV PARKING'];
+
+/** The two lines at one cap height (up to `cap`, each fitting `max`), 1.3 × cap apart; `y`: the last line's baseline. */
+function TwoLines({ x, y, cap, max, color }: { x: number; y: number; cap: number; max: number; color: string }) {
+  const c = Math.min(cap, ...BAV_LINES.map((l) => cap * (max / widthOf(l, C900, cap))));
+  return <g>{BAV_LINES.map((l, i) => <T key={l} t={l} f={C900} cap={c} x={x} y={y - (BAV_LINES.length - 1 - i) * c * 1.3} max={max} fill={color} />)}</g>;
+}
+
+/** 150 × 100 mm. Gate 1 & 12 Entry: the parking sign and two lines instead of "VEHICLE PASS" over the kind word. */
 export function RailVehicle({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color.band;
   const { w, h } = CARD_SIZE.vehicle;
+  const bav = p.type === 'bav-entry';
   return (
     <>
       <rect width={w} height={h} fill={WHITE} />
@@ -101,9 +128,13 @@ export function RailVehicle({ p, texts, code }: CardProps) {
       <T t={ORG} f={ROZHA} cap={4} x={20.5} y={14} max={100} />
       <Caption t="ZONE-III" at={[20.27, 19.6, 2.5, 17.15]} tracked />
       {code && <Qr text={code} x={129} y={8.5} size={15} pad={0} />}
-      <Caption t="VEHICLE PASS" at={[25.507, 29.4, 2.5, 25.95]} weight={S700} tracked />
+      {bav
+        ? <ParkingTile x={6} y={26.5} size={16} color={c} />
+        : <Caption t="VEHICLE PASS" at={[25.507, 29.4, 2.5, 25.95]} weight={S700} tracked />}
       <Pill t={texts.tag} x={144} cy={28.4} h={4.6} cap={2.3} color={c} />
-      <T t={kindOf(p.type)} f={C900} cap={10.5} x={25.3} y={42.4} max={118} fill={c} />
+      {bav
+        ? <TwoLines x={25.3} y={42.4} cap={6.2} max={118} color={c} />
+        : <T t={kindOf(p.type)} f={C900} cap={10.5} x={25.3} y={42.4} max={118} fill={c} />}
       <Fields p={p} ys={[54.5, 65, 75.5]} x0={6} x1={144} lw={16} cap={4.2} color={c} />
       <Caption t="Sr. No." at={[5.938, 83.6, 2.5, 7.637]} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={93.4} max={30} />

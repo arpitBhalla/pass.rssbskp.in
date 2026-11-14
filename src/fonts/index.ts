@@ -10,7 +10,7 @@ export const legible = localFont({ src: './AtkinsonHyperlegibleNext-latin.woff2'
 /** Archivo Black: the heavy "SKP-2026" tag. */
 export const heavy = localFont({ src: './ArchivoBlack-latin.woff2', weight: '400', display: 'block' });
 
-/* Design v2 passes (Gate 3 - VIP and Admin): see components/cards/v2kit.tsx. */
+/* Design v2 passes (Gate 3 - VIP, Admin and Gate 1 & 12 Entry): see components/cards/v2kit.tsx. */
 /** Rozha One: "RSSB SIKANDERPUR (MC)" and the RS/SB monogram. */
 export const rozha = localFont({ src: './RozhaOne-400.woff2', weight: '400', display: 'block' });
 /** Archivo SemiCondensed (static cuts at width 87.5): the Ticket's labels and values. */
@@ -25,3 +25,29 @@ export const archivoSemi = localFont({
 export const martianMono = localFont({ src: './MartianMono-600.woff2', weight: '600', display: 'block' });
 /** Big Shoulders Display 800: the serial on both v2 passes. */
 export const bigShoulders = localFont({ src: './BigShouldersDisplay-800.woff2', weight: '800', display: 'block' });
+
+/* Design v2 Gate 3 Entry pass (the Ledger): see components/cards/Ledger.tsx. */
+/** Barlow 800: the kind word ("GATE 3 ENTRY") and the number on the gate sign. */
+export const barlow = localFont({ src: './Barlow-800.woff2', weight: '800', display: 'block' });
+/** Barlow Semi Condensed: filled-in values (600); the kind word when Barlow is too wide (800). */
+export const barlowSemi = localFont({
+  src: [
+    { path: './BarlowSemiCondensed-600.woff2', weight: '600' },
+    { path: './BarlowSemiCondensed-800.woff2', weight: '800' },
+  ],
+  display: 'block',
+});
+/** Barlow Condensed: labels and the heading (500, 700); values (600) and the kind word (800) when the wider cuts don't fit. */
+export const barlowCondensed = localFont({
+  src: [
+    { path: './BarlowCondensed-500.woff2', weight: '500' },
+    { path: './BarlowCondensed-600.woff2', weight: '600' },
+    { path: './BarlowCondensed-700.woff2', weight: '700' },
+    { path: './BarlowCondensed-800.woff2', weight: '800' },
+  ],
+  display: 'block',
+});
+/** IBM Plex Mono 600: the serial and Reg. No. (every digit one width, dotted zero). */
+export const plexMono = localFont({ src: './IBMPlexMono-600.woff2', weight: '600', display: 'block' });
+/** Marcellus: the RS/SB monogram letters on the Ledger. */
+export const marcellus = localFont({ src: './Marcellus-400.woff2', weight: '400', display: 'block' });

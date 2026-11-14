@@ -7,6 +7,7 @@ import { CARD_SIZE } from '@/lib/sheets';
 import { type Layout, type PassType, TYPE_INFO } from '@/shared/types';
 import { Motorbike, Tractor } from './art';
 import { Qr } from './Qr';
+import { LEDGER_FONTS, LedgerVehicle } from './Ledger';
 import { RailVehicle } from './Rail';
 import { TicketVehicle } from './Ticket';
 import { V2_FONTS } from './v2kit';
@@ -23,10 +24,14 @@ import { V2_FONTS } from './v2kit';
  *
  * v2 (2026-11-14): Gate 3 - VIP and Admin print in the new designs the user picked from
  * ../passes-design-v2: the Ticket (Ticket.tsx) and the Rail (Rail.tsx). The other sheets are as in v1.
+ *
+ * v3 (2026-11-14): two more picks. Gate 1 & 12 Entry (the BAV Parking sheet) prints as the Rail with a
+ * parking sign and "GATE 1 & 12 ENTRY" / "BAV PARKING" as two lines of one size; Gate 3 Entry prints as
+ * the Ledger with a colour bar (Ledger.tsx), without Area and Dept.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v2';
+export const TEMPLATE_VERSION = 'v3';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -50,7 +55,7 @@ const HUMANIST: Font = { family: humanist.style.fontFamily, weight: 600 };
 const SANS: Font = { family: 'Tahoma, Verdana, "DejaVu Sans", sans-serif', weight: 700 };
 const SERIF: Font = { family: 'Georgia, "Times New Roman", serif', weight: 400 };
 const BLACK: Font = { family: heavy.style.fontFamily, weight: 400 };
-const FONTS = [NARROW, NARROW_HEAVY, NARROW_BLACK, HUMANIST, SANS, SERIF, BLACK, ...V2_FONTS];
+const FONTS = [NARROW, NARROW_HEAVY, NARROW_BLACK, HUMANIST, SANS, SERIF, BLACK, ...V2_FONTS, ...LEDGER_FONTS];
 
 /** True once the card fonts are loaded: cards are measured with them, so draw only after. */
 export function useCardFonts(): boolean {
@@ -378,7 +383,9 @@ function VehicleCard({ p, texts, code }: CardProps) {
 type Card = (props: CardProps) => React.JSX.Element;
 const CARDS: Record<Layout, Card> = { mobile: MobileCard, bike: BikeCard, vehicle: VehicleCard };
 /** Sheets printed in a design v2 pass instead of their layout's template. */
-const BY_TYPE: Partial<Record<PassType, Card>> = { 'vip-gate': TicketVehicle, admin: RailVehicle };
+const BY_TYPE: Partial<Record<PassType, Card>> = {
+  'vip-gate': TicketVehicle, admin: RailVehicle, 'bav-entry': RailVehicle, 'gate3-entry': LedgerVehicle,
+};
 
 /**
  * One pass, all vector, as an SVG group in mm (a whole sheet is one SVG). Draw only once

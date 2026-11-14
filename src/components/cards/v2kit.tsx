@@ -7,7 +7,8 @@ import { type Field, type PassType, TYPE_INFO } from '@/shared/types';
 /**
  * Parts shared by the design v2 passes (from ../passes-design-v2, chosen on 2026-11-14): the Rozha One
  * masthead and RS/SB monogram (round 6), the text primitive, the fonts and what each pass says.
- * Gate 3 - VIP prints as the Ticket (round 7), Admin as the Rail (round 6 A); see Ticket.tsx, Rail.tsx.
+ * Gate 3 - VIP prints as the Ticket (round 7), Admin and Gate 1 & 12 Entry as the Rail (round 6 A); see
+ * Ticket.tsx, Rail.tsx. (Gate 3 Entry prints as the Ledger, which has its own parts: Ledger.tsx.)
  */
 
 export const INK = '#000';
