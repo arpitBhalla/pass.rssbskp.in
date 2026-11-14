@@ -1,5 +1,5 @@
 import {
-  cleanField, cleanText, type CreateOp, type Field, FIELD_LABELS, fieldsFor, fmtSerial, isPassType, locksWhenPrinted, PASS_TYPES, type Pass, type PassType,
+  cleanField, cleanText, type CreateOp, type Field, FIELD_LABELS, fieldLabel, fieldsFor, fmtSerial, isPassType, locksWhenPrinted, PASS_TYPES, type Pass, type PassType,
   type SetOp, TYPE_INFO,
 } from '@/shared/types';
 import { isGiven, isPrinted, localDay, parseSerial } from './passes';
@@ -44,7 +44,7 @@ export function exportTable(rows: Pass[], type: PassType, names: Map<number, str
   const cols = fieldsFor(type).filter(locksWhenPrinted);
   const after = fieldsFor(type).filter((k) => !locksWhenPrinted(k));
   return [
-    ['Sr. No.', 'Pass type', ...cols.map((k) => FIELD_LABELS[k]), 'Printed', 'Given', ...after.map((k) => FIELD_LABELS[k]), 'Added', 'Added by'],
+    ['Sr. No.', 'Pass type', ...cols.map((k) => fieldLabel(type, k)), 'Printed', 'Given', ...after.map((k) => fieldLabel(type, k)), 'Added', 'Added by'],
     ...rows.map((p) => [
       fmtSerial(p.serial), TYPE_INFO[p.type].label, ...cols.map((k) => p[k]),
       isPrinted(p) ? 'Yes' : '', isGiven(p) ? 'Yes' : '', ...after.map((k) => p[k]), localDay(p.created_at), names.get(p.created_by) ?? '',
@@ -110,7 +110,7 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     passType: find(/pass\s*type/i),
     oldType: find(/^type$/i),
     zone: find(/pandal/i),
-    incharge: find(/in-?charge|given\s*to/i),
+    incharge: find(/in-?charge|given\s*to|referred\s*by/i),
     issued_to: find(/issued\s*to/i),
     dept: find(/dept|department/i),
     area: find(/area|centre|center|city/i),
@@ -154,7 +154,7 @@ export function planImport(sheet: Pass[], type: PassType, text: string): ImportP
     const changed = keys.filter((k) => p[k] !== values[k]);
     const tick = printed && !isPrinted(p);
     const tickGiven = given && !isGiven(p);
-    if (clash) plan.clashes.push(`${fmtSerial(serial)} (${FIELD_LABELS[clash]})`);
+    if (clash) plan.clashes.push(`${fmtSerial(serial)} (${fieldLabel(type, clash)})`);
     else if (isPrinted(p) && changed.some(locksWhenPrinted)) plan.clashes.push(`${fmtSerial(serial)} (printed)`);
     else if (!changed.length && !tick && !tickGiven) plan.same++;
     else {

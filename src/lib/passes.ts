@@ -1,5 +1,5 @@
 import {
-  cleanField, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass,
+  cleanField, type CreateOp, type Field, fieldLabel, FIELDS, fieldsFor, fmtSerial, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass,
   type PassType, type SetOp, type Values,
 } from '@/shared/types';
 
@@ -51,9 +51,9 @@ export const nextSerial = (sheet: Pass[]) => (sheet.length ? sheet[sheet.length 
 
 /* ---------------- search ---------------- */
 
-export type Show = 'all' | 'given' | 'free' | 'unprinted' | 'printed';
+export type Show = 'all' | 'given' | 'free' | 'unprinted' | 'printed' | 'dupes';
 export const SHOW_LABEL: Record<Show, string> = {
-  all: 'All passes', given: 'Given', free: 'Not given', unprinted: 'Not printed', printed: 'Printed',
+  all: 'All passes', given: 'Given', free: 'Not given', unprinted: 'Not printed', printed: 'Printed', dupes: 'Duplicates',
 };
 
 export interface Filters {
@@ -75,7 +75,8 @@ export function localDay(iso: string): string {
 /** A number plate without spaces, dashes or dots, for searching. */
 const squash = (s: string) => s.toLowerCase().replace(/[\s.\-/]+/g, '');
 
-export function filterPasses(sheet: Pass[], f: Filters): Pass[] {
+/** `dupes`: ids of passes that break a rule (see people.ts), for Show: Duplicates. */
+export function filterPasses(sheet: Pass[], f: Filters, dupes?: ReadonlyMap<number, unknown>): Pass[] {
   if (!hasFilters(f)) return sheet;
   const q = f.q.trim().toLowerCase();
   const qNum = /^\d+$/.test(q) ? parseInt(q, 10) : null;
@@ -89,7 +90,8 @@ export function filterPasses(sheet: Pass[], f: Filters): Pass[] {
         (f.show === 'given' && isGiven(p)) ||
         (f.show === 'free' && !isGiven(p)) ||
         (f.show === 'printed' && isPrinted(p)) ||
-        (f.show === 'unprinted' && !isPrinted(p))) &&
+        (f.show === 'unprinted' && !isPrinted(p)) ||
+        (f.show === 'dupes' && !!dupes?.has(p.id))) &&
       (!q ||
         (qNum !== null
           ? p.serial === qNum || (q.length >= 5 && p.phone.includes(q)) // a plain number = that serial (gate check), or a phone
@@ -162,7 +164,7 @@ export function planFill(sheet: Pass[], type: PassType, from: string, to: string
     }
     const clash = keys.find((k) => p[k] && p[k] !== values[k]);
     const changed = keys.filter((k) => p[k] !== values[k]);
-    if (clash) plan.skipped.push({ serial: n, why: `${FIELD_LABELS[clash]} is ${p[clash]}` });
+    if (clash) plan.skipped.push({ serial: n, why: `${fieldLabel(type, clash)} is ${p[clash]}` });
     else if (!changed.length) plan.same++;
     else if (isPrinted(p)) plan.skipped.push({ serial: n, why: 'printed' });
     else {
@@ -223,7 +225,7 @@ export function planPaste(opts: {
 
   // A copied header row ("Name  Dept  Area …") is skipped.
   const first = lines[0] ?? [];
-  const labelHits = first.filter((cell, c) => cols[c0 + c] && norm(cell) === norm(FIELD_LABELS[cols[c0 + c]])).length;
+  const labelHits = first.filter((cell, c) => cols[c0 + c] && norm(cell) === norm(fieldLabel(opts.type, cols[c0 + c]))).length;
   if (typeof opts.text === 'string' && lines.length > 1 && labelHits > 0 && labelHits >= Math.ceil(first.length / 2)) {
     lines = lines.slice(1);
     plan.skippedHeader = true;

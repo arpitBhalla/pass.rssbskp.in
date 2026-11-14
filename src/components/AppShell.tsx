@@ -58,6 +58,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   useEffect(() => { tabsRef.current?.querySelector('[aria-current=page]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [path]);
   const logout = useMutation(trpc.auth.logout.mutationOptions({ onSettled: () => window.location.assign('/login') }));
   const pages = [
+    { href: '/people', label: 'People' },
     { href: '/report', label: 'Report' },
     { href: '/history', label: 'History' },
     ...(user.is_admin ? [{ href: '/users', label: 'Users' }, { href: '/settings', label: 'Settings' }] : []),

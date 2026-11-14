@@ -44,6 +44,8 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, Gate 3 - VIP
   and Admin have Vehicle and Reg. No. A number plate is written one way however it's typed: `hr 24 ab 9168` becomes
   `HR-24AB-9168`; anything else (`E-SCOOTY`) stays as typed. Searching `hr24ab` finds it.
+  On Gate 3 Entry, Gate 3 - VIP and Admin the Incharge column is called **Referred by** (who the pass
+  was given on the word of): the same column under another name, in exports too; imports take either.
   Values already filled are never overwritten: those passes are listed and left alone.
 - **Cells work like Excel's:** a click (or Tab, Enter, the arrow keys) only selects a cell, without a
   caret, so dragging across cells never starts typing in the first one. Typing replaces what's in the
@@ -63,6 +65,19 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   doesn't ask.
   Empty rows are serials not in the register yet. Typing or pasting into one adds that serial, and the
   row at the bottom adds the next one.
+- **People and duplicates:** a person is a phone number (its last 10 digits, so +91, spaces or a
+  leading 0 don't matter), worked out from the register itself on each desk (nothing extra is stored).
+  The rules: one mobile pass per person (Pandal and Non Pandal together), one bike pass per person and
+  one per bike (Reg. No.), and on each vehicle sheet one pass per vehicle (the same car may hold, say,
+  a Sewa Vehicle and a BAV Parking pass). A person may hold a mobile pass and a bike pass. The rules
+  only warn: adding, editing, pasting or filling a phone or Reg. No. that repeats someone's shows a
+  yellow bar naming the other pass, with **Cancel** (Enter, Esc) or **Add anyway**; an import lists
+  them before it runs. Passes breaking a rule have their phone / Reg. No. marked red (hover says why),
+  the toolbar shows "N duplicates", and **Show: Duplicates** lists them. The person icon by a Sr. No.
+  opens everything that person holds, on every sheet (click a pass there to go to it). It shows how many
+  when they hold more than one pass; for just one, it appears when you point at the row. **People** (top
+  bar) lists everyone, searchable by name, phone or Reg. No., with "Only those breaking a rule". Typing a known phone into the bottom row (start with the phone) fills in
+  the name, dept and area still empty, from their latest pass.
 - **Like Excel** (on a Mac, ⌘ instead of Ctrl): drag across cells (or click one, then Shift+click
   another) to select a block, and **Ctrl+C** copies it for Excel or for pasting elsewhere in the sheet
   (**Ctrl+V**). With only the cursor in a cell, Ctrl+C copies that cell; with rows picked by Sr. No., it

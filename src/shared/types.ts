@@ -48,6 +48,8 @@ export interface PassTypeInfo {
   title: string;
   /** Columns, in sheet order (a multi-column paste from Excel fills them left to right). */
   fields: readonly Field[];
+  /** Columns named differently on this sheet (see fieldLabel). */
+  labels?: Partial<Record<Field, string>>;
   /** Template colours: top / bottom band, the thin stripe beside it, card background and logo box; `title`: 150 × 100 mm passes' title. */
   color: { name: string; band: string; stripe: string; bg: string; logo: string; title?: string };
 }
@@ -56,6 +58,8 @@ export interface PassTypeInfo {
 const MOBILE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'incharge', 'issued_to'];
 const BIKE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'vehicle_no', 'phone', 'incharge', 'issued_to'];
 const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area', 'dept', 'phone', 'incharge', 'issued_to'];
+/** Gate 3, Gate 3 - VIP and Admin passes are given on someone's word: the Incharge column is who referred them. */
+const REFERRED = { incharge: 'Referred by' };
 
 // Colours sampled from the templates (Downloads/passes-template). Pandal is blue, Non Pandal grey,
 // vehicle passes green; Mobile (portrait) and Bike (landscape, tinted card) differ by shape.
@@ -89,11 +93,14 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   },
   'sewa-vehicle': { label: 'Sewa Vehicle', short: 'SV', layout: 'vehicle', title: 'SEWA VEHICLE PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'tractor-trolley': { label: 'Tractor Trolley', short: 'TT', layout: 'vehicle', title: 'TRACTOR TROLLEY PASS', fields: VEHICLE_FIELDS, color: GREEN },
-  'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'vehicle', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, color: ORANGE },
+  'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'vehicle', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: ORANGE },
   'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'vehicle', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
-  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'vehicle', title: 'GATE 3 - VIP PASS', fields: VEHICLE_FIELDS, color: RED },
-  admin: { label: 'Admin', short: 'AD', layout: 'vehicle', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, color: TEAL },
+  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'vehicle', title: 'GATE 3 - VIP PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: RED },
+  admin: { label: 'Admin', short: 'AD', layout: 'vehicle', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: TEAL },
 };
+
+/** A column's name on this sheet: Incharge is "Referred by" on Gate 3, Gate 3 - VIP and Admin. */
+export const fieldLabel = (type: PassType, k: Field) => TYPE_INFO[type].labels?.[k] ?? FIELD_LABELS[k];
 
 export const isPassType = (v: unknown): v is PassType => PASS_TYPES.includes(v as PassType);
 

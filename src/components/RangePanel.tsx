@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { cleanFill, nPasses, parseSerial, planFill, ranges } from '@/lib/passes';
-import { type Field, FIELD_LABELS, fieldsFor, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { type Field, fieldLabel, fieldsFor, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { btnPrimary, heading, input, label } from './ui';
 
 const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
@@ -64,13 +64,13 @@ export function RangePanel({ type, sheet, range, setRange }: {
         <h2 className={heading}>Give</h2>
         {fields.map((k) => (
           <label key={k} className={label}>
-            {FIELD_LABELS[k]}
+            {fieldLabel(type, k)}
             <input className={input} list={SUGGEST[k]} value={values[k] ?? ''} onChange={(e) => setValues({ ...values, [k]: e.target.value })} />
           </label>
         ))}
         {give?.err && <p className="text-[13.5px] text-destructive">{give.err}</p>}
         {give && !give.err && !hasWho && (
-          <p className="text-[13.5px] leading-snug text-muted-foreground">Fill Incharge, or at least one of Name, Dept and Phone.</p>
+          <p className="text-[13.5px] leading-snug text-muted-foreground">Fill {fieldLabel(type, 'incharge')}, or at least one of Name, Dept and Phone.</p>
         )}
         {give && !give.err && hasWho && (
           <div className="space-y-1 text-[13.5px] leading-snug text-muted-foreground">

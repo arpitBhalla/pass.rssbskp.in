@@ -6,7 +6,7 @@ import { type ChangeEvent, type ReactNode, useCallback, useEffect, useState } fr
 import { errorMessage, isUnauthorized, useTRPC, useTRPCClient } from '@/client/trpc';
 import { claimOf, codeIn } from '@/lib/gateCode';
 import type { AppRouter } from '@/server/routers/_app';
-import { fmtSerial, type PassType, TYPE_INFO } from '@/shared/types';
+import { fieldLabel, fmtSerial, type PassType, TYPE_INFO } from '@/shared/types';
 
 type Check = inferRouterOutputs<AppRouter>['gate']['check'];
 type Claim = { type: PassType; serial: number };
@@ -102,7 +102,7 @@ function Result({ r }: { r: Check }) {
       {rows.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-b border-border bg-white px-4 py-3.5 text-[18px]">
           {rows.map((k) => [
-            <dt key={`${k}-t`} className="text-muted-foreground">{LABELS[k]}</dt>,
+            <dt key={`${k}-t`} className="text-muted-foreground">{r.claim ? fieldLabel(r.claim.type, k) : LABELS[k]}</dt>,
             <dd key={k} className="font-bold [overflow-wrap:anywhere]">{r.pass?.[k].toUpperCase()}</dd>,
           ])}
         </dl>

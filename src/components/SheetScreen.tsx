@@ -1,4 +1,5 @@
 'use client';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { useUserNames } from '@/client/users';
@@ -8,11 +9,13 @@ import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
 import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
 import {
-  filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
+  blankPass, filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
-import { cleanField, type Field, FIELD_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates } from '@/lib/people';
+import { cleanField, type Field, fieldLabel, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { Menu, Popover } from './Menu';
+import { ProfileCard } from './Profile';
 import { RangeBar } from './RangeBar';
 import { RangePanel } from './RangePanel';
 import { Sheet, type Span } from './Sheet';
@@ -39,11 +42,20 @@ export function SheetScreen({ type }: { type: PassType }) {
   /** This tab's last change in this sheet, for Undo (each sheet undoes its own). */
   const lastUndo = status.undo.findLast((u) => u.type === type && !u.undoing);
 
-  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  // People: worked out from every sheet. Passes that break a rule (one mobile pass per person, …) are marked.
+  const all = useAllPasses();
+  const dupes = useMemo(() => findDuplicates(all), [all]);
+  const phones = useMemo(() => byPhone(all), [all]);
+  const nDupes = useMemo(() => sheet.reduce((n, p) => n + (dupes.has(p.id) ? 1 : 0), 0), [sheet, dupes]);
+
+  // ?q=0012 (from a person's passes on another sheet) starts with that search.
+  const params = useSearchParams();
+  const [filters, setFilters] = useState<Filters>(() => ({ ...NO_FILTERS, q: params.get('q') ?? '' }));
+  useEffect(() => { if (params.get('q')) window.history.replaceState(null, '', window.location.pathname); }, [params]);
   const deferred = useDeferredValue(filters); // typing in search stays smooth on big sheets
-  const view = useMemo(() => filterPasses(sheet, deferred), [sheet, deferred]);
-  // Unfilled serials show as empty rows, except while searching or showing given / printed passes.
-  const showBlank = !deferred.q.trim() && !deferred.from && !deferred.to && deferred.show !== 'given' && deferred.show !== 'printed';
+  const view = useMemo(() => filterPasses(sheet, deferred, dupes), [sheet, deferred, dupes]);
+  // Unfilled serials show as empty rows, except while searching or showing given / printed / duplicate passes.
+  const showBlank = !deferred.q.trim() && !deferred.from && !deferred.to && !['given', 'printed', 'dupes'].includes(deferred.show);
   const allMissing = useMemo(() => missingSerials(sheet), [sheet]);
   const missing = showBlank ? allMissing : NONE;
   const canAdd = showBlank;
@@ -63,21 +75,47 @@ export function SheetScreen({ type }: { type: PassType }) {
     if (s) setRange({ from: fmtSerial(s.lo), to: fmtSerial(s.hi) });
   }, []);
 
+  /* ----- a pass that repeats someone's: say so, and save it only if told to ----- */
+  const [asking, setAsking] = useState<Asking | null>(null);
+  const askingRef = useRef<Asking | null>(null);
+  const ask = useCallback((found: Duplicate[], verb: string, back = focusPath()) => new Promise<boolean>((done) => {
+    askingRef.current?.done(false); // a newer question replaces one not answered
+    askingRef.current = { found, verb, back, done };
+    setAsking(askingRef.current);
+  }), []);
+  const answer = (go: boolean) => {
+    const q = askingRef.current;
+    askingRef.current = null;
+    setAsking(null);
+    q?.done(go);
+    if (q?.back) requestAnimationFrame(() => document.querySelector<HTMLInputElement>(q.back)?.focus());
+  };
+  /** True to go ahead: nothing repeated, or "… anyway". */
+  const checkDupes = useCallback(async (changes: Change[], verb: string) => {
+    const found = duplicatesOf(store.getAll(), changes);
+    return !found.length || ask(found, verb);
+  }, [ask]);
+
   /* ----- saving ----- */
   const onEdit = useCallback(async (target: Pass[], k: Field, v: string, saved: string) => {
-    const set = target.filter((p) => p[k] !== v).map((p) => ({ id: p.id, values: { [k]: v }, expect: { [k]: saved } }));
+    const changed = target.filter((p) => p[k] !== v);
+    const set = changed.map((p) => ({ id: p.id, values: { [k]: v }, expect: { [k]: saved } }));
     if (!set.length) return true;
+    if ((k === 'phone' || k === 'vehicle_no') && !(await checkDupes(changed.map((p) => ({ before: p, after: { ...p, [k]: v } })), 'Save'))) return false;
     const where = `${info.label} ${passRanges(target)}`;
-    const summary = `${FIELD_LABELS[k]} ${saved ? `"${saved}"` : '(blank)'} → ${v ? `"${v}"` : '(blank)'} · ${where}`;
+    const summary = `${fieldLabel(type, k)} ${saved ? `"${saved}"` : '(blank)'} → ${v ? `"${v}"` : '(blank)'} · ${where}`;
     return !!(await apply({ action: 'edit', summary, set }, { toast: target.length > 1 ? undefined : false }));
-  }, [apply, info.label]);
+  }, [apply, checkDupes, info.label, type]);
 
   // Typed as the next pass (or into an empty row): if another desk takes that serial meanwhile, it is
   // saved after the last pass instead. On screen at once; resolves when saved.
-  const onCreate = useCallback((serial: number, values: Values) => apply(
-    { action: 'edit', summary: `Added ${info.label} ${fmtSerial(serial)}`, create: [{ type, serial, values }], next: true },
-    { toast: false },
-  ).then(Boolean), [apply, info.label, type]);
+  const onCreate = useCallback(async (serial: number, values: Values) => {
+    if (!(await checkDupes([{ after: { ...blankPass(type, serial), ...values } }], 'Add'))) return false;
+    return Boolean(await apply(
+      { action: 'edit', summary: `Added ${info.label} ${fmtSerial(serial)}`, create: [{ type, serial, values }], next: true },
+      { toast: false },
+    ));
+  }, [apply, checkDupes, info.label, type]);
 
   // A paste over cells that already hold something waits here until it's confirmed (or cancelled).
   const [pendingPaste, setPendingPaste] = useState<{ replaced: PastePlan['replaced']; run: () => void; back: string } | null>(null);
@@ -93,15 +131,21 @@ export function SheetScreen({ type }: { type: PassType }) {
       plan.extra ? `${plan.extra} line${plan.extra === 1 ? '' : 's'} had no row (clear the search to add new passes)` : '',
     ].filter(Boolean);
     const summary = `${fill ? 'Filled' : 'Pasted'} ${plan.rows} row${plan.rows === 1 ? '' : 's'} ${fill ? 'of' : 'into'} ${info.label} ${ranges(serials)}`;
-    const run = () => void apply({ action: 'paste', summary, set: plan.set, create: plan.create, next: true }, { toast: `${summary}${notes.length ? ` (${notes.join(', ')})` : ''}` });
+    const save = () => void apply({ action: 'paste', summary, set: plan.set, create: plan.create, next: true }, { toast: `${summary}${notes.length ? ` (${notes.join(', ')})` : ''}` });
+    // A phone or Reg. No. that repeats someone's pass asks first (after the question below, if both).
+    const found = duplicatesOf(store.getAll(), [
+      ...plan.set.flatMap((o) => {
+        const was = store.get(o.id);
+        return was && o.values && ('phone' in o.values || 'vehicle_no' in o.values) ? [{ before: was, after: { ...was, ...o.values } }] : [];
+      }),
+      ...plan.create.map((c) => ({ after: { ...blankPass(c.type, c.serial), ...c.values } })),
+    ]);
+    const back = focusPath(); // where the cursor goes back to after a question
+    const run = () => (found.length ? void ask(found, fill ? 'Fill' : 'Paste', back).then((go) => go && save()) : save());
     // Pasting (not filling) over filled cells asks first.
-    if (!fill && plan.replaced.length) {
-      // Where the cursor goes back to: the cell, found again by row and column (a changed cell is drawn anew).
-      const el = document.activeElement as HTMLElement | null;
-      const i = el?.closest('tr')?.dataset.i;
-      setPendingPaste({ replaced: plan.replaced, run, back: i && el?.dataset.k ? `tbody tr[data-i="${i}"] [data-k="${el.dataset.k}"]` : '' });
-    } else run();
-  }, [apply, info.label, type]);
+    if (!fill && plan.replaced.length) setPendingPaste({ replaced: plan.replaced, run, back });
+    else run();
+  }, [apply, ask, info.label, type]);
   const closePaste = (paste: boolean) => {
     if (paste) pendingPaste?.run();
     const back = pendingPaste?.back;
@@ -149,7 +193,7 @@ export function SheetScreen({ type }: { type: PassType }) {
   /* ----- CSV ----- */
   const fileRef = useRef<HTMLInputElement>(null);
   const names = useUserNames();
-  const [importPlan, setImportPlan] = useState<{ name: string; plan: ImportPlan } | null>(null);
+  const [importPlan, setImportPlan] = useState<{ name: string; plan: ImportPlan; found: Duplicate[] } | null>(null);
   const exportFile = () => {
     const list = hasFilters(filters) ? view : sheet;
     download(new Blob([exportCSV(list, type, names)], { type: 'text/csv;charset=utf-8' }), `${type}-${today()}.csv`);
@@ -162,7 +206,11 @@ export function SheetScreen({ type }: { type: PassType }) {
     if (!file) return;
     const plan = planImport(sheetRef.current, type, await file.text());
     if (plan.error) return toast(plan.error, 'error');
-    setImportPlan({ name: file.name, plan });
+    const found = duplicatesOf(store.getAll(), [
+      ...plan.set.flatMap((o) => { const was = store.get(o.id); return was && o.values ? [{ before: was, after: { ...was, ...o.values } }] : []; }),
+      ...plan.create.map((c) => ({ after: { ...blankPass(c.type, c.serial), ...c.values } })),
+    ]);
+    setImportPlan({ name: file.name, plan, found });
   };
   const runImport = async () => {
     if (!importPlan) return;
@@ -173,6 +221,16 @@ export function SheetScreen({ type }: { type: PassType }) {
   };
 
   const given = useMemo(() => sheet.reduce((n, p) => n + (isGiven(p) ? 1 : 0), 0), [sheet]);
+
+  /* ----- a person's passes ----- */
+  const [person, setPerson] = useState<string | null>(null); // phone key
+  const closePerson = useCallback(() => setPerson(null), []);
+  const router = useRouter();
+  const goTo = useCallback((p: Pass) => {
+    setPerson(null);
+    if (p.type === type) setFilters({ ...NO_FILTERS, q: fmtSerial(p.serial) });
+    else router.push(`/s/${p.type}?q=${fmtSerial(p.serial)}`);
+  }, [router, type]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
@@ -203,6 +261,14 @@ export function SheetScreen({ type }: { type: PassType }) {
               ? <><b className="font-semibold text-foreground">{view.length}</b> of {sheet.length} shown</>
               : <><b className="font-semibold text-foreground">{sheet.length}</b> {sheet.length === 1 ? 'pass' : 'passes'}, <b className="font-semibold text-foreground">{given}</b> given</>}
           </span>
+          {nDupes > 0 && filters.show !== 'dupes' && (
+            <button
+              className="text-[13.5px] font-semibold text-red-700 hover:underline" onClick={() => setFilters((f) => ({ ...f, show: 'dupes' }))}
+              title="Passes that repeat someone's: one mobile pass and one bike pass per person, one pass per vehicle. Click to show them."
+            >
+              {nDupes} {nDupes === 1 ? 'duplicate' : 'duplicates'}
+            </button>
+          )}
           <div className="ml-auto flex items-center gap-2">
           <button
             className={btn} disabled={!lastUndo} onClick={() => void undoLast(type)}
@@ -222,22 +288,25 @@ export function SheetScreen({ type }: { type: PassType }) {
           <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ''; }} />
         </div>
         <RangeBar type={type} sheet={sheet} range={range} onClear={clearRange} />
-        {pendingPaste && <PasteWarning replaced={pendingPaste.replaced} onClose={closePaste} />}
+        {pendingPaste && <PasteWarning type={type} replaced={pendingPaste.replaced} onClose={closePaste} />}
+        {asking && <DuplicateWarning found={asking.found} verb={asking.verb} onClose={answer} />}
         <Sheet
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} next={next} missing={missing}
           onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven}
           onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
+          dupes={dupes} phones={phones} onPerson={setPerson}
         />
       </section>
 
       <RangePanel type={type} sheet={sheet} range={range} setRange={setRange} />
       <Suggestions />
+      {person && <ProfileCard phone={person} passes={phones.get(person) ?? []} dupes={dupes} onJump={goTo} onClose={closePerson} />}
 
       {importPlan && (
         <div className="fixed inset-0 z-30 grid place-items-center bg-black/30 p-4" onClick={() => setImportPlan(null)}>
           <div className={`${card} w-full max-w-md space-y-3 border-t-4 p-5 shadow-[0_12px_40px_rgb(35_31_32/0.25)]`} style={{ borderTopColor: info.color.band }} onClick={(e) => e.stopPropagation()}>
             <h2 className="font-condensed text-[18px] font-bold">Import {importPlan.name} into {info.label}</h2>
-            <ImportSummary plan={importPlan.plan} />
+            <ImportSummary plan={importPlan.plan} found={importPlan.found} />
             <div className="flex justify-end gap-2 pt-1">
               <button className={btn} onClick={() => setImportPlan(null)}>Cancel</button>
               <button className={btnPrimary} disabled={!importPlan.plan.set.length && !importPlan.plan.create.length} onClick={() => void runImport()}>
@@ -266,7 +335,8 @@ function DateFilter({ from, to, onChange }: { from: string; to: string; onChange
   );
 }
 
-function ImportSummary({ plan }: { plan: ImportPlan }) {
+function ImportSummary({ plan, found }: { plan: ImportPlan; found: Duplicate[] }) {
+  const repeated = new Set(found.map((d) => d.pass)).size;
   const items = [
     plan.create.length && `${nPasses(plan.create.length)} to add`,
     plan.set.length && `${nPasses(plan.set.length)} to fill in`,
@@ -283,6 +353,13 @@ function ImportSummary({ plan }: { plan: ImportPlan }) {
           Left alone, because the sheet already has something different (never overwritten): {plan.clashes.slice(0, 12).join(', ')}
           {plan.clashes.length > 12 && ` and ${plan.clashes.length - 12} more`}
         </p>
+      )}
+      {repeated > 0 && (
+        <div className="rounded-[3px] bg-amber-50 px-3 py-2 text-[13.5px] text-amber-950">
+          <p className="font-semibold">{nPasses(repeated)} would repeat someone&apos;s pass (added all the same, and marked as duplicates):</p>
+          <ul className="list-disc pl-5">{found.slice(0, 5).map((d, i) => <li key={i}>{fmtSerial(d.pass.serial)}: {describe(d)}</li>)}</ul>
+          {found.length > 5 && <p>and {found.length - 5} more.</p>}
+        </div>
       )}
     </div>
   );
@@ -305,8 +382,44 @@ const Suggestions = memo(function Suggestions() {
   );
 });
 
+type Change = { before?: Pass; after: Pass };
+type Asking = { found: Duplicate[]; verb: string; back: string; done: (go: boolean) => void };
+
+/** Where the cursor is, to put it back after a question: the cell, found again by row and column ('' if not in one). */
+function focusPath(): string {
+  const el = document.activeElement as HTMLElement | null;
+  const k = el?.dataset.k;
+  if (!el || !k) return '';
+  if (el.closest('tr[data-new]')) return `tbody tr[data-new] [data-k="${k}"]`; // the row for the next pass moves down as one is added
+  const i = el.closest('tr')?.dataset.i;
+  return i ? `tbody tr[data-i="${i}"] [data-k="${k}"]` : '';
+}
+
+/**
+ * Before saving a pass that repeats someone's (same phone on two mobile passes, …): which, and the rule.
+ * Cancel (Esc, and where the cursor starts) or "… anyway": the rules only warn.
+ */
+function DuplicateWarning({ found, verb, onClose }: { found: Duplicate[]; verb: string; onClose: (go: boolean) => void }) {
+  return (
+    <div
+      role="alertdialog" aria-label="Repeats someone's pass"
+      className="flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-amber-300 bg-amber-50 px-4 py-2 text-[14px] print:hidden"
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(false); } }}
+    >
+      <div className="leading-snug">
+        {found.slice(0, 3).map((d, i) => <p key={i}><b>{fmtSerial(d.pass.serial)}</b>: {describe(d)} {d.rule.text}</p>)}
+        {found.length > 3 && <p>And {found.length - 3} more.</p>}
+      </div>
+      <span className="flex-1" />
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the save is waiting on this answer: Enter cancels, so a slip doesn't add it */}
+      <button className={btn} autoFocus onClick={() => onClose(false)}>Cancel</button>
+      <button className={btnPrimary} onClick={() => onClose(true)}>{verb} anyway</button>
+    </div>
+  );
+}
+
 /** Asks before a paste replaces cells that already hold something: which cells, then Paste over / Cancel (Enter / Esc). */
-function PasteWarning({ replaced, onClose }: { replaced: PastePlan['replaced']; onClose: (paste: boolean) => void }) {
+function PasteWarning({ type, replaced, onClose }: { type: PassType; replaced: PastePlan['replaced']; onClose: (paste: boolean) => void }) {
   const n = replaced.length;
   const byKey = new Map<Field, number[]>();
   for (const r of replaced) byKey.set(r.key, [...(byKey.get(r.key) ?? []), r.serial]);
@@ -320,8 +433,8 @@ function PasteWarning({ replaced, onClose }: { replaced: PastePlan['replaced']; 
     >
       <p className="leading-snug">
         {n === 1
-          ? <>{fmtSerial(one.serial)} {FIELD_LABELS[one.key]} already has {quote(one.from)}; the paste puts {quote(one.to)}.</>
-          : <><b>{n} cells</b> already have something in them: {[...byKey].map(([k, serials]) => `${FIELD_LABELS[k]} in ${ranges(serials)}`).join(', ')}.</>}
+          ? <>{fmtSerial(one.serial)} {fieldLabel(type, one.key)} already has {quote(one.from)}; the paste puts {quote(one.to)}.</>
+          : <><b>{n} cells</b> already have something in them: {[...byKey].map(([k, serials]) => `${fieldLabel(type, k)} in ${ranges(serials)}`).join(', ')}.</>}
         {' '}Paste over {n === 1 ? 'it' : 'them'}? <b>Undo</b> brings {n === 1 ? 'it' : 'them'} back.
       </p>
       <span className="flex-1" />
