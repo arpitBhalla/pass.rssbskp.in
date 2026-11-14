@@ -83,6 +83,8 @@ export interface ChangesTable {
   before: ColumnType<ChangeBefore, string, string>;
   undone_at: Date | null;
   undone_by: number | null;
+  /** The desk's code for the request that made this change: a request sent again is answered from here. */
+  request_id: string | null;
 }
 
 export interface MetaTable {

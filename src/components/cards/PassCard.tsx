@@ -4,9 +4,12 @@ import { type Font, inkWidth, layLine, loadFonts, type Placed, placeText, scaleF
 import { condensed, heavy, humanist } from '@/fonts';
 import type { CardData } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
-import { type Layout, TYPE_INFO } from '@/shared/types';
+import { type Layout, type PassType, TYPE_INFO } from '@/shared/types';
 import { Motorbike, Tractor } from './art';
 import { Qr } from './Qr';
+import { RailVehicle } from './Rail';
+import { TicketVehicle } from './Ticket';
+import { V2_FONTS } from './v2kit';
 
 /**
  * The three RSSB SKP pass templates (Downloads/passes-template), redrawn as vectors in mm. Every
@@ -17,10 +20,13 @@ import { Qr } from './Qr';
  * pass, "RSSB SIKANDERPUR-M.C." as the heading of the 150 × 100 mm passes, and no "Valid For" line on
  * Bike passes. To make room for the tab, Mobile's rows, QR, Sr. No. and signature sit 1–4 mm higher
  * than on the template, and Bike's signature 0.6 mm higher.
+ *
+ * v2 (2026-11-14): Gate 3 - VIP and Admin print in the new designs the user picked from
+ * ../passes-design-v2: the Ticket (Ticket.tsx) and the Rail (Rail.tsx). The other sheets are as in v1.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v1';
+export const TEMPLATE_VERSION = 'v2';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -44,7 +50,7 @@ const HUMANIST: Font = { family: humanist.style.fontFamily, weight: 600 };
 const SANS: Font = { family: 'Tahoma, Verdana, "DejaVu Sans", sans-serif', weight: 700 };
 const SERIF: Font = { family: 'Georgia, "Times New Roman", serif', weight: 400 };
 const BLACK: Font = { family: heavy.style.fontFamily, weight: 400 };
-const FONTS = [NARROW, NARROW_HEAVY, NARROW_BLACK, HUMANIST, SANS, SERIF, BLACK];
+const FONTS = [NARROW, NARROW_HEAVY, NARROW_BLACK, HUMANIST, SANS, SERIF, BLACK, ...V2_FONTS];
 
 /** True once the card fonts are loaded: cards are measured with them, so draw only after. */
 export function useCardFonts(): boolean {
@@ -181,7 +187,7 @@ function TagTab({ t, cx, base, cap, max, into, fill }: { t: string; cx: number; 
   );
 }
 
-interface CardProps {
+export interface CardProps {
   p: CardData;
   texts: PrintTexts;
   /** The pass's code from the server (44 digits), printed as its QR code; none: no QR. */
@@ -369,7 +375,10 @@ function VehicleCard({ p, texts, code }: CardProps) {
   );
 }
 
-const CARDS: Record<Layout, (props: CardProps) => React.JSX.Element> = { mobile: MobileCard, bike: BikeCard, vehicle: VehicleCard };
+type Card = (props: CardProps) => React.JSX.Element;
+const CARDS: Record<Layout, Card> = { mobile: MobileCard, bike: BikeCard, vehicle: VehicleCard };
+/** Sheets printed in a design v2 pass instead of their layout's template. */
+const BY_TYPE: Partial<Record<PassType, Card>> = { 'vip-gate': TicketVehicle, admin: RailVehicle };
 
 /**
  * One pass, all vector, as an SVG group in mm (a whole sheet is one SVG). Draw only once
@@ -378,7 +387,7 @@ const CARDS: Record<Layout, (props: CardProps) => React.JSX.Element> = { mobile:
  */
 export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, turn = false }: CardProps & { x?: number; y?: number; turn?: boolean }) {
   const layout = TYPE_INFO[p.type].layout;
-  const Card = CARDS[layout];
+  const Card = BY_TYPE[p.type] ?? CARDS[layout];
   const { w, h } = CARD_SIZE[layout];
   const transform = turn ? `translate(${x + h} ${y}) rotate(90)` : x || y ? `translate(${x} ${y})` : undefined;
   return (

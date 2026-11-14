@@ -193,8 +193,8 @@ export interface PastePlan {
   rows: number;
   /** Lines with no row to go in (only when new rows can't be added). */
   extra: number;
-  /** Filled cells that will be replaced. */
-  overwritten: number;
+  /** Filled cells that will be replaced: the sheet asks before pasting over them. */
+  replaced: { serial: number; key: Field; from: string; to: string }[];
   skippedHeader: boolean;
   error: string;
 }
@@ -218,7 +218,7 @@ export function planPaste(opts: {
   const { type, rows, start, key, nextSerial, canCreate } = opts;
   const cols = fieldsFor(type);
   const c0 = cols.indexOf(key);
-  const plan: PastePlan = { set: [], create: [], rows: 0, extra: 0, overwritten: 0, skippedHeader: false, error: '' };
+  const plan: PastePlan = { set: [], create: [], rows: 0, extra: 0, replaced: [], skippedHeader: false, error: '' };
   let lines = typeof opts.text !== 'string' ? opts.text : opts.text.replace(/\r/g, '').replace(/\n+$/, '').split('\n').map((l) => l.split('\t'));
 
   // A copied header row ("Name  Dept  Area …") is skipped.
@@ -257,7 +257,7 @@ export function planPaste(opts: {
       const changed = keys.filter((k) => p[k] !== values[k]);
       if (!changed.length) continue;
       if (isPrinted(p) && changed.some(locksWhenPrinted)) { locked.push(p.serial); continue; }
-      plan.overwritten += changed.filter((k) => p[k]).length;
+      for (const k of changed) if (p[k]) plan.replaced.push({ serial: p.serial, key: k, from: p[k], to: values[k] ?? '' });
       plan.set.push({
         id: p.id,
         values: Object.fromEntries(changed.map((k) => [k, values[k]])),

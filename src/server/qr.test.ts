@@ -19,7 +19,7 @@ describe('pass codes', () => {
     }
   });
 
-  it('every sheet, VIP Gate and Admin included, reads back as itself on the server and the gate phone', () => {
+  it('every sheet, Gate 3 - VIP and Admin included, reads back as itself on the server and the gate phone', () => {
     for (const t of PASS_TYPES) {
       const code = makeCode(keys, t, 7, 'AMARJIT SINGH');
       expect(checkCode(keys, code)).toMatchObject({ why: 'valid', type: t, serial: 7 });

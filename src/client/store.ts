@@ -26,10 +26,24 @@ export interface Status {
   undo: readonly UndoEntry[];
   /** Changes are on screen that the server hasn't confirmed yet. */
   saving: boolean;
+  /** How many of this tab's changes the server hasn't confirmed yet. */
+  unsaved: number;
+  /** Saving is taking long: the connection is slow, or down. */
+  slow: boolean;
+  /** A save couldn't reach the server and is being sent again. */
+  retrying: boolean;
 }
 
 type Counts = Record<PassType, number>;
 const EMPTY: Pass[] = [];
+
+/** Passes this tab added get made-up ids from here down until the server gives the real one. */
+export const FIRST_TEMP_ID = -1_000_000;
+const isTemp = (id: number) => id <= FIRST_TEMP_ID;
+
+/** Rows on screen that the server hasn't confirmed yet (a new pass, or a change to one). */
+const unsaved = new WeakSet<Pass>();
+export const isUnsaved = (p: Pass) => unsaved.has(p);
 
 /** Changes this tab made that the server hasn't confirmed yet: shown on top of the server's copy. */
 interface Overlay {
@@ -56,7 +70,7 @@ export class PassStore {
   me = 0;
   /** Database version this browser has caught up to. */
   rev = 0;
-  status: Status = { loaded: false, online: true, backupError: '', undo: [], saving: false };
+  status: Status = { loaded: false, online: true, backupError: '', undo: [], saving: false, unsaved: 0, slow: false, retrying: false };
   /** Set by the sync loop: fetch changes now. */
   resync: () => void = () => {};
 
@@ -124,6 +138,7 @@ export class PassStore {
   /** Shows changed (or new) passes, and hides deleted ones, before the server has them. Returns a handle for `settle`. */
   show(rows: Pass[], hide: number[] = []): number {
     const handle = this.nextOverlay++;
+    for (const r of rows) unsaved.add(r);
     const types = [...rows.map((r) => r.type), ...hide.map((id) => this.get(id)?.type)];
     this.overlays.set(handle, { rows: new Map(rows.map((r) => [r.id, r])), hide: new Set(hide) });
     this.touch(types);
@@ -145,8 +160,10 @@ export class PassStore {
     for (const o of this.overlays.values()) {
       const r = o.rows.get(tempId);
       if (r) {
+        const q = { ...r, id: realId };
+        unsaved.add(q);
         o.rows.delete(tempId);
-        o.rows.set(realId, { ...r, id: realId });
+        o.rows.set(realId, q);
         type = r.type;
       }
       if (o.hide.delete(tempId)) o.hide.add(realId);
@@ -175,11 +192,44 @@ export class PassStore {
           for (const id of o.hide) m.delete(id);
           for (const r of o.rows.values()) if (r.type === type) m.set(r.id, r);
         }
+        this.placeNew(m);
       }
       s = [...m.values()].sort((a, b) => a.serial - b.serial);
       this.sheets.set(type, s);
     }
     return s;
+  }
+
+  /**
+   * A serial never shows twice: new passes this tab hasn't saved yet whose serial another pass has
+   * meanwhile (another desk added it) show after the last pass, where the server will save them. Each
+   * change's new passes move together, in order, as on the server (see `ApplyRequest.next`).
+   */
+  private placeNew(m: Map<number, Pass>) {
+    const batches: Pass[][] = [];
+    const seen = new Set<number>();
+    for (const o of this.overlays.values()) {
+      const batch: Pass[] = [];
+      for (const id of o.rows.keys()) {
+        const r = m.get(id);
+        if (r && isTemp(id) && !seen.has(id)) { seen.add(id); batch.push(r); }
+      }
+      if (batch.length) batches.push(batch);
+    }
+    if (!batches.length) return;
+    const taken = new Set<number>();
+    let last = 0;
+    for (const r of m.values()) if (!isTemp(r.id)) { taken.add(r.serial); last = Math.max(last, r.serial); }
+    for (const batch of batches) {
+      batch.sort((a, b) => a.serial - b.serial);
+      const move = batch.some((r) => taken.has(r.serial));
+      batch.forEach((r, i) => {
+        const serial = move ? last + 1 + i : r.serial;
+        if (move) { const q = { ...r, serial }; unsaved.add(q); m.set(r.id, q); }
+        taken.add(serial);
+      });
+      last = Math.max(last, ...batch.map((r) => m.get(r.id)!.serial));
+    }
   }
 
   getAll = (): Pass[] => (this.all ??= PASS_TYPES.flatMap((t) => this.getSheet(t)));

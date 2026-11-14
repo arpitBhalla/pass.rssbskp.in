@@ -1,5 +1,6 @@
 'use client';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { isUnsaved } from '@/client/store';
 import { toast } from '@/client/toast';
 import { addedBy, useUserNames } from '@/client/users';
 import {
@@ -337,8 +338,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       copiedRows = got.withSerial ? { text, cells: got.rows.map((r) => r.slice(1).join('\t')).join('\n') } : null;
       if (!got.cell && !cutting) toast(`Copied ${got.what}${got.withSerial ? ', with Sr. No.' : ''}`);
     };
-    const refuse = (locked: number[], what: string) =>
-      toast(`${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed, so nothing was ${what}. Untick Printed first.`, 'error');
+    const refuse = refuseLocked;
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey) return;
       if ((e.key === 'Delete' || e.key === 'Backspace') && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -387,9 +387,14 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     if (!el.closest('td[data-pick]')) {
       const cell = cellAt(el);
       if (!cell) return;
-      if (e.shiftKey && active) { e.preventDefault(); setBlock({ a: active, b: cell }); return; }
+      const box = el.closest('td')?.querySelector<HTMLInputElement>('input[data-k]');
+      if (box && !box.readOnly) return; // being edited: a click moves the caret, a drag selects its text
+      e.preventDefault(); // like Excel, a click selects the cell without a caret; no text selection while dragging
+      if (e.shiftKey && active) { setBlock({ a: active, b: cell }); return; }
       setBlock(null);
-      cellDrag.current = { mode: 'block', start: cell };
+      box?.focus({ preventScroll: true });
+      if (box && e.detail >= 2) startEdit(box, caretAt(box, e.clientX)); // double-click: edit, the caret where clicked
+      else cellDrag.current = { mode: 'block', start: cell };
       return;
     }
     setBlock(null);
@@ -409,15 +414,20 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     if (d?.mode !== 'block') return;
     const cell = cellAt(e.target as Element);
     if (!cell || (cell.key === d.start.key && cell.c === d.start.c)) return;
-    const el = document.activeElement;
-    if (el instanceof HTMLInputElement && scrollRef.current?.contains(el)) el.setSelectionRange(el.value.length, el.value.length);
     document.body.classList.add('select-none');
   };
   const onFocusCell = (e: FocusEvent<HTMLTableSectionElement>) => {
     const cell = (e.target as HTMLElement).dataset.k ? cellAt(e.target as Element) : null;
     if (!cell) return;
+    const box = e.target;
+    if (box instanceof HTMLInputElement && box.readOnly) box.setSelectionRange(0, 0);
     setActive(cell);
     if (selection) onClearSelection();
+  };
+  // Leaving a cell ends its edit (the box saves what was typed): it's only selected when it gets the cursor again.
+  const onBlurCell = (e: FocusEvent<HTMLTableSectionElement>) => {
+    const el = e.target;
+    if (el instanceof HTMLInputElement && el.dataset.k && !el.readOnly) stopEdit(el);
   };
   const onMouseOver = (e: MouseEvent<HTMLTableSectionElement>) => {
     onMouseOverCells(e);
@@ -434,7 +444,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   // Moves focus to the same column in another row, scrolling it into view first if needed.
   const focusCell = (index: number, k: string) => {
     const find = () => scrollRef.current?.querySelector<HTMLInputElement>(`tr[data-i="${index}"] [data-k="${k}"]`);
-    const go = (el: HTMLInputElement | null | undefined) => { el?.focus(); el?.select(); };
+    const go = (el: HTMLInputElement | null | undefined) => el?.focus();
     const el = find();
     if (el) return go(el);
     virtualizer.scrollToIndex(index);
@@ -458,17 +468,55 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       }
       return;
     }
+    const selected = el.readOnly; // the cell is selected, not being edited (see startEdit)
+    const typing = !selected && !!el.dataset.typing; // edited by typing into it: ← → still move between cells
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (e.key.length === 1 && plain) setBlock(null); // typing edits the one cell
+    if (selected && plain) {
+      if (e.key === 'F2') { e.preventDefault(); startEdit(el, 'end'); return; }
+      // Typing replaces what's in the cell; Backspace empties it to type afresh (Esc puts it back).
+      if (e.key.length === 1 || (e.key === 'Backspace' && !multi)) {
+        if (!startEdit(el, undefined, true)) { e.preventDefault(); return; }
+        el.value = '';
+        if (e.key === 'Backspace') e.preventDefault();
+        return; // the key's letter goes into the cell
+      }
+      if (e.key === 'Delete' && !multi) { e.preventDefault(); clearCell(el); return; }
+    }
+    if ((selected || typing) && plain && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      const c = fields.indexOf(k) + (e.key === 'ArrowRight' ? 1 : -1);
+      if (c >= 0 && c < fields.length) el.closest('tr')?.querySelector<HTMLInputElement>(`input[data-k="${fields[c]}"]`)?.focus();
+      return;
+    }
     let dir = 0;
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) setBlock(null); // typing edits the one cell
     if (e.key === 'Enter') dir = e.shiftKey ? -1 : 1;
-    else if (e.key === 'Escape') { if (block) { setBlock(null); return; } el.value = el.defaultValue; el.blur(); return; }
-    else if (!SUGGEST[k] && e.key === 'ArrowDown') dir = 1; // boxes with suggestions keep ↑↓ for the list
-    else if (!SUGGEST[k] && e.key === 'ArrowUp') dir = -1;
+    else if (e.key === 'Escape') { // a block lets go; an edit is dropped (the cell goes back to what it held), the cell stays selected
+      if (block) setBlock(null);
+      else if (!selected) { el.value = el.defaultValue; stopEdit(el); }
+      return;
+    }
+    else if ((selected || !SUGGEST[k]) && e.key === 'ArrowDown') dir = 1; // boxes with suggestions keep ↑↓ for the list while edited
+    else if ((selected || !SUGGEST[k]) && e.key === 'ArrowUp') dir = -1;
     if (!dir) return;
     e.preventDefault();
     const i = Number(el.closest('tr')!.dataset.i) + dir;
     if (i >= 0 && i < items.length) focusCell(i, k);
     else el.blur();
+  };
+
+  /** Delete on a selected cell empties it (saved as one change; Undo brings it back). */
+  const clearCell = (el: HTMLInputElement) => {
+    const i = Number(el.closest('tr')?.dataset.i);
+    const it = items[i];
+    const k = el.dataset.k as Field;
+    if (!it || !el.value) return;
+    if (it.kind === 'empty' || it.kind === 'new') { el.value = ''; return; } // nothing saved there yet
+    const passes = itemPasses(type, it);
+    const { locked } = planClear(passes, [k]);
+    if (locked.length) return refuseLocked(locked, 'cleared');
+    onClear(passes, [k], '1 cell', false);
+    requestAnimationFrame(() => focusCell(i, k)); // the cell stays selected
   };
 
   // Cells copied from Excel fill downward (one line per row) and rightward.
@@ -478,11 +526,19 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     let text = e.clipboardData.getData('text');
     // Rows copied from the sheet by Sr. No.: fill this row from Name, leaving the Sr. No. out.
     if (copiedRows && trimLines(text) === copiedRows.text) { text = copiedRows.cells; k = fields[0]; }
-    if (!k || !isMultiCell(text)) return;
+    if (!k) return;
+    // One value into a cell being edited goes in at the caret. Into a selected cell it replaces what's
+    // there, as in Excel: through the paste, which asks first if the cell holds something. Into a row
+    // not in the register yet it's typed in (the pass is added when the row is left).
+    if (!isMultiCell(text) && !el.readOnly) return;
     e.preventDefault();
     setBlock(null);
-    const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
     const i = Number(el.closest('tr')!.dataset.i);
+    if (!isMultiCell(text) && items[i].kind !== 'row' && items[i].kind !== 'group') {
+      if (startEdit(el, undefined, true)) { el.value = cleanText(text); el.setSelectionRange(el.value.length, el.value.length); }
+      return;
+    }
+    const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
     onPaste(rows, items[i].kind === 'new' ? rows.length : i, k, text, canAdd);
   };
 
@@ -513,7 +569,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
             <th className={th}>Added by</th>
           </tr>
         </thead>
-        <tbody onKeyDown={onKeyDown} onPaste={onPasteCells} onMouseDown={onMouseDown} onMouseOver={onMouseOver} onFocus={onFocusCell}>
+        <tbody onKeyDown={onKeyDown} onPaste={onPasteCells} onMouseDown={onMouseDown} onMouseOver={onMouseOver} onFocus={onFocusCell} onBlur={onBlurCell}>
           {padTop > 0 && <tr style={{ height: padTop }}><td colSpan={cols} /></tr>}
           {vItems.map((v) => {
             const it = items[v.index];
@@ -573,7 +629,7 @@ function Watermark({ type }: { type: PassType }) {
 // Ruled like the desk's register: pale blue lines, and a double maroon margin rule after the serial.
 const th = 'border-b border-r border-b-input border-r-rule bg-panel px-2 font-condensed text-[14.5px] font-semibold text-foreground/70';
 const td = 'h-[30px] border-b border-r border-rule px-2 whitespace-nowrap overflow-hidden text-ellipsis';
-const tdCell = 'h-[30px] border-b border-r border-rule p-0 focus-within:shadow-[inset_0_0_0_2px_var(--color-primary)]';
+const tdCell = 'h-[30px] border-b border-r border-rule p-0 focus-within:shadow-[inset_0_0_0_2px_var(--color-primary)] [tr>&:has(input:read-write)]:!bg-white'; // white while being edited (over the focused row's tint)
 /** A field cell, marked if it's in the selected block, in the fill preview, or holds the fill handle. */
 const cellTd = (c: number, mark: Mark | undefined) =>
   `${tdCell} ${within(mark?.sel, c) ? 'shadow-[inset_0_0_0_999px_rgb(37_99_235/0.11)]' : ''} ${within(mark?.fill, c) ? 'shadow-[inset_0_0_0_999px_rgb(138_14_3/0.09)]' : ''} ${mark?.handle === c ? 'relative' : ''}`;
@@ -583,6 +639,14 @@ const FillHandle = () => (
     data-fill aria-hidden title="Drag down or right to copy into those cells"
     className="absolute -right-[4px] -bottom-[4px] z-[5] size-[8px] cursor-crosshair border border-white bg-primary"
   />
+);
+/**
+ * On a row the server hasn't confirmed yet. Shown only while saving is slow or the connection is down
+ * (the bar above says so, see AppShell): normally a row is saved before anyone could notice.
+ */
+const NotSaved = () => (
+  <span role="img" aria-label="not saved yet" title="Not saved yet: kept on this screen until the connection is back"
+    className="ml-1.5 hidden size-[9px] rounded-full bg-amber-500 align-[1px] ring-2 ring-amber-200 group-data-[unsaved]/app:inline-block" />
 );
 const margin = 'border-r-[3px] border-double !border-r-primary/75';
 const serialCls = 'font-condensed text-[16px] font-semibold tabular-nums tracking-[0.02em]';
@@ -611,7 +675,7 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
   };
   return (
     <tr data-i={i} className={rowCls(selected)}>
-      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} cursor-pointer select-none ${selected ? picked : ''}`} title="Click to select. Shift+click or drag for more.">{fmtSerial(p.serial)}</td>
+      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} cursor-pointer select-none ${selected ? picked : ''}`} title="Click to select. Shift+click or drag for more.">{fmtSerial(p.serial)}{isUnsaved(p) && <NotSaved />}</td>
       {before(fields).map(cell)}
       <td className={`${td} text-center`}>
         <TickBox col="printed" checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
@@ -694,7 +758,6 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }:
   i: number; serial: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onCreate: SheetProps['onCreate']; last?: boolean;
 }) {
   const ref = useRef<HTMLTableRowElement>(null);
-  const busy = useRef(false);
   const latest = useRef({ onCreate, serial });
   useEffect(() => { latest.current = { onCreate, serial }; });
 
@@ -706,15 +769,21 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }:
     }
     return Object.keys(values).length ? values : null;
   };
-  const commit = async (refocus: boolean) => {
-    const values = collect(ref.current);
-    if (!values || busy.current) return;
-    busy.current = true;
-    const ok = await latest.current.onCreate(latest.current.serial, values);
-    busy.current = false;
-    if (!ok || !ref.current) return;
-    for (const el of ref.current.querySelectorAll<HTMLInputElement>('input[data-k]')) el.value = '';
-    if (refocus) ref.current.querySelector<HTMLInputElement>('input[data-k]')?.focus();
+  // The pass shows as a row above at once (saved in the background), so the row empties at once: what
+  // was typed is never left here to be added a second time.
+  const commit = (refocus: boolean) => {
+    const row = ref.current;
+    const values = collect(row);
+    if (!row || !values) return;
+    const saving = latest.current.onCreate(latest.current.serial, values);
+    const inputs = [...row.querySelectorAll<HTMLInputElement>('input[data-k]')];
+    for (const el of inputs) el.value = '';
+    if (refocus) inputs[0]?.focus();
+    // Refused (e.g. a value not allowed): what was typed comes back, unless the next one is being typed.
+    void saving.then((ok) => {
+      if (ok || !ref.current || collect(ref.current)) return;
+      for (const el of ref.current.querySelectorAll<HTMLInputElement>('input[data-k]')) el.value = values[el.dataset.k as Field] ?? '';
+    });
   };
   const onBlur = (e: FocusEvent<HTMLTableRowElement>) => {
     if (!ref.current?.contains(e.relatedTarget as Node | null)) void commit(false);
@@ -728,7 +797,7 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }:
     const c = fields.indexOf(k);
     return (
       <td key={k} data-c={c} className={cellTd(c, mark)}>
-        <input data-k={k} list={SUGGEST[k]} placeholder={last && c === 0 ? 'type or paste…' : ''} className={cellCls(false, k)} />
+        <input data-k={k} readOnly list={SUGGEST[k]} placeholder={last && c === 0 ? 'type or paste…' : ''} className={cellCls(false, k)} />
         {mark?.handle === c && <FillHandle />}
       </td>
     );
@@ -738,7 +807,7 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, last = false }:
     const row = ref.current;
     return () => {
       const values = collect(row);
-      if (values && !busy.current) void latest.current.onCreate(latest.current.serial, values);
+      if (values) void latest.current.onCreate(latest.current.serial, values);
     };
   }, []);
 
@@ -789,8 +858,58 @@ function TickBox({ col, checked, disabled, onChange, title }: {
   );
 }
 
+/*
+ * Cells work like Excel's. A cell's box is read-only while the cell is only selected (clicked, or reached
+ * with Tab, Enter or the arrow keys): no caret, the arrow keys move between cells, Delete empties it,
+ * and typing replaces what's in it. Double-click, F2 or typing edits it (the box becomes editable)
+ * until the cell is left (it saves) or Esc (it goes back). Printed cells can't be edited (`data-locked`).
+ */
+/**
+ * Starts editing a selected cell, with the caret at `caret` (else wherever the browser puts it). `typing`:
+ * started by typing into it, so ← → still move between cells (as in Excel). False if printed.
+ */
+function startEdit(el: HTMLInputElement, caret?: number | 'end', typing = false): boolean {
+  if (el.dataset.locked) {
+    toast('This pass is printed, so this cell is locked. Untick Printed first to change it.', 'error');
+    return false;
+  }
+  el.readOnly = false;
+  if (typing) el.dataset.typing = '1';
+  if (caret !== undefined) {
+    const at = caret === 'end' ? el.value.length : caret;
+    el.setSelectionRange(at, at);
+  }
+  return true;
+}
+function stopEdit(el: HTMLInputElement) {
+  el.readOnly = true;
+  delete el.dataset.typing;
+  el.setSelectionRange(0, 0);
+}
+const refuseLocked = (locked: number[], what: string) =>
+  toast(`${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed, so nothing was ${what}. Untick Printed first.`, 'error');
+
+let ruler: CanvasRenderingContext2D | null = null;
+/** Where in the box's text a click at `x` falls: the nearest place for the caret. */
+function caretAt(el: HTMLInputElement, x: number): number {
+  ruler ??= document.createElement('canvas').getContext('2d');
+  if (!ruler) return el.value.length;
+  const s = getComputedStyle(el);
+  ruler.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+  ruler.letterSpacing = s.letterSpacing === 'normal' ? '0px' : s.letterSpacing;
+  const text = s.textTransform === 'uppercase' ? el.value.toUpperCase() : el.value;
+  const at = x - el.getBoundingClientRect().left - parseFloat(s.paddingLeft) - parseFloat(s.borderLeftWidth) + el.scrollLeft;
+  let best = text.length;
+  let gap = Infinity;
+  for (let i = 0; i <= text.length; i++) {
+    const d = Math.abs(ruler.measureText(text.slice(0, i)).width - at);
+    if (d < gap) { gap = d; best = i; }
+  }
+  return best;
+}
+
 const cellCls = (locked: boolean, k: Field) =>
-  `h-[29px] w-full bg-transparent px-2 outline-none placeholder:text-muted-foreground/50 ${locked ? 'cursor-default text-muted-foreground' : ''} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
+  `h-[29px] w-full bg-transparent px-2 outline-none placeholder:text-muted-foreground/50 read-only:selection:bg-transparent ${locked ? 'cursor-default text-muted-foreground' : 'read-only:cursor-cell'} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
 
 /**
  * Uncontrolled box that saves on blur. Keyed by its value, so it redraws when the value changes
@@ -829,7 +948,8 @@ function CellInput({ target, k, saved, locked, onEdit }: { target: Pass[]; k: Fi
       ref={ref}
       data-k={k}
       defaultValue={saved}
-      readOnly={locked}
+      readOnly // until edited: see startEdit
+      data-locked={locked || undefined}
       list={locked ? undefined : SUGGEST[k]}
       title={locked ? 'Printed: locked. Untick Printed to change it.' : undefined}
       onBlur={(e) => save(e.target.value)}

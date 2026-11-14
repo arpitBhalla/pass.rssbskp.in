@@ -9,7 +9,12 @@ import { authedProcedure, router } from '../trpc';
 const text = z.string().max(500).optional();
 const values = z.object({ name: text, dept: text, area: text, phone: text, vehicle: text, vehicle_no: text, incharge: text, issued_to: text }).strict();
 
+/** See `Resendable`. */
+const requestId = z.string().min(8).max(64).optional();
+
 const applyInput = z.object({
+  requestId,
+  next: z.boolean().optional(),
   action: z.enum(ACTIONS),
   summary: z.string().trim().min(1).max(300),
   set: z.array(z.object({
@@ -45,14 +50,15 @@ export const passesRouter = router({
   /** Deletes passes (not printed ones); Undo puts them back. */
   remove: authedProcedure
     .input(z.object({
+      requestId,
       summary: z.string().trim().min(1).max(300),
       items: z.array(z.object({ id: z.number().int().positive(), rev: z.number().int().min(0) })).min(1).max(MAX_BATCH),
     }))
     .mutation(({ ctx, input }) => deletePasses(ctx.db, ctx.user.id, input)),
 
   undo: authedProcedure
-    .input(z.object({ changeId: z.number().int().positive() }))
-    .mutation(({ ctx, input }) => undoChange(ctx.db, ctx.user.id, input.changeId)),
+    .input(z.object({ changeId: z.number().int().positive(), requestId }))
+    .mutation(({ ctx, input }) => undoChange(ctx.db, ctx.user.id, input.changeId, input.requestId)),
 
   history: authedProcedure
     .input(z.object({ limit: z.number().int().min(1).max(1000).default(300) }))

@@ -4,13 +4,45 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { createContext, Fragment, type ReactNode, use, useEffect, useRef } from 'react';
 import { useSyncLoop } from '@/client/actions';
-import { store, useCounts, useStatus } from '@/client/store';
+import { type Status, store, useCounts, useStatus } from '@/client/store';
 import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { PASS_TYPES, type PassType, TYPE_INFO, type User } from '@/shared/types';
 import { nPasses } from '@/lib/passes';
 
 const MeContext = createContext<User | null>(null);
+
+/** Saving is slow or the connection is down while changes are waiting: the rows not saved yet are marked. */
+const stuck = (s: Status) => s.unsaved > 0 && (s.slow || s.retrying || !s.online);
+
+/** Says when the server can't be reached, or saving is slow, and how many changes are waiting. */
+function ConnectionBar({ status: s }: { status: Status }) {
+  const n = `${s.unsaved} change${s.unsaved === 1 ? '' : 's'}`;
+  const dot = <span aria-hidden className="mx-0.5 inline-block size-[9px] rounded-full bg-amber-500 ring-2 ring-amber-200" />;
+  if (s.unsaved && (s.retrying || !s.online)) {
+    return (
+      <div role="alert" className="bg-destructive px-4 py-1.5 text-white print:hidden">
+        <b>No connection to the server: {n} not saved yet</b> (rows marked {dot}). Keep this tab open: they are saved by
+        themselves as soon as the connection is back.
+      </div>
+    );
+  }
+  if (!s.online) {
+    return (
+      <div role="alert" className="bg-destructive px-4 py-1.5 font-semibold text-white print:hidden">
+        Can&apos;t reach the server. Nothing can be saved until it&apos;s back; retrying.
+      </div>
+    );
+  }
+  if (s.unsaved && s.slow) {
+    return (
+      <div role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-1.5 text-amber-950 print:hidden">
+        <b>Slow connection: {n} still saving</b> (rows marked {dot}). Keep this tab open until this goes away.
+      </div>
+    );
+  }
+  return null;
+}
 /** The logged-in user. */
 export const useMe = () => use(MeContext)!;
 
@@ -33,7 +65,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
 
   return (
     <MeContext value={user}>
-      <div className="flex h-dvh flex-col print:block print:h-auto">
+      <div className="group/app flex h-dvh flex-col print:block print:h-auto" data-unsaved={stuck(status) || undefined}>
         <header className="shrink-0 bg-primary text-primary-foreground print:hidden">
           <div className="flex h-11 items-center gap-5 px-4">
             <Link href="/s/mobile-pandal" className="flex items-baseline gap-1.5 font-condensed text-[19px] leading-none">
@@ -76,7 +108,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
                   {newGroup && <span aria-hidden className="mx-1.5 mb-2.5 h-4 w-px shrink-0 bg-white/25 max-[1599px]:mx-1" />}
                   <Link
                     href={`/s/${t}`} prefetch aria-current={on ? 'page' : undefined} title={`${TYPE_INFO[t].label}: ${nPasses(counts[t])}`}
-                    className={`flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[4px] border-t-[3px] px-2.5 text-[14.5px] max-[1599px]:gap-1 max-[1599px]:px-[7px] max-[1599px]:text-[13px] ${
+                    className={`flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-[4px] border-t-[3px] px-2.5 text-[14.5px] max-[1599px]:gap-1 max-[1599px]:px-1.5 max-[1599px]:text-[13px] ${
                       on ? 'bg-background font-semibold text-foreground' : 'border-transparent text-white/80 hover:bg-white/10 hover:text-white'
                     }`}
                     style={on ? { borderTopColor: TYPE_INFO[t].color.band } : undefined}
@@ -97,11 +129,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           </nav>
         </header>
 
-        {!status.online && (
-          <div role="alert" className="bg-destructive px-4 py-1.5 font-semibold text-white print:hidden">
-            Can&apos;t reach the server. Nothing can be saved until it&apos;s back; retrying.
-          </div>
-        )}
+        <ConnectionBar status={status} />
         {status.backupError && (
           <div role="alert" className="border-b border-sand-200 bg-sand-100 px-4 py-1.5 text-sand-900 print:hidden">{status.backupError}</div>
         )}

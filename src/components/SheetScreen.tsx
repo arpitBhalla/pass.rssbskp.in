@@ -7,7 +7,10 @@ import { toast } from '@/client/toast';
 import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
 import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
-import { filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, ranges, type Show, SHOW_LABEL } from '@/lib/passes';
+import {
+  filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
+  ranges, type Show, SHOW_LABEL,
+} from '@/lib/passes';
 import { cleanField, type Field, FIELD_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { Menu, Popover } from './Menu';
 import { RangeBar } from './RangeBar';
@@ -69,13 +72,15 @@ export function SheetScreen({ type }: { type: PassType }) {
     return !!(await apply({ action: 'edit', summary, set }, { toast: target.length > 1 ? undefined : false }));
   }, [apply, info.label]);
 
-  const onCreate = useCallback(async (serial: number, values: Values) => {
-    return !!(await apply(
-      { action: 'edit', summary: `Added ${info.label} ${fmtSerial(serial)}`, create: [{ type, serial, values }] },
-      { toast: false },
-    ));
-  }, [apply, info.label, type]);
+  // Typed as the next pass (or into an empty row): if another desk takes that serial meanwhile, it is
+  // saved after the last pass instead. On screen at once; resolves when saved.
+  const onCreate = useCallback((serial: number, values: Values) => apply(
+    { action: 'edit', summary: `Added ${info.label} ${fmtSerial(serial)}`, create: [{ type, serial, values }], next: true },
+    { toast: false },
+  ).then(Boolean), [apply, info.label, type]);
 
+  // A paste over cells that already hold something waits here until it's confirmed (or cancelled).
+  const [pendingPaste, setPendingPaste] = useState<{ replaced: PastePlan['replaced']; run: () => void; back: string } | null>(null);
   const onPaste = useCallback((rows: Pass[][], start: number, key: Field, text: string | string[][], canCreate: boolean, fill = false) => {
     const plan = planPaste({ type, rows, start, key, text, nextSerial: nextSerial(sheetRef.current), canCreate });
     if (plan.error) return toast(plan.error, 'error');
@@ -83,13 +88,26 @@ export function SheetScreen({ type }: { type: PassType }) {
     const serials = [...rows.slice(start, start + plan.rows).flat().map((p) => p.serial), ...plan.create.map((c) => c.serial)];
     const notes = [
       plan.create.length ? `${plan.create.length} new` : '',
-      plan.overwritten ? `replaced ${plan.overwritten} filled cell${plan.overwritten === 1 ? '' : 's'}` : '',
+      plan.replaced.length ? `replaced ${plan.replaced.length} filled cell${plan.replaced.length === 1 ? '' : 's'}` : '',
       plan.skippedHeader ? 'skipped the header row' : '',
       plan.extra ? `${plan.extra} line${plan.extra === 1 ? '' : 's'} had no row (clear the search to add new passes)` : '',
     ].filter(Boolean);
     const summary = `${fill ? 'Filled' : 'Pasted'} ${plan.rows} row${plan.rows === 1 ? '' : 's'} ${fill ? 'of' : 'into'} ${info.label} ${ranges(serials)}`;
-    void apply({ action: 'paste', summary, set: plan.set, create: plan.create }, { toast: `${summary}${notes.length ? ` (${notes.join(', ')})` : ''}` });
+    const run = () => void apply({ action: 'paste', summary, set: plan.set, create: plan.create, next: true }, { toast: `${summary}${notes.length ? ` (${notes.join(', ')})` : ''}` });
+    // Pasting (not filling) over filled cells asks first.
+    if (!fill && plan.replaced.length) {
+      // Where the cursor goes back to: the cell, found again by row and column (a changed cell is drawn anew).
+      const el = document.activeElement as HTMLElement | null;
+      const i = el?.closest('tr')?.dataset.i;
+      setPendingPaste({ replaced: plan.replaced, run, back: i && el?.dataset.k ? `tbody tr[data-i="${i}"] [data-k="${el.dataset.k}"]` : '' });
+    } else run();
   }, [apply, info.label, type]);
+  const closePaste = (paste: boolean) => {
+    if (paste) pendingPaste?.run();
+    const back = pendingPaste?.back;
+    setPendingPaste(null);
+    if (back) requestAnimationFrame(() => document.querySelector<HTMLInputElement>(back)?.focus());
+  };
 
   // Ctrl+X (the cells were copied) or Delete: empty them, as one change. The passes stay.
   const onClear = useCallback((passes: Pass[], keys: readonly Field[], what: string, cut: boolean) => {
@@ -204,6 +222,7 @@ export function SheetScreen({ type }: { type: PassType }) {
           <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => { void pickFile(e.target.files?.[0]); e.target.value = ''; }} />
         </div>
         <RangeBar type={type} sheet={sheet} range={range} onClear={clearRange} />
+        {pendingPaste && <PasteWarning replaced={pendingPaste.replaced} onClose={closePaste} />}
         <Sheet
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} next={next} missing={missing}
           onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven}
@@ -285,3 +304,30 @@ const Suggestions = memo(function Suggestions() {
     </>
   );
 });
+
+/** Asks before a paste replaces cells that already hold something: which cells, then Paste over / Cancel (Enter / Esc). */
+function PasteWarning({ replaced, onClose }: { replaced: PastePlan['replaced']; onClose: (paste: boolean) => void }) {
+  const n = replaced.length;
+  const byKey = new Map<Field, number[]>();
+  for (const r of replaced) byKey.set(r.key, [...(byKey.get(r.key) ?? []), r.serial]);
+  const one = replaced[0];
+  const quote = (v: string) => (v ? `"${v.length > 30 ? `${v.slice(0, 29)}…` : v}"` : 'empty');
+  return (
+    <div
+      role="alertdialog" aria-label="Paste over filled cells?"
+      className="flex min-h-12 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-amber-300 bg-amber-50 px-4 py-2 text-[14px] print:hidden"
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(false); } }}
+    >
+      <p className="leading-snug">
+        {n === 1
+          ? <>{fmtSerial(one.serial)} {FIELD_LABELS[one.key]} already has {quote(one.from)}; the paste puts {quote(one.to)}.</>
+          : <><b>{n} cells</b> already have something in them: {[...byKey].map(([k, serials]) => `${FIELD_LABELS[k]} in ${ranges(serials)}`).join(', ')}.</>}
+        {' '}Paste over {n === 1 ? 'it' : 'them'}? <b>Undo</b> brings {n === 1 ? 'it' : 'them'} back.
+      </p>
+      <span className="flex-1" />
+      <button className={btn} onClick={() => onClose(false)}>Cancel</button>
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the paste is waiting on this answer: Enter pastes, Esc cancels */}
+      <button className={btnPrimary} autoFocus onClick={() => onClose(true)}>Paste over {n === 1 ? '1 cell' : `${n} cells`}</button>
+    </div>
+  );
+}

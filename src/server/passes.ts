@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { type Kysely, type Transaction, sql } from 'kysely';
 import {
   type ApplyRequest, type ApplyResult, type Change, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, cleanField,
-  type DeleteRequest, type DeleteResult, locksWhenPrinted, MAX_BATCH, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
+  type DeleteRequest, type DeleteResult, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
 } from '@/shared/types';
 import type { ChangeBefore, Database, PassRow, PassRowJson } from './db/schema';
 
@@ -35,7 +35,25 @@ export function serialList(serials: number[]): string {
 }
 const isAre = (n: number) => (n === 1 ? 'was' : 'were');
 
-/** Next database version. Locks the meta row, so writes are saved one at a time and in order. */
+/**
+ * Called first in every write: locks the meta row, so writes are saved one at a time and in order.
+ * Returns the change already made by this request, if it was sent before (the desk never got the
+ * answer, e.g. the connection dropped, and sent it again).
+ */
+async function sentBefore(trx: Transaction<Database>, userId: number, requestId: string | undefined) {
+  await sql`SELECT 1 FROM meta WHERE id = 1 FOR UPDATE`.execute(trx);
+  if (!requestId) return undefined;
+  return trx.selectFrom('changes').select(['id', 'rev', 'before', 'summary'])
+    .where('request_id', '=', requestId).where('done_by', '=', userId).executeTakeFirst();
+}
+
+/** These passes as they are now (any that were deleted since are left out). */
+async function passesNow(trx: Transaction<Database>, ids: number[]): Promise<Pass[]> {
+  if (!ids.length) return [];
+  return (await trx.selectFrom('passes').select(PASS_COLUMNS).where('id', 'in', ids).execute()).map(toPass);
+}
+
+/** Next database version (the meta row is locked by `sentBefore`). */
 async function bump(trx: Transaction<Database>): Promise<number> {
   const { version } = await trx
     .updateTable('meta')
@@ -90,6 +108,11 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
 
   try {
     return await db.transaction().execute(async (trx) => {
+      const done = await sentBefore(trx, userId, req.requestId);
+      if (done) {
+        const { rows, created } = done.before;
+        return { changeId: done.id, rows: await passesNow(trx, [...rows.map((r) => r.id), ...created]), created };
+      }
       const rev = await bump(trx);
 
       const current = set.length
@@ -145,6 +168,25 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
             RETURNING p.*`.execute(trx)).rows
         : [];
 
+      // Typed or pasted as the next passes, but another desk has just taken some of those serials:
+      // they go after the sheet's last pass instead, in the same order.
+      const moved: { from: number; to: number }[] = [];
+      if (req.next) {
+        for (const type of new Set(create.map((c) => c.type))) {
+          const mine = create.filter((c) => c.type === type);
+          const taken = await trx.selectFrom('passes').select('serial')
+            .where('type', '=', type).where('serial', 'in', mine.map((c) => c.serial)).limit(1).execute();
+          if (!taken.length) continue;
+          const { last } = await trx.selectFrom('passes').select((eb) => eb.fn.max('serial').as('last'))
+            .where('type', '=', type).executeTakeFirstOrThrow();
+          if ((last ?? 0) + mine.length > MAX_SERIAL) throw bad(`Serial numbers go up to ${MAX_SERIAL}.`);
+          mine.forEach((c, i) => {
+            moved.push({ from: c.serial, to: (last ?? 0) + 1 + i });
+            c.serial = (last ?? 0) + 1 + i;
+          });
+        }
+      }
+
       const createRows = create.map((c) => ({ type: c.type, serial: c.serial, printed: c.printed ?? false, given: c.given ?? false, ...c.values }));
       const created = create.length
         ? (await sql<PassRow>`
@@ -168,10 +210,14 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       const types = new Set(rows.map((r) => r.type));
       const serials = rows.map((r) => r.serial);
       const updatedIds = new Set(updated.map((r) => r.id));
+      const idOf = new Map(created.map((r) => [`${r.type}|${r.serial}`, r.id]));
       const before: ChangeBefore = {
         rows: JSON.parse(JSON.stringify(current.filter((r) => updatedIds.has(r.id)))),
-        created: created.map((r) => r.id),
+        created: create.map((c) => idOf.get(`${c.type}|${c.serial}`)!), // in the order asked for
       };
+      const summary = moved.length
+        ? `${req.summary} (saved as ${serialList(moved.map((m) => m.to))}: ${serialList(moved.map((m) => m.from))} ${isAre(moved.length)} taken)`
+        : req.summary;
       const { id: changeId } = await trx
         .insertInto('changes')
         .values({
@@ -180,14 +226,15 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
           type: types.size === 1 ? [...types][0] : null,
           serial_from: Math.min(...serials),
           serial_to: Math.max(...serials),
-          summary: req.summary.slice(0, 300),
+          summary: summary.slice(0, 300),
           count: rows.length,
           rev,
           before: JSON.stringify(before),
+          request_id: req.requestId ?? null,
         })
         .returning('id')
         .executeTakeFirstOrThrow();
-      return { changeId, rows: rows.map(toPass) };
+      return { changeId, rows: rows.map(toPass), created: before.created };
     });
   } catch (e) {
     throw explain(e);
@@ -195,12 +242,17 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
 }
 
 /** Puts back what a change did, if none of its passes changed since. */
-export async function undoChange(db: Kysely<Database>, userId: number, changeId: number): Promise<UndoResult> {
+export async function undoChange(db: Kysely<Database>, userId: number, changeId: number, requestId?: string): Promise<UndoResult> {
   try {
     return await db.transaction().execute(async (trx) => {
-      const rev = await bump(trx);
+      const done = await sentBefore(trx, userId, requestId);
+      const rev = done ? 0 : await bump(trx);
       const ch = await trx.selectFrom('changes').selectAll().where('id', '=', changeId).forUpdate().executeTakeFirst();
       if (!ch) throw new TRPCError({ code: 'NOT_FOUND', message: 'That change no longer exists.' });
+      if (done) {
+        const { rows, created, deleted = [] } = ch.before;
+        return { rows: await passesNow(trx, [...rows.map((r) => r.id), ...deleted.map((r) => r.id)]), deleted: created, summary: ch.summary };
+      }
       if (ch.undone_at) throw bad('That was already undone.');
       if (ch.action === 'undo') throw bad('An undo cannot be undone.');
 
@@ -255,7 +307,7 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
         .values({
           done_by: userId, action: 'undo', type: ch.type, serial_from: ch.serial_from, serial_to: ch.serial_to,
           summary: `Undo: ${ch.summary}`.slice(0, 300), count: ids.length + deleted.length, rev,
-          before: JSON.stringify({ rows: [], created: [] } satisfies ChangeBefore),
+          before: JSON.stringify({ rows: [], created: [] } satisfies ChangeBefore), request_id: requestId ?? null,
         })
         .execute();
       return { rows: [...restored, ...back].map(toPass), deleted: created, summary: ch.summary };
@@ -278,6 +330,8 @@ export async function deletePasses(db: Kysely<Database>, userId: number, req: De
   const seen = new Map(req.items.map((i) => [i.id, i.rev]));
   try {
     return await db.transaction().execute(async (trx) => {
+      const done = await sentBefore(trx, userId, req.requestId);
+      if (done) return { changeId: done.id, deleted: (done.before.deleted ?? []).map((r) => ({ id: r.id, rev: done.rev })) };
       const rev = await bump(trx);
       const rows = await trx.selectFrom('passes').selectAll().where('id', 'in', ids).forUpdate().execute();
       if (rows.length < ids.length) throw conflict('Some of these passes were removed meanwhile. The sheet has been refreshed.');
@@ -301,6 +355,7 @@ export async function deletePasses(db: Kysely<Database>, userId: number, req: De
           done_by: userId, action: 'delete', type: types.size === 1 ? [...types][0] : null,
           serial_from: Math.min(...serials), serial_to: Math.max(...serials),
           summary: req.summary.slice(0, 300), count: rows.length, rev, before: JSON.stringify(before),
+          request_id: req.requestId ?? null,
         })
         .returning('id').executeTakeFirstOrThrow();
       return { changeId, deleted: ids.map((id) => ({ id, rev })) };

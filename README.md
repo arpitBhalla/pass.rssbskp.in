@@ -1,7 +1,7 @@
 # Pass Register: RSSB SKP
 
 The register for numbered passes, with ten sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
-Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, VIP Gate and Admin**. Each sheet has its own serial
+Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, Gate 3 - VIP and Admin**. Each sheet has its own serial
 numbers from 0001. Every printed pass carries a QR code that the gate checks with a phone.
 Several desks can work at once; every change is saved in Postgres with who made it.
 
@@ -41,12 +41,23 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 - **Give a range:** pick the passes, fill Area / Incharge / Dept / … in the right panel and click **Give**. It needs the Incharge, or
   at least one of Name, Dept and Phone; the rest is optional. Missing serials are added. The sheet
   shows when each pass was added and by whom (**Added**, **Added by**).
-  Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, VIP Gate and
-  Admin have Vehicle and Reg. No. A number plate is written one way however it's typed: `hr 24 ab 9168` becomes
+  Bike sheets also have Reg. No.; Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, Gate 3 - VIP
+  and Admin have Vehicle and Reg. No. A number plate is written one way however it's typed: `hr 24 ab 9168` becomes
   `HR-24AB-9168`; anything else (`E-SCOOTY`) stays as typed. Searching `hr24ab` finds it.
   Values already filled are never overwritten: those passes are listed and left alone.
+- **Cells work like Excel's:** a click (or Tab, Enter, the arrow keys) only selects a cell, without a
+  caret, so dragging across cells never starts typing in the first one. Typing replaces what's in the
+  cell; **double-click** or **F2** edits it instead, with the caret where you clicked (or at the end).
+  The cell turns white while being edited. Enter (down), Tab (right) or leaving it saves; **Esc**
+  drops the edit. While a cell is selected the arrow keys move between cells (after typing into it,
+  ← → still do; after a double-click or F2 they move the caret), **Delete** empties it and
+  **Backspace** empties it to type afresh. A printed pass's cells say they're locked.
 - **Type or paste from Excel:** click a cell and type (Enter moves down). Copy cells in Excel and paste
   into the first cell: lines fill downward, columns fill rightward, and a copied header row is skipped.
+  If the paste would replace cells that already hold something, a yellow bar lists them first:
+  **Paste over** (Enter) or **Cancel** (Esc). One value pasted into a selected cell replaces it the
+  same way; into a cell being edited it goes in at the caret. Filling (Ctrl+D, dragging the corner)
+  doesn't ask.
   Empty rows are serials not in the register yet. Typing or pasting into one adds that serial, and the
   row at the bottom adds the next one.
 - **Like Excel** (on a Mac, ⌘ instead of Ctrl): drag across cells (or click one, then Shift+click
@@ -85,7 +96,11 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   | --- | --- | --- | --- |
   | Mobile Pandal / Non Pandal | 63.5 × 88.9 mm | 25 (edges touching: one cut separates two) | 9 |
   | Bike Pandal / Non Pandal | 88 × 60 mm | 25 (turned sideways) | 8 |
-  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), VIP Gate (red), Admin (teal) | 150 × 100 mm | 9 (turned sideways) | 2 |
+  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 150 × 100 mm | 9 (turned sideways) | 2 |
+
+  Gate 3 - VIP and Admin print in design v2, picked from the redesign (`../passes-design-v2`): Gate
+  3 - VIP as the **Ticket** (a perforated stub with the QR code and serial), Admin as the **Rail**
+  (colour bars top and bottom, Rozha One masthead).
 
   Pick **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4** in the preview; each desk remembers
   its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and
@@ -134,6 +149,19 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   at a time in order; **Saving…** shows at the top meanwhile. Closing the tab then asks first, and so
   does closing it with text typed into a cell that hasn't been left yet (that text is saved meanwhile). If the
   server refuses a change, it comes off the screen again and the message says why.
+- **Bad connection:** if saving takes more than 4 seconds an amber bar says how many changes are still
+  saving; if the server can't be reached a red bar says how many are **not saved yet**. Either way the
+  rows not saved yet are marked with an amber dot, and they are sent again by themselves (every few
+  seconds, and after 30 seconds without an answer) until the server answers. Keep the tab open. A
+  change is never saved twice, even when its answer was lost and it was sent again: each request
+  carries a code the server remembers (`changes.request_id`).
+- **Two desks adding the next pass at once:** a pass typed in the bottom row (or an empty row), or
+  pasted below the last one, takes the next number; if another desk took that number a moment
+  earlier, it is saved after the last pass instead and a message says so ("Sewa Vehicle 0002 was just
+  taken by another desk, so Navneet Gumber is saved as 0003"; History notes it too). A number never
+  shows twice on screen. Given, printed and imported ranges keep their numbers: refused if taken.
+  The bottom row empties the moment a pass is added (it shows above at once); if the server refuses
+  it, what was typed comes back.
 - Every action saves completely or not at all. If someone else changed the same passes a moment
   earlier, nothing is saved, the sheet refreshes, and you're told who changed them.
 - **Backups:** a `pg_dump` goes to `./backups` at start-up and every 30 minutes when something changed
@@ -165,7 +193,9 @@ pnpm typecheck && pnpm lint
 Next.js 16 (App Router), tRPC 11, Kysely + Postgres, Tailwind 4, TypeScript. The server code is in
 `src/server`, the shared types in `src/shared/types.ts`, and the sheet logic in `src/lib` (unit tested).
 The pass templates are `src/components/cards` (positions in mm, measured on the template images).
-The design version is kept in code only (`TEMPLATE_VERSION` in `PassCard.tsx`, now v1; not printed):
-raise it when the design changes.
+The design version is kept in code only (`TEMPLATE_VERSION` in `PassCard.tsx`, now v2; not printed):
+raise it when the design changes. v2 passes are `Ticket.tsx` and `Rail.tsx`, with their shared parts in
+`v2kit.tsx`.
 Fonts are bundled in `src/fonts` (SIL Open Font License): Roboto Condensed, Source Sans 3 and
-Archivo Black for the passes, Atkinson Hyperlegible Next for the app.
+Archivo Black for the passes, and for the v2 passes also Rozha One, Archivo SemiCondensed, Martian
+Mono and Big Shoulders Display; Atkinson Hyperlegible Next for the app.

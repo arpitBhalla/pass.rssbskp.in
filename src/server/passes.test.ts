@@ -241,3 +241,69 @@ describe('delete', () => {
     await expect(undoChange(db, ramesh, g.changeId)).rejects.toThrow(/removed since/);
   });
 });
+
+describe('two desks adding the next pass at once', () => {
+  const add = (serials: number[], name: string, next = true): ApplyRequest => ({
+    action: 'edit', summary: `Added ${serials.join(', ')}`, next,
+    create: serials.map((serial, i) => ({ type: 'sewa-vehicle', serial, values: { name: `${name} ${i + 1}` } })),
+  });
+
+  it('the later one is saved after the last pass, in the same order, and History says so', async () => {
+    await applyChange(db, ramesh, add([1], 'Pardeep'));
+    await applyChange(db, ramesh, add([2], 'Gagan')); // desk X got there first
+    const r = await applyChange(db, suresh, add([2, 3], 'Navneet')); // desk Y still thought 0002 was next
+    const byId = new Map(r.rows.map((p) => [p.id, p]));
+    expect(r.created.map((id) => [byId.get(id)!.serial, byId.get(id)!.name])).toEqual([[3, 'Navneet 1'], [4, 'Navneet 2']]);
+    const ch = await db.selectFrom('changes').select('summary').where('id', '=', r.changeId).executeTakeFirstOrThrow();
+    expect(ch.summary).toBe('Added 2, 3 (saved as 0003–0004: 0002–0003 were taken)');
+    // Free serials stay as asked; undo removes the moved passes.
+    const free = await applyChange(db, suresh, add([5], 'Raj'));
+    expect(free.rows[0].serial).toBe(5);
+    await undoChange(db, suresh, r.changeId);
+    expect((await syncSince(db, 0)).rows.map((p) => p.serial).sort()).toEqual([1, 2, 5]);
+  });
+
+  it('ranges given, printed or imported keep their serials: refused when taken', async () => {
+    await applyChange(db, ramesh, add([1], 'Gagan'));
+    await expect(applyChange(db, suresh, add([1], 'Navneet', false))).rejects.toThrow(/0001 already exist/);
+  });
+});
+
+describe('a request sent again (the answer was lost)', () => {
+  const id = (n: number) => `test-request-${n}`;
+  const items = (rows: Pass[]) => rows.map((p) => ({ id: p.id, rev: p.rev }));
+
+  it('a save is made once; the second answer is the first one', async () => {
+    const req = { ...give(1, 2, 'Gurpreet'), requestId: id(1) };
+    const a = await applyChange(db, ramesh, req);
+    const b = await applyChange(db, ramesh, req);
+    expect(b.changeId).toBe(a.changeId);
+    expect(b.created).toEqual(a.created);
+    expect(b.rows.map((p) => p.id).sort()).toEqual(a.rows.map((p) => p.id).sort());
+    expect((await syncSince(db, 0)).rows).toHaveLength(2);
+    expect(await db.selectFrom('changes').select('id').execute()).toHaveLength(1);
+    // Another user's request with the same code is not mistaken for it.
+    await expect(applyChange(db, suresh, req)).rejects.toThrow(/already exist/);
+  });
+
+  it('a delete and an undo are each done once', async () => {
+    const g = await applyChange(db, ramesh, give(1, 2, 'Gurpreet'));
+    const del = { summary: 'x', items: items(g.rows), requestId: id(2) };
+    const d1 = await deletePasses(db, ramesh, del);
+    const d2 = await deletePasses(db, ramesh, del);
+    expect(d2).toEqual(d1);
+    const u1 = await undoChange(db, ramesh, d1.changeId, id(3));
+    const u2 = await undoChange(db, ramesh, d1.changeId, id(3));
+    expect(u2.rows.map((p) => p.id).sort()).toEqual(u1.rows.map((p) => p.id).sort());
+    expect(u2.summary).toBe(u1.summary);
+    expect((await syncSince(db, 0)).rows).toHaveLength(2);
+    expect(await db.selectFrom('changes').select('action').orderBy('id').execute()).toEqual([{ action: 'give' }, { action: 'delete' }, { action: 'undo' }]);
+  });
+
+  it('two copies sent at the same moment: one makes the change, the other waits and gets its answer', async () => {
+    const req = { ...give(1, 50, 'Gurpreet'), requestId: id(4) };
+    const [a, b] = await Promise.all([applyChange(db, ramesh, req), applyChange(db, ramesh, req)]);
+    expect(b.changeId).toBe(a.changeId);
+    expect((await syncSince(db, 0)).rows).toHaveLength(50);
+  });
+});

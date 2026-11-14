@@ -59,8 +59,9 @@ const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area
 
 // Colours sampled from the templates (Downloads/passes-template). Pandal is blue, Non Pandal grey,
 // vehicle passes green; Mobile (portrait) and Bike (landscape, tinted card) differ by shape.
-// Gate 3 Entry (orange), BAV Parking (purple), VIP Gate (red) and Admin (teal) have no template: the
-// Sewa Vehicle pass in their colour, title included, so the gate tells them apart at a glance.
+// Gate 3 Entry (orange) and BAV Parking (purple) have no template: the Sewa Vehicle pass in their colour,
+// title included, so the gate tells them apart at a glance. Gate 3 - VIP (red) and Admin (teal) print in
+// the design v2 Ticket and Rail passes (components/cards), in their colour.
 const BLUE = { name: 'Blue', band: '#2e3192', logo: '#231f20' };
 const GREY = { name: 'Grey', band: '#808285', logo: '#9e0b0f' };
 const GREEN = { name: 'Green', band: '#007236', stripe: '#bcbec0', bg: '#ffffff', logo: '#939598' };
@@ -90,7 +91,7 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'tractor-trolley': { label: 'Tractor Trolley', short: 'TT', layout: 'vehicle', title: 'TRACTOR TROLLEY PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'vehicle', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, color: ORANGE },
   'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'vehicle', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
-  'vip-gate': { label: 'VIP Gate', short: 'VG', layout: 'vehicle', title: 'VIP GATE PASS', fields: VEHICLE_FIELDS, color: RED },
+  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'vehicle', title: 'GATE 3 - VIP PASS', fields: VEHICLE_FIELDS, color: RED },
   admin: { label: 'Admin', short: 'AD', layout: 'vehicle', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, color: TEAL },
 };
 
@@ -174,7 +175,7 @@ export interface SetOp {
   expect: Values & { printed?: boolean; given?: boolean };
 }
 
-/** Create a pass. Fails if that serial already exists in the sheet. */
+/** Create a pass. Fails if that serial already exists in the sheet (unless the request is `next`). */
 export interface CreateOp {
   type: PassType;
   serial: number;
@@ -186,17 +187,32 @@ export interface CreateOp {
 export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import'] as const;
 export type Action = (typeof ACTIONS)[number];
 
+/**
+ * A request sent again (its answer was lost on the way) carries the same `requestId`: the server
+ * answers with what the first one did instead of doing it twice. Any string unique to the request.
+ */
+export interface Resendable {
+  requestId?: string;
+}
+
 /** One user action. All of it is saved, or none of it. */
-export interface ApplyRequest {
+export interface ApplyRequest extends Resendable {
   action: Action;
   summary: string;
   set?: SetOp[];
   create?: CreateOp[];
+  /**
+   * The passes to create were typed or pasted as the next ones: if another desk has just taken any of
+   * those serials, they are saved after the sheet's last pass instead (in the same order).
+   */
+  next?: boolean;
 }
 
 export interface ApplyResult {
   changeId: number;
   rows: Pass[];
+  /** The ids of the passes created, in the order of `create`. */
+  created: number[];
 }
 
 export interface UndoResult {
@@ -206,7 +222,7 @@ export interface UndoResult {
 }
 
 /** Delete these passes. `rev`: the version the user saw; if a pass changed since, nothing is deleted. */
-export interface DeleteRequest {
+export interface DeleteRequest extends Resendable {
   summary: string;
   items: { id: number; rev: number }[];
 }

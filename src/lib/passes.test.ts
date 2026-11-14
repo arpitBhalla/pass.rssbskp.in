@@ -75,12 +75,23 @@ describe('paste from Excel', () => {
     expect(plan.set[0].values).toEqual({ vehicle: 'Swift car', vehicle_no: 'HR-26AB-1234' });
   });
 
-  it('refuses to paste over printed passes, and counts what it overwrites', () => {
+  it('refuses to paste over printed passes, and lists what it overwrites', () => {
     const s = [pass(1, { name: 'Old' }), pass(2, { printed_at: '2026-01-01T00:00:00Z' })]; // blank but printed: still locked
     const ok = planPaste({ type: 'mobile-pandal', rows: rowsOf(s), start: 0, key: 'name', text: 'New\n', nextSerial: 3, canCreate: false });
-    expect(ok.overwritten).toBe(1);
+    expect(ok.replaced).toEqual([{ serial: 1, key: 'name', from: 'Old', to: 'New' }]);
     const bad = planPaste({ type: 'mobile-pandal', rows: rowsOf(s), start: 0, key: 'name', text: 'A\nB\n', nextSerial: 3, canCreate: false });
     expect(bad.error).toMatch(/0002 is printed/);
+  });
+
+  it('lists every filled cell a paste replaces (the sheet asks first), but not empty ones or ones that stay the same', () => {
+    const s = [pass(1, { name: 'Asha', dept: 'Langar' }), pass(2, { name: 'Ravi' }), pass(3)];
+    const plan = planPaste({ type: 'mobile-pandal', rows: rowsOf(s), start: 0, key: 'name', text: 'Asha\tSecurity\nRavinder\t\nNew\tCanteen\n', nextSerial: 4, canCreate: false });
+    expect(plan.replaced).toEqual([
+      { serial: 1, key: 'dept', from: 'Langar', to: 'Security' },
+      { serial: 2, key: 'name', from: 'Ravi', to: 'Ravinder' },
+    ]);
+    const empty = planPaste({ type: 'mobile-pandal', rows: rowsOf([pass(3)]), start: 0, key: 'name', text: 'New\n', nextSerial: 4, canCreate: false });
+    expect(empty.replaced).toEqual([]);
   });
 
   it('pasting over unfilled rows adds those serials', () => {

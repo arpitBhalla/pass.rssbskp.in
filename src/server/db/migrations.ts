@@ -148,13 +148,23 @@ export const migrations: Record<string, Migration> = {
       await sql.raw('ALTER TABLE passes ADD COLUMN given_at timestamptz;').execute(db);
     },
   },
-  // Two more sheets laid out like the Sewa Vehicle pass: VIP Gate (red) and Admin (teal). Added at the
+  // Two more vehicle-size sheets: VIP Gate (red; shown as "Gate 3 - VIP") and Admin (teal). Added at the
   // end: a pass's QR code holds its sheet's position in the list.
   '0007_vip_admin': {
     async up(db: Kysely<unknown>) {
       await sql.raw(`
         ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'vip-gate';
         ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'admin';
+      `).execute(db);
+    },
+  },
+  // A desk whose connection drops sends a request again: the change it made is found by this code
+  // instead of being made twice.
+  '0008_request_id': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TABLE changes ADD COLUMN request_id text CHECK (length(request_id) <= 64);
+        CREATE UNIQUE INDEX changes_request_id_key ON changes (request_id) WHERE request_id IS NOT NULL;
       `).execute(db);
     },
   },

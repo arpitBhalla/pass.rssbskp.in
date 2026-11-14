@@ -65,7 +65,7 @@ export function exportWorkbook(sheets: Record<PassType, Pass[]>, names: Map<numb
 }
 
 /** Sheets' former names, so files exported before a rename still import. */
-const FORMER_LABELS: Record<string, PassType> = { 'bav entry': 'bav-entry' };
+const FORMER_LABELS: Record<string, PassType> = { 'bav entry': 'bav-entry', 'vip gate': 'vip-gate' };
 
 /** Which sheet a CSV row belongs to: from a "Pass type" column (new exports) or Type + Pandal (old app). */
 function rowType(passType: string, oldType: string, zone: string): PassType | 'unknown' | null {

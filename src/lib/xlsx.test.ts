@@ -57,6 +57,14 @@ describe('Excel workbook export', () => {
   });
 });
 
+describe('VIP Gate renamed to Gate 3 - VIP', () => {
+  it('still imports a CSV whose Pass type says VIP Gate', () => {
+    const plan = planImport([], 'vip-gate', 'Sr. No.,Pass type,Name\n0001,VIP Gate,Amarjit\n0002,Gate 3 - VIP,Sukhwinder\n0003,Admin,Baldev\n');
+    expect(plan.create.map((c) => c.serial)).toEqual([1, 2]);
+    expect(plan.otherSheet).toBe(1);
+  });
+});
+
 describe('BAV Entry renamed to BAV Parking', () => {
   it('still imports a CSV whose Pass type says BAV Entry', () => {
     const plan = planImport([], 'bav-entry', 'Sr. No.,Pass type,Name\n0001,BAV Entry,Harpreet\n0002,BAV Parking,Gurmeet\n');
