@@ -3,8 +3,10 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import type { FetchCreateContextFnOptions } from '@trpc/server/adapters/fetch';
 import { readCookie, SESSION_COOKIE, sessionUser } from './auth';
 import { db } from './db';
+import { ready } from './startup';
 
 export async function createContext({ req, resHeaders }: FetchCreateContextFnOptions) {
+  await ready(); // the database is set up (tried again here if it was down when the server started)
   const token = readCookie(req.headers.get('cookie'), SESSION_COOKIE);
   return { db, req, resHeaders, token, user: await sessionUser(db, token) };
 }
