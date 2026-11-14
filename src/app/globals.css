@@ -37,7 +37,7 @@ body {
   height: 100%;
 }
 
-/* Passes print with no margin (PrintView sets the sheet size: A3+ or A4); the report keeps a margin. */
+/* Passes print with no margin (PrintView sets the sheet size: A3, A3+ or A4); the report keeps a margin. */
 @page {
   size: A4;
   margin: 0;

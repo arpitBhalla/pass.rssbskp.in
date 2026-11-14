@@ -110,21 +110,27 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   v1: every pass has the tab with the Tag (`NOV - 2026`) at the bottom, the 150 × 100 mm passes are
   headed RSSB SIKANDERPUR-M.C., and Bike passes have no Valid For line:
 
-  | Sheets | Pass size | Per A3+ | Per A4 |
-  | --- | --- | --- | --- |
-  | Mobile Pandal / Non Pandal | 50 × 60 mm | 45 (turned sideways) | 16 |
-  | Bike Pandal / Non Pandal | 100 × 68 mm | 21 | 8 |
-  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 150 × 100 mm | 9 (turned sideways) | 2 |
+  | Sheets | Pass size | Per A3 | Per A3+ | Per A4 |
+  | --- | --- | --- | --- | --- |
+  | Mobile Pandal / Non Pandal | 50 × 60 mm | 32 | 45 | 16 |
+  | Bike Pandal / Non Pandal | 100 × 68 mm | 16 | 21 | 8 |
+  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 150 × 100 mm | 6 | 9 | 3 |
+
+  Passes are turned sideways where that fits more. For the 150 × 100 mm passes, a strip of paper that
+  would be left over is filled with passes turned the other way: then the sheet has two blocks, and
+  the long line between them runs right across the paper. Cut that line first, then each block.
+  Mobile passes always face one way on a sheet.
 
   On every sheet the passes touch, so one cut separates two. Faint cut lines run along every edge and
-  out to the paper's edge, to line the cutter up with. The passes keep at least 3 mm from the paper's edge.
+  out to the paper's edge (never across a pass), to line the cutter up with. The passes keep at least
+  3 mm from the paper's edge.
 
   Gate 3 - VIP and Admin print in design v2, picked from the redesign (`../passes-design-v2`): Gate
   3 - VIP as the **Ticket** (a perforated stub with the QR code and serial), Admin as the **Rail**
   (colour bars top and bottom, Rozha One masthead).
 
-  Pick **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4** in the preview; each desk remembers
-  its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and
+  Pick **A3** (297 × 420 mm, the default), **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4**
+  in the preview; each desk remembers its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and
   headers and footers off. When the dialog closes the passes are ticked **Printed**. If it didn't
   print, click **Didn't print? Undo**. Printed passes are skipped next time. Missing serials in the
   range print as blank passes. Print one sheet first and measure a pass with a ruler.

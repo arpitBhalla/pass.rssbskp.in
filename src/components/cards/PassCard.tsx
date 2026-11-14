@@ -202,7 +202,7 @@ export interface CardProps {
   code?: string;
 }
 
-/* ---------- Mobile pass: 50 × 60 mm (45 per A3+, 15 per A4) ---------- */
+/* ---------- Mobile pass: 50 × 60 mm ---------- */
 
 /*
  * The 63.5 × 88.9 mm template made smaller (2026-11-14): everything 0.675 as big (60 / 88.9) and the
@@ -268,7 +268,7 @@ function MobileCard({ p, texts, code }: CardProps) {
 }
 
 /*
- * ---------- Bike pass: 100 × 68 mm (18 per A3+, 4 per A4) ----------
+ * ---------- Bike pass: 100 × 68 mm ----------
  * Drawn on the 88 × 60 mm template and printed 1.14 times as big (2026-11-14): the same shape, so nothing moves.
  */
 
