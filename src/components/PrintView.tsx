@@ -14,7 +14,8 @@ type Mark = { state: 'idle' } | { state: 'busy' } | { state: 'done'; undo: () =>
 type Codes = { state: 'loading' } | { state: 'ready'; bySerial: Map<number, string> } | { state: 'error'; text: string };
 
 /**
- * Full-screen preview of the passes on A3+ or A4 sheets, each sheet one vector SVG. Each pass gets a
+ * Full-screen preview of the passes on A3+ or A4 sheets, each sheet one vector SVG: the passes edge to
+ * edge, with faint cut lines out to the paper's edge. Each pass gets a
  * QR code made by the server. When the print dialog closes (Print button or Ctrl/Cmd+P) the passes
  * are marked printed, with "Didn't print? Undo".
  */
@@ -146,8 +147,14 @@ export function PrintView({ cards, texts, onMark, onClose }: {
                   x={plan.slots[j].x}
                   y={plan.slots[j].y}
                   turn={plan.turn}
+                  outline={false}
                 />
               ))}
+              {/* Faint cut lines along every edge, out to the paper's edge to line the cutter up with. */}
+              <g stroke="#000" strokeOpacity={0.3} strokeWidth={0.15}>
+                {plan.cuts.xs.map((x) => <line key={`x${x}`} x1={x} y1={0} x2={x} y2={h - 1} />)}
+                {plan.cuts.ys.map((y) => <line key={`y${y}`} x1={0} y1={y} x2={w} y2={y} />)}
+              </g>
             </svg>
           ))}
         </div>

@@ -1,9 +1,9 @@
 import type { Layout } from '@/shared/types';
 
-/** Pass sizes in mm (Mobile: 9 per A4 / 25 per A3+, Bike: 8 / 25, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking: 2 / 9). */
+/** Pass sizes in mm (per A3+ / A4 sheet: Mobile 45 / 16, Bike 21 / 8, the 150 × 100 mm passes 9 / 2). */
 export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
-  mobile: { w: 63.5, h: 88.9 },
-  bike: { w: 88, h: 60 },
+  mobile: { w: 50, h: 60 },
+  bike: { w: 100, h: 68 },
   vehicle: { w: 150, h: 100 },
 };
 
@@ -15,40 +15,37 @@ export const PAPER: Record<Paper, { label: string; w: number; h: number; dialog:
   a4: { label: 'A4', w: 210, h: 297, dialog: 'paper A4' },
 };
 
-/**
- * How passes sit on a sheet. `turn`: turned a quarter so more fit (the cut pass is the same).
- * `gap`: 0 puts passes edge to edge, so one cut separates two (Mobile passes: both edges are the same band).
- */
-const GRID: Record<Paper, Record<Layout, { cols: number; rows: number; gap: number; turn: boolean }>> = {
-  a3plus: {
-    mobile: { cols: 5, rows: 5, gap: 0, turn: false },
-    bike: { cols: 5, rows: 5, gap: 4, turn: true },
-    vehicle: { cols: 3, rows: 3, gap: 4, turn: true },
-  },
-  a4: {
-    mobile: { cols: 3, rows: 3, gap: 4, turn: false },
-    bike: { cols: 2, rows: 4, gap: 4, turn: false },
-    vehicle: { cols: 1, rows: 2, gap: 4, turn: false },
-  },
-};
+/** The least space between the paper's edge and the passes, in mm: printers can't print right to the edge. */
+export const MARGIN = 3;
 
 export interface SheetPlan {
   paper: { w: number; h: number };
   perSheet: number;
+  /** Turned a quarter so more fit (the cut pass is the same). */
   turn: boolean;
   /** Top-left corner of each pass's spot on the sheet, in mm (the spot is h × w when turned). */
   slots: { x: number; y: number }[];
+  /** Where to cut, in mm: the passes touch, so one cut separates two. */
+  cuts: { xs: number[]; ys: number[] };
 }
 
-/** Where each pass goes on one sheet: the grid, centred. */
+/**
+ * Where each pass goes on one sheet: edge to edge (one cut separates two), as many as fit inside the
+ * margin, turned if that fits more, and centred.
+ */
 export function sheetPlan(paper: Paper, layout: Layout): SheetPlan {
-  const { cols, rows, gap, turn } = GRID[paper][layout];
-  const card = CARD_SIZE[layout];
-  const [w, h] = turn ? [card.h, card.w] : [card.w, card.h];
   const p = PAPER[paper];
-  const left = (p.w - cols * w - (cols - 1) * gap) / 2;
-  const top = (p.h - rows * h - (rows - 1) * gap) / 2;
+  const card = CARD_SIZE[layout];
+  const grid = (turn: boolean) => {
+    const [w, h] = turn ? [card.h, card.w] : [card.w, card.h];
+    return { turn, w, h, cols: Math.floor((p.w - 2 * MARGIN) / w), rows: Math.floor((p.h - 2 * MARGIN) / h) };
+  };
+  const [upright, turned] = [grid(false), grid(true)];
+  const { turn, w, h, cols, rows } = turned.cols * turned.rows > upright.cols * upright.rows ? turned : upright;
+  const left = (p.w - cols * w) / 2;
+  const top = (p.h - rows * h) / 2;
   const slots = [];
-  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) slots.push({ x: left + c * (w + gap), y: top + r * (h + gap) });
-  return { paper: { w: p.w, h: p.h }, perSheet: cols * rows, turn, slots };
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) slots.push({ x: left + c * w, y: top + r * h });
+  const lines = (from: number, n: number, size: number) => Array.from({ length: n + 1 }, (_, i) => from + i * size);
+  return { paper: { w: p.w, h: p.h }, perSheet: cols * rows, turn, slots, cuts: { xs: lines(left, cols, w), ys: lines(top, rows, h) } };
 }

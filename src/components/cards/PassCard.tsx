@@ -28,10 +28,13 @@ import { V2_FONTS } from './v2kit';
  * v3 (2026-11-14): two more picks. Gate 1 & 12 Entry (the BAV Parking sheet) prints as the Rail with a
  * parking sign and "GATE 1 & 12 ENTRY" / "BAV PARKING" as two lines of one size; Gate 3 Entry prints as
  * the Ledger with a colour bar (Ledger.tsx), without Area and Dept.
+ *
+ * v4 (2026-11-14): new sizes. Mobile passes are 50 × 60 mm (was 63.5 × 88.9), laid out again at 0.675
+ * the size; Bike passes are 100 × 68 mm (was 88 × 60), the same drawing 1.14 times as big.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v3';
+export const TEMPLATE_VERSION = 'v4';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -130,8 +133,8 @@ function Logo({ s, color, letters = '#fff', line = color }: { s: LogoSpec; color
 }
 
 const MOBILE_LOGO: LogoSpec = {
-  frame: [25.57, 1.08, 37.93, 15.74], line: [26.05, 1.56, 37.45, 15.26], stroke: 0.36, fill: [27.01, 2.64, 36.49, 14.3],
-  letters: { x0: 28.75, x1: 34.87, cap: 3.5, rs: 7.85, sb: 12.3 },
+  frame: [20.83, 0.73, 29.17, 10.62], line: [21.15, 1.05, 28.85, 10.3], stroke: 0.24, fill: [21.8, 1.78, 28.2, 9.65],
+  letters: { x0: 22.97, x1: 27.11, cap: 2.36, rs: 5.3, sb: 8.3 },
 };
 const BIKE_LOGO: LogoSpec = {
   frame: [1.83, 1.5, 13.3, 15.73], line: [2.28, 1.95, 12.85, 15.28], stroke: 0.33, fill: [3.25, 3.09, 12.04, 14.47],
@@ -199,68 +202,75 @@ export interface CardProps {
   code?: string;
 }
 
-/* ---------- Mobile pass: 63.5 × 88.9 mm (9 per A4) ---------- */
+/* ---------- Mobile pass: 50 × 60 mm (45 per A3+, 15 per A4) ---------- */
 
+/*
+ * The 63.5 × 88.9 mm template made smaller (2026-11-14): everything 0.675 as big (60 / 88.9) and the
+ * spare width given to the fields; the QR code stays 10 mm so it still scans.
+ */
 /** `max`: room for the value; Area and Phone stop 2 mm short of the QR code (its quiet zone). */
 const MOBILE_ROWS = [
-  { label: 'NAME', key: 'name', y: 50.6, max: 43 },
-  { label: 'DEPT', key: 'dept', y: 56.8, max: 43 },
-  { label: 'AREA', key: 'area', y: 63, max: 29.4 },
-  { label: 'PHONE', key: 'phone', y: 69.2, max: 29.4 },
+  { label: 'NAME', key: 'name', y: 34.16, max: 34.6 },
+  { label: 'DEPT', key: 'dept', y: 38.34, max: 34.6 },
+  { label: 'AREA', key: 'area', y: 42.53, max: 23 },
+  { label: 'PHONE', key: 'phone', y: 46.71, max: 23 },
 ] as const;
 
 function MobileCard({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color;
   const pandal = p.type === 'mobile-pandal';
-  const k = scaleFor('NAME', NARROW, 3.12, 13.32 - 4.2);
+  const k = scaleFor('NAME', NARROW, 2.11, 6.16);
   return (
     <>
-      <rect width={63.5} height={88.9} fill="#fff" />
+      <rect width={50} height={60} fill="#fff" />
       {pandal ? (
         <>
-          <path d="M0 0H63.5V12.53C34 4.1 29.5 4.1 0 12.53Z" fill={c.band} />
-          <path d="M0 12.53C29.5 4.1 34 4.1 63.5 12.53V14.39C34 4.8 29.5 4.8 0 14.39Z" fill={c.stripe} />
+          <path d="M0 0H50V8.46C26.77 2.77 23.23 2.77 0 8.46Z" fill={c.band} />
+          <path d="M0 8.46C23.23 2.77 26.77 2.77 50 8.46V9.71C26.77 3.24 23.23 3.24 0 9.71Z" fill={c.stripe} />
         </>
       ) : (
         <>
-          <path d="M0 0H63.5V6.9C34 13 29.5 13 0 6.9Z" fill={c.band} />
-          <path d="M0 6.9C29.5 13 34 13 63.5 6.9V7.93C34 14.9 29.5 14.9 0 7.93Z" fill={c.stripe} />
+          <path d="M0 0H50V4.66C26.77 8.78 23.23 8.78 0 4.66Z" fill={c.band} />
+          <path d="M0 4.66C23.23 8.78 26.77 8.78 50 4.66V5.35C26.77 10.06 23.23 10.06 0 5.35Z" fill={c.stripe} />
         </>
       )}
       <Logo s={MOBILE_LOGO} color={c.logo} />
 
-      <Fixed t="RSSB" f={SANS} cap={6.37} x0={16.21} x1={36.61} y={23.07} />
-      <Fixed t="ZONE-III" f={SANS} cap={1.8} x0={37.81} x1={47.05} y={23.07} />
-      <Fixed t="SIKANDERPUR - M.C." f={SANS} cap={3.48} x0={10.44} x1={52.82} y={28.47} fill={GREY} />
-      <Fixed t="MOBILE PASS" f={SANS} cap={4.08} x0={14.4} x1={48.86} y={35.2} fill={GREY} />
+      <Fixed t="RSSB" f={SANS} cap={4.3} x0={14.59} x1={28.36} y={15.57} />
+      <Fixed t="ZONE-III" f={SANS} cap={1.22} x0={29.17} x1={35.41} y={15.57} />
+      <Fixed t="SIKANDERPUR - M.C." f={SANS} cap={2.35} x0={10.7} x1={39.3} y={19.22} fill={GREY} />
+      <Fixed t="MOBILE PASS" f={SANS} cap={2.75} x0={13.37} x1={36.63} y={23.76} fill={GREY} />
       {pandal
-        ? <Fixed t="PANDAL" f={SANS} cap={5.41} x0={16.69} x1={46.57} y={42.05} />
-        : <Fixed t="NON PANDAL" f={SANS} cap={5.41} x0={7.08} x1={56.18} y={42.05} />}
+        ? <Fixed t="PANDAL" f={SANS} cap={3.65} x0={14.92} x1={35.08} y={28.38} />
+        : <Fixed t="NON PANDAL" f={SANS} cap={3.65} x0={8.43} x1={41.57} y={28.38} />}
 
       {MOBILE_ROWS.map((r) => (
         <g key={r.key}>
-          <Value t={r.label} f={NARROW} cap={3.12} x={4.2} y={r.y} scale={k} />
-          <Fixed t=":" f={NARROW} cap={3.12} x0={16.09} x1={16.57} y={r.y} />
-          <Value t={upper(p[r.key])} f={NARROW} cap={3.12} x={18} y={r.y} scale={k} max={r.max} />
+          <Value t={r.label} f={NARROW} cap={2.11} x={3} y={r.y} scale={k} />
+          <Fixed t=":" f={NARROW} cap={2.11} x0={11.03} x1={11.35} y={r.y} />
+          <Value t={upper(p[r.key])} f={NARROW} cap={2.11} x={12.32} y={r.y} scale={k} max={r.max} />
         </g>
       ))}
 
-      {code && <Qr text={code} x={49.4} y={59} size={12} pad={0} />}
+      {code && <Qr text={code} x={37.4} y={39.8} size={10} pad={0} />}
 
-      <Fixed t="Sr. No." f={NARROW} cap={4} x0={2.04} x1={14.28} y={77.8} />
-      <Value t={serialText(p.serial, 4)} f={NARROW} cap={6.01} x={16.33} y={78.4} scale={scaleFor('0001', NARROW, 6.01, 15.6)} max={26} />
-      <Signature href={texts.signature} x={44.2} y={73} w={16.6} h={4.75} />
-      <Fixed t="Auth Signatory" f={NARROW} cap={2.1} x0={43.09} x1={60.86} y={79.4} />
+      <Fixed t="Sr. No." f={NARROW} cap={2.7} x0={2} x1={10.26} y={53} />
+      <Value t={serialText(p.serial, 4)} f={NARROW} cap={4.06} x={11.65} y={53.4} scale={scaleFor('0001', NARROW, 4.06, 10.53)} max={17.5} />
+      <Signature href={texts.signature} x={36.2} y={50.3} w={11.2} h={3.2} />
+      <Fixed t="Auth Signatory" f={NARROW} cap={1.42} x0={35.4} x1={47.4} y={54.6} />
 
-      <rect y={84.7} width={63.5} height={0.48} fill={c.stripe} />
-      <rect y={85.18} width={63.5} height={3.72} fill={c.band} />
+      <rect y={57.17} width={50} height={0.33} fill={c.stripe} />
+      <rect y={57.5} width={50} height={2.5} fill={c.band} />
       {/* The tab is the template's grey (Non Pandal's stripe is too pale for it) and stands on the band. */}
-      <TagTab t={texts.tag} cx={31.75} base={84.7} cap={2.4} max={19} into={0.48} fill={TAB_GREY} />
+      <TagTab t={texts.tag} cx={25} base={57.17} cap={1.62} max={12.8} into={0.33} fill={TAB_GREY} />
     </>
   );
 }
 
-/* ---------- Bike pass: 88 × 60 mm (8 per A4) ---------- */
+/*
+ * ---------- Bike pass: 100 × 68 mm (18 per A3+, 4 per A4) ----------
+ * Drawn on the 88 × 60 mm template and printed 1.14 times as big (2026-11-14): the same shape, so nothing moves.
+ */
 
 const BIKE_ROWS = [
   { label: 'Name', end: 9.76, key: 'name', y: 28.3 },
@@ -275,7 +285,7 @@ function BikeCard({ p, texts, code }: CardProps) {
   const pandal = p.type === 'bike-pandal';
   const k = scaleFor('Name', NARROW, 2.28, 9.76 - 3.25);
   return (
-    <>
+    <g transform={`scale(${CARD_SIZE.bike.w / 88} ${CARD_SIZE.bike.h / 60})`}>
       <rect width={88} height={60} fill={c.bg} />
       <rect width={88} height={9.5} fill={c.band} />
       <rect y={9.5} width={88} height={0.65} fill={c.stripe} />
@@ -307,7 +317,7 @@ function BikeCard({ p, texts, code }: CardProps) {
       <rect x={66.69} y={53.06} width={19.36} height={0.16} fill={INK} />
       <Fixed t="Auth Signatory" f={NARROW} cap={2.03} x0={68.16} x1={84.75} y={55.9} />
       <TagTab t={texts.tag} cx={44} base={57.15} cap={3} max={26} into={0.3} fill={c.stripe} />
-    </>
+    </g>
   );
 }
 
@@ -391,8 +401,11 @@ const BY_TYPE: Partial<Record<PassType, Card>> = {
  * One pass, all vector, as an SVG group in mm (a whole sheet is one SVG). Draw only once
  * `useCardFonts()` is true. Blank fields are left empty to be filled in by hand.
  * `turn`: turned a quarter clockwise, filling the h × w spot whose top-left corner is (x, y).
+ * `outline`: a grey line round the pass (off on a printed sheet, which draws its own cut lines).
  */
-export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, turn = false }: CardProps & { x?: number; y?: number; turn?: boolean }) {
+export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, turn = false, outline = true }: CardProps & {
+  x?: number; y?: number; turn?: boolean; outline?: boolean;
+}) {
   const layout = TYPE_INFO[p.type].layout;
   const Card = BY_TYPE[p.type] ?? CARDS[layout];
   const { w, h } = CARD_SIZE[layout];
@@ -400,8 +413,7 @@ export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, t
   return (
     <g transform={transform}>
       <Card p={p} texts={texts} code={code} />
-      {/* cut line */}
-      <rect width={w} height={h} fill="none" stroke="#c8c8c8" strokeWidth={0.1} />
+      {outline && <rect width={w} height={h} fill="none" stroke="#c8c8c8" strokeWidth={0.1} />}
     </g>
   );
 });

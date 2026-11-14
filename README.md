@@ -112,9 +112,12 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 
   | Sheets | Pass size | Per A3+ | Per A4 |
   | --- | --- | --- | --- |
-  | Mobile Pandal / Non Pandal | 63.5 × 88.9 mm | 25 (edges touching: one cut separates two) | 9 |
-  | Bike Pandal / Non Pandal | 88 × 60 mm | 25 (turned sideways) | 8 |
+  | Mobile Pandal / Non Pandal | 50 × 60 mm | 45 (turned sideways) | 16 |
+  | Bike Pandal / Non Pandal | 100 × 68 mm | 21 | 8 |
   | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 150 × 100 mm | 9 (turned sideways) | 2 |
+
+  On every sheet the passes touch, so one cut separates two. Faint cut lines run along every edge and
+  out to the paper's edge, to line the cutter up with. The passes keep at least 3 mm from the paper's edge.
 
   Gate 3 - VIP and Admin print in design v2, picked from the redesign (`../passes-design-v2`): Gate
   3 - VIP as the **Ticket** (a perforated stub with the QR code and serial), Admin as the **Rail**
