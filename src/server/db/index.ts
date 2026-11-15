@@ -46,9 +46,39 @@ function create(url: string) {
   // keeps the server awake until they have (it does nothing anywhere else).
   const idleTimeoutMillis = process.env.VERCEL ? 5_000 : 30_000;
   const pool = new pg.Pool({ ...pgConfig(url), ...LIMITS, max: 10, idleTimeoutMillis });
-  pool.on('error', (e) => console.error('Postgres pool error:', e.message)); // a dropped idle connection must not crash the server
+  // A connection can drop at any time (on 15 Nov PgBouncer sent "server conn crashed?" mid-request). With no
+  // listener Node treats that as an uncaught exception and stops the whole server, so log it instead: the
+  // request using it fails with an error, and the pool throws the broken connection away when it's handed back.
+  pool.on('error', (e) => console.error('Postgres pool error:', e.message)); // dropped while idle
+  pool.on('connect', (client) => {
+    client.on('error', (e) => console.error('Postgres connection error:', e.message)); // dropped while in use
+    closeWhenStuck(client);
+  });
   attachDatabasePool(pool);
   return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+}
+
+/**
+ * pg gives up waiting after query_timeout but leaves the connection waiting for that answer, so the pool would hand it
+ * out again and every later query on it would wait behind the lost one (on 15 Nov: "Query read timeout" again and
+ * again). Close such a connection before the error reaches Kysely, so the pool throws it away when it's handed back.
+ */
+function closeWhenStuck(client: pg.PoolClient) {
+  const query = client.query.bind(client) as (...args: unknown[]) => unknown;
+  client.query = ((...args: unknown[]) => {
+    const r = query(...args);
+    if (!(r instanceof Promise)) return r;
+    return r.catch(async (e: unknown) => {
+      if (e instanceof Error && e.message === 'Query read timeout') {
+        await new Promise<void>((closed) => {
+          client.once('end', () => closed());
+          setTimeout(closed, 1000).unref();
+          (client as unknown as { connection: { stream: { destroy(): void } } }).connection.stream.destroy();
+        });
+      }
+      throw e;
+    });
+  }) as typeof client.query;
 }
 
 // One pool per server process (survives hot reloads in development).
@@ -58,6 +88,7 @@ export const db = (g.__passDb ??= create(DATABASE_URL));
 /** Creates the database if it doesn't exist yet. */
 export async function ensureDatabase(url = DATABASE_URL) {
   const probe = new pg.Client({ ...pgConfig(url), ...LIMITS });
+  probe.on('error', () => {}); // a drop surfaces as the connect error below
   try {
     await probe.connect();
     return;
@@ -71,6 +102,7 @@ export async function ensureDatabase(url = DATABASE_URL) {
   if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`Unusual database name "${name}": please create it yourself.`);
   target.pathname = '/postgres';
   const admin = new pg.Client({ ...pgConfig(target.toString()), ...LIMITS });
+  admin.on('error', () => {}); // ditto
   await admin.connect();
   try {
     await admin.query(`CREATE DATABASE "${name}"`);
