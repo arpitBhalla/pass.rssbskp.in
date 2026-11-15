@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatRegNo, type Pass, type PassType } from '@/shared/types';
 import { exportCSV, exportTable, planImport } from './csv';
 import {
-  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste,
+  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
   planPrint, ranges,
 } from './passes';
 import { buildReport, reportCSV } from './report';
@@ -270,6 +270,14 @@ describe('Given and Delete for a range', () => {
     expect(plan.notPrinted).toEqual([3]); // printed first, then given
     expect(plan.tick[0]).toEqual({ id: s[0].id, given: true, expect: { given: false } });
     expect(planGiven(s, '', '').err).toMatch(/Enter the From/);
+  });
+
+  it('Mark unprinted: unticks Printed on the printed ones only, given or not', () => {
+    const s = [pass(1, { printed_at: 'x' }), pass(2), pass(3, { printed_at: 'x', given_at: 'y' })];
+    const plan = planUnprint(s, '1', '4');
+    expect(plan.serials).toEqual([1, 3]);
+    expect(plan.set[0]).toEqual({ id: s[0].id, printed: false, expect: { printed: true } });
+    expect(planUnprint(s, '', '').err).toMatch(/Enter the From/);
   });
 
   it('Delete: passes in the register, printed ones left out', () => {

@@ -31,10 +31,12 @@ import { V2_FONTS } from './v2kit';
  *
  * v4 (2026-11-14): new sizes. Mobile passes are 50 × 60 mm (was 63.5 × 88.9), laid out again at 0.675
  * the size; Bike passes are 100 × 68 mm (was 88 × 60), the same drawing 1.14 times as big.
+ *
+ * v5 (2026-11-14): Mobile passes are 36 × 45 mm, the 50 × 60 drawing 0.75 as big.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v4';
+export const TEMPLATE_VERSION = 'v5';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -132,10 +134,6 @@ function Logo({ s, color, letters = '#fff', line = color }: { s: LogoSpec; color
   );
 }
 
-const MOBILE_LOGO: LogoSpec = {
-  frame: [20.83, 0.73, 29.17, 10.62], line: [21.15, 1.05, 28.85, 10.3], stroke: 0.24, fill: [21.8, 1.78, 28.2, 9.65],
-  letters: { x0: 22.97, x1: 27.11, cap: 2.36, rs: 5.3, sb: 8.3 },
-};
 const BIKE_LOGO: LogoSpec = {
   frame: [1.83, 1.5, 13.3, 15.73], line: [2.28, 1.95, 12.85, 15.28], stroke: 0.33, fill: [3.25, 3.09, 12.04, 14.47],
   letters: { x0: 4.88, x1: 10.57, cap: 3.58, rs: 8.13, sb: 12.85 },
@@ -202,67 +200,87 @@ export interface CardProps {
   code?: string;
 }
 
-/* ---------- Mobile pass: 50 × 60 mm ---------- */
+/* ---------- Mobile pass: 36 × 45 mm ---------- */
 
 /*
- * The 63.5 × 88.9 mm template made smaller (2026-11-14): everything 0.675 as big (60 / 88.9) and the
- * spare width given to the fields; the QR code stays 10 mm so it still scans.
+ * Laid out on the 50 × 60 mm drawing (the numbers below; that was the template made 0.675 as big) and
+ * printed 0.75 as big (45 / 60, 2026-11-14). The 1.5 mm of width that leaves over comes out of the
+ * middle: the left column, the centred heading and the right column (QR, signature) each keep their
+ * place from their own edge. The QR code is 7.5 mm.
  */
-/** `max`: room for the value; Area and Phone stop 2 mm short of the QR code (its quiet zone). */
+const MW = CARD_SIZE.mobile.w;
+const MS = CARD_SIZE.mobile.h / 60;
+const ML = (x: number) => x * MS; // from the left edge
+const MC = (x: number) => MW / 2 + (x - 25) * MS; // from the middle
+const MR = (x: number) => MW - (50 - x) * MS; // from the right edge
+const MY = (y: number) => y * MS;
+
+const MOBILE_LOGO: LogoSpec = (() => {
+  const box = ([x0, y0, x1, y1]: Box): Box => [MC(x0), MY(y0), MC(x1), MY(y1)];
+  return {
+    frame: box([20.83, 0.73, 29.17, 10.62]), line: box([21.15, 1.05, 28.85, 10.3]), stroke: 0.24 * MS, fill: box([21.8, 1.78, 28.2, 9.65]),
+    letters: { x0: MC(22.97), x1: MC(27.11), cap: 2.36 * MS, rs: MY(5.3), sb: MY(8.3) },
+  };
+})();
+
+/** `max`: room for the value (on the 50 × 60 drawing); Area and Phone stop 2 mm short of the QR code (its quiet zone). */
 const MOBILE_ROWS = [
-  { label: 'NAME', key: 'name', y: 34.16, max: 34.6 },
-  { label: 'DEPT', key: 'dept', y: 38.34, max: 34.6 },
-  { label: 'AREA', key: 'area', y: 42.53, max: 23 },
-  { label: 'PHONE', key: 'phone', y: 46.71, max: 23 },
+  { label: 'NAME', key: 'name', y: 34.16, end: 47 },
+  { label: 'DEPT', key: 'dept', y: 38.34, end: 47 },
+  { label: 'AREA', key: 'area', y: 42.53, end: 35.4 },
+  { label: 'PHONE', key: 'phone', y: 46.71, end: 35.4 },
 ] as const;
 
 function MobileCard({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color;
   const pandal = p.type === 'mobile-pandal';
   const k = scaleFor('NAME', NARROW, 2.11, 6.16);
+  const cap = (n: number) => n * MS;
   return (
     <>
-      <rect width={50} height={60} fill="#fff" />
-      {pandal ? (
-        <>
-          <path d="M0 0H50V8.46C26.77 2.77 23.23 2.77 0 8.46Z" fill={c.band} />
-          <path d="M0 8.46C23.23 2.77 26.77 2.77 50 8.46V9.71C26.77 3.24 23.23 3.24 0 9.71Z" fill={c.stripe} />
-        </>
-      ) : (
-        <>
-          <path d="M0 0H50V4.66C26.77 8.78 23.23 8.78 0 4.66Z" fill={c.band} />
-          <path d="M0 4.66C23.23 8.78 26.77 8.78 50 4.66V5.35C26.77 10.06 23.23 10.06 0 5.35Z" fill={c.stripe} />
-        </>
-      )}
+      <rect width={MW} height={CARD_SIZE.mobile.h} fill="#fff" />
+      <g transform={`scale(${MW / 50} ${MS})`}>
+        {pandal ? (
+          <>
+            <path d="M0 0H50V8.46C26.77 2.77 23.23 2.77 0 8.46Z" fill={c.band} />
+            <path d="M0 8.46C23.23 2.77 26.77 2.77 50 8.46V9.71C26.77 3.24 23.23 3.24 0 9.71Z" fill={c.stripe} />
+          </>
+        ) : (
+          <>
+            <path d="M0 0H50V4.66C26.77 8.78 23.23 8.78 0 4.66Z" fill={c.band} />
+            <path d="M0 4.66C23.23 8.78 26.77 8.78 50 4.66V5.35C26.77 10.06 23.23 10.06 0 5.35Z" fill={c.stripe} />
+          </>
+        )}
+      </g>
       <Logo s={MOBILE_LOGO} color={c.logo} />
 
-      <Fixed t="RSSB" f={SANS} cap={4.3} x0={14.59} x1={28.36} y={15.57} />
-      <Fixed t="ZONE-III" f={SANS} cap={1.22} x0={29.17} x1={35.41} y={15.57} />
-      <Fixed t="SIKANDERPUR - M.C." f={SANS} cap={2.35} x0={10.7} x1={39.3} y={19.22} fill={GREY} />
-      <Fixed t="MOBILE PASS" f={SANS} cap={2.75} x0={13.37} x1={36.63} y={23.76} fill={GREY} />
+      <Fixed t="RSSB" f={SANS} cap={cap(4.3)} x0={MC(14.59)} x1={MC(28.36)} y={MY(15.57)} />
+      <Fixed t="ZONE-III" f={SANS} cap={cap(1.22)} x0={MC(29.17)} x1={MC(35.41)} y={MY(15.57)} />
+      <Fixed t="SIKANDERPUR - M.C." f={SANS} cap={cap(2.35)} x0={MC(10.7)} x1={MC(39.3)} y={MY(19.22)} fill={GREY} />
+      <Fixed t="MOBILE PASS" f={SANS} cap={cap(2.75)} x0={MC(13.37)} x1={MC(36.63)} y={MY(23.76)} fill={GREY} />
       {pandal
-        ? <Fixed t="PANDAL" f={SANS} cap={3.65} x0={14.92} x1={35.08} y={28.38} />
-        : <Fixed t="NON PANDAL" f={SANS} cap={3.65} x0={8.43} x1={41.57} y={28.38} />}
+        ? <Fixed t="PANDAL" f={SANS} cap={cap(3.65)} x0={MC(14.92)} x1={MC(35.08)} y={MY(28.38)} />
+        : <Fixed t="NON PANDAL" f={SANS} cap={cap(3.65)} x0={MC(8.43)} x1={MC(41.57)} y={MY(28.38)} />}
 
       {MOBILE_ROWS.map((r) => (
         <g key={r.key}>
-          <Value t={r.label} f={NARROW} cap={2.11} x={3} y={r.y} scale={k} />
-          <Fixed t=":" f={NARROW} cap={2.11} x0={11.03} x1={11.35} y={r.y} />
-          <Value t={upper(p[r.key])} f={NARROW} cap={2.11} x={12.32} y={r.y} scale={k} max={r.max} />
+          <Value t={r.label} f={NARROW} cap={cap(2.11)} x={ML(3)} y={MY(r.y)} scale={k} />
+          <Fixed t=":" f={NARROW} cap={cap(2.11)} x0={ML(11.03)} x1={ML(11.35)} y={MY(r.y)} />
+          <Value t={upper(p[r.key])} f={NARROW} cap={cap(2.11)} x={ML(12.32)} y={MY(r.y)} scale={k} max={MR(r.end) - ML(12.32)} />
         </g>
       ))}
 
-      {code && <Qr text={code} x={37.4} y={39.8} size={10} pad={0} />}
+      {code && <Qr text={code} x={MR(37.4)} y={MY(39.8)} size={cap(10)} pad={0} />}
 
-      <Fixed t="Sr. No." f={NARROW} cap={2.7} x0={2} x1={10.26} y={53} />
-      <Value t={serialText(p.serial, 4)} f={NARROW} cap={4.06} x={11.65} y={53.4} scale={scaleFor('0001', NARROW, 4.06, 10.53)} max={17.5} />
-      <Signature href={texts.signature} x={36.2} y={50.3} w={11.2} h={3.2} />
-      <Fixed t="Auth Signatory" f={NARROW} cap={1.42} x0={35.4} x1={47.4} y={54.6} />
+      <Fixed t="Sr. No." f={NARROW} cap={cap(2.7)} x0={ML(2)} x1={ML(10.26)} y={MY(53)} />
+      <Value t={serialText(p.serial, 4)} f={NARROW} cap={cap(4.06)} x={ML(11.65)} y={MY(53.4)} scale={scaleFor('0001', NARROW, 4.06, 10.53)} max={cap(17.5)} />
+      <Signature href={texts.signature} x={MR(36.2)} y={MY(50.3)} w={cap(11.2)} h={cap(3.2)} />
+      <Fixed t="Auth Signatory" f={NARROW} cap={cap(1.42)} x0={MR(35.4)} x1={MR(47.4)} y={MY(54.6)} />
 
-      <rect y={57.17} width={50} height={0.33} fill={c.stripe} />
-      <rect y={57.5} width={50} height={2.5} fill={c.band} />
+      <rect y={MY(57.17)} width={MW} height={cap(0.33)} fill={c.stripe} />
+      <rect y={MY(57.5)} width={MW} height={CARD_SIZE.mobile.h - MY(57.5)} fill={c.band} />
       {/* The tab is the template's grey (Non Pandal's stripe is too pale for it) and stands on the band. */}
-      <TagTab t={texts.tag} cx={25} base={57.17} cap={1.62} max={12.8} into={0.33} fill={TAB_GREY} />
+      <TagTab t={texts.tag} cx={MW / 2} base={MY(57.17)} cap={cap(1.62)} max={cap(12.8)} into={cap(0.33)} fill={TAB_GREY} />
     </>
   );
 }

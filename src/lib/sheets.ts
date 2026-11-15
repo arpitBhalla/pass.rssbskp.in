@@ -1,8 +1,8 @@
 import type { Layout } from '@/shared/types';
 
-/** Pass sizes in mm (per A3 / A3+ / A4 sheet: Mobile 32 / 45 / 16, Bike 16 / 21 / 8, the 150 × 100 mm passes 6 / 9 / 3). */
+/** Pass sizes in mm (per A3 / A3+ / A4 sheet: Mobile 72 / 91 / 32, Bike 16 / 21 / 8, the 150 × 100 mm passes 6 / 9 / 3). */
 export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
-  mobile: { w: 50, h: 60 },
+  mobile: { w: 36, h: 45 },
   bike: { w: 100, h: 68 },
   vehicle: { w: 150, h: 100 },
 };

@@ -4,11 +4,11 @@ import { CARD_SIZE, MARGIN, PAPERS, sheetPlan } from './sheets';
 const LAYOUTS = ['mobile', 'bike', 'vehicle'] as const;
 
 describe('sheetPlan', () => {
-  it('fits 32 Mobile, 16 Bike and 6 vehicle passes on A3; 45, 21 and 9 on A3+; 16, 8 and 3 on A4', () => {
+  it('fits 72 Mobile, 16 Bike and 6 vehicle passes on A3; 91, 21 and 9 on A3+; 32, 8 and 3 on A4', () => {
     const counts = (paper: (typeof PAPERS)[number]) => LAYOUTS.map((l) => sheetPlan(paper, l).perSheet);
-    expect(counts('a3')).toEqual([32, 16, 6]);
-    expect(counts('a3plus')).toEqual([45, 21, 9]);
-    expect(counts('a4')).toEqual([16, 8, 3]);
+    expect(counts('a3')).toEqual([72, 16, 6]);
+    expect(counts('a3plus')).toEqual([91, 21, 9]);
+    expect(counts('a4')).toEqual([32, 8, 3]);
   });
 
   it('fills a strip left over with passes turned the other way, except Mobile; one block when that fits as many', () => {

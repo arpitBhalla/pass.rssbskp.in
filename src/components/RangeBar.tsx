@@ -5,7 +5,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { usePaper } from '@/client/paper';
 import { useTRPC } from '@/client/trpc';
-import { nPasses, parseSerial, planDelete, planGiven, planPrint, ranges } from '@/lib/passes';
+import { nPasses, parseSerial, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
 import { PAPER, sheetPlan } from '@/lib/sheets';
 import { fmtSerial, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
 import { useMe } from './AppShell';
@@ -18,7 +18,7 @@ const Divider = () => <span aria-hidden className="mx-1 h-5 w-px bg-foreground/1
 
 /**
  * The bar above the sheet, for the passes picked (rows selected, or From / To in the panel): print
- * them, tick or untick Given, or delete them. Each button says how many passes it changes.
+ * them, mark them printed or unprinted, tick or untick Given, or delete them. Each button says how many passes it changes.
  */
 export function RangeBar({ type, sheet, range, onClear }: {
   type: PassType;
@@ -55,6 +55,13 @@ export function RangeBar({ type, sheet, range, onClear }: {
   const markPrinted = async () => {
     if (!print || !nCards) return;
     await apply({ action: 'print', summary: `Marked ${info.label} ${ranges(print.cards.map((c) => c.serial))} printed`, set: print.set, create: print.create });
+  };
+
+  /** Unticks Printed (to print them again), like unticking it in the sheet; Undo reverses it. */
+  const unprint = useMemo(() => (hasRange ? planUnprint(sheet, range.from, range.to) : null), [hasRange, sheet, range]);
+  const markUnprinted = async () => {
+    if (!unprint?.set.length) return;
+    await apply({ action: 'print', summary: `Marked ${info.label} ${ranges(unprint.serials)} unprinted`, set: unprint.set });
   };
 
   /* ----- given ----- */
@@ -130,11 +137,17 @@ export function RangeBar({ type, sheet, range, onClear }: {
                 {nCards ? `Mark ${nCards} printed` : 'Mark printed'}
               </button>
               {print && !nCards && print.printed.length > 0 && (
-                <span className={note} title="Untick Printed in the sheet to print them again.">all printed</span>
+                <span className={note} title="Mark them unprinted to print them again.">all printed</span>
               )}
               {nCards > 0 && !settings.isLoading && missing.length > 0 && <MissingSetup missing={missing as string[]} />}
             </>
           )}
+          <button
+            className={btn} disabled={!unprint?.set.length} onClick={() => void markUnprinted()}
+            title={unprint?.set.length ? `Untick Printed for ${ranges(unprint.serials)}, to change or print them again. Undo reverses it.` : 'None of these are printed'}
+          >
+            {unprint?.set.length ? `Mark ${unprint.set.length} unprinted` : 'Mark unprinted'}
+          </button>
           <Divider />
           <button
             className={btn} disabled={!given?.tick.length} onClick={() => void setGiven(true)}
@@ -151,7 +164,7 @@ export function RangeBar({ type, sheet, range, onClear }: {
           <span className="flex-1" />
           <button
             className={btnDanger} disabled={!del?.items.length} onClick={() => setConfirming(rangeKey)}
-            title={del?.printed.length ? `Printed passes aren't deleted (${ranges(del.printed)}): untick Printed first.` : 'Remove these passes from the register. Undo brings them back.'}
+            title={del?.printed.length ? `Printed passes aren't deleted (${ranges(del.printed)}): mark them unprinted first.` : 'Remove these passes from the register. Undo brings them back.'}
           >
             {del?.items.length ? `Delete ${nPasses(del.items.length)}…` : 'Delete'}
           </button>

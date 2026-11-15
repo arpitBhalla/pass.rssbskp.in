@@ -112,7 +112,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 
   | Sheets | Pass size | Per A3 | Per A3+ | Per A4 |
   | --- | --- | --- | --- | --- |
-  | Mobile Pandal / Non Pandal | 50 × 60 mm | 32 | 45 | 16 |
+  | Mobile Pandal / Non Pandal | 36 × 45 mm | 72 | 91 | 32 |
   | Bike Pandal / Non Pandal | 100 × 68 mm | 16 | 21 | 8 |
   | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 150 × 100 mm | 6 | 9 | 3 |
 
@@ -136,6 +136,8 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   range print as blank passes. Print one sheet first and measure a pass with a ruler.
 - **Mark printed:** passes printed some other way? Pick them and click **Mark … printed**. Same
   rules as printing; **Undo** reverses it.
+- **Mark unprinted:** to change or print passes again, pick them and click **Mark … unprinted**: it
+  unticks **Printed** on the printed ones (Given stays as it is). **Undo** reverses it.
 - **Printed passes are locked:** nothing in a printed row can change until **Printed** is unticked
   (on its own, as a separate step), except **Issued To** and **Given**.
 - **Undo:** the **Undo** button (or Ctrl+Z, ⌘Z on a Mac) undoes your last change in the sheet you are

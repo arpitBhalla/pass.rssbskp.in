@@ -390,6 +390,26 @@ export function planGiven(sheet: Pass[], from: string, to: string): GivenPlan {
   return plan;
 }
 
+export interface UnprintPlan {
+  /** Untick Printed: printed → not printed. */
+  set: { id: number; printed: false; expect: { printed: true } }[];
+  serials: number[];
+  err: string;
+}
+
+/** The passes from–to that are printed, to untick Printed (to print them again). Given stays as it is, as in the sheet. */
+export function planUnprint(sheet: Pass[], from: string, to: string): UnprintPlan {
+  const plan: UnprintPlan = { set: [], serials: [], err: '' };
+  const r = serialRange(from, to);
+  if ('err' in r) return { ...plan, err: r.err };
+  for (const p of passesIn(sheet, r.lo, r.hi)) {
+    if (!isPrinted(p)) continue;
+    plan.set.push({ id: p.id, printed: false, expect: { printed: true } });
+    plan.serials.push(p.serial);
+  }
+  return plan;
+}
+
 export interface DeletePlan {
   items: { id: number; rev: number }[];
   serials: number[];
