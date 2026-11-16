@@ -1,7 +1,8 @@
 # Pass Register: RSSB SKP
 
-The register for numbered passes, with ten sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
-Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, Gate 3 - VIP and Admin**. Each sheet has its own serial
+The register for numbered passes, with thirteen sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
+Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, Gate 3 - VIP, Admin**, and the Free
+Helpline Sewa passes **E-Rickshaw, Eco and Metro**. Each sheet has its own serial
 numbers from 0001. Every printed pass carries a QR code that the gate checks with a phone.
 Several desks can work at once; every change is saved in Postgres with who made it.
 
@@ -46,6 +47,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   `HR-24AB-9168`; anything else (`E-SCOOTY`) stays as typed. Searching `hr24ab` finds it.
   On Gate 3 Entry, Gate 3 - VIP and Admin the Incharge column is called **Referred by** (who the pass
   was given on the word of): the same column under another name, in exports too; imports take either.
+  E-Rickshaw, Eco and Metro have only Incharge and Issued To: their passes print only the serial number.
   Values already filled are never overwritten: those passes are listed and left alone.
 - **Cells work like Excel's:** a click (or Tab, Enter, the arrow keys) only selects a cell, without a
   caret, so dragging across cells never starts typing in the first one. Typing replaces what's in the
@@ -108,13 +110,15 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
 - **Print:** pick the passes and click **Preview & print** in the bar above the sheet. The passes are the RSSB
   SKP templates redrawn to measure, as vector graphics (sharp at any size), with the changes of design
   v1: every pass has the tab with the Tag (`NOV - 2026`) at the bottom, the 150 × 100 mm passes are
-  headed RSSB SIKANDERPUR-M.C., and Bike passes have no Valid For line:
+  headed RSSB SIKANDERPUR (MC), and Bike passes have no Valid For line:
 
   | Sheets | Pass size | Per A3 | Per A3+ | Per A4 |
   | --- | --- | --- | --- | --- |
   | Mobile Pandal / Non Pandal | 36 × 45 mm | 72 | 91 | 32 |
-  | Bike Pandal / Non Pandal | 100 × 68 mm | 16 | 21 | 8 |
-  | Sewa Vehicle, Tractor Trolley, Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 150 × 100 mm | 6 | 9 | 3 |
+  | Bike Pandal / Non Pandal | 145 × 99 mm | 8 | 9 | 4 |
+  | Sewa Vehicle, Tractor Trolley | 204 × 145 mm (half an A4) | 4 | 4 | 2 |
+  | Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 151 × 103 mm | 6 | 9 | 2 |
+  | E-Rickshaw (red), Eco (leaf green), Metro (navy) | 204 × 145 mm | 4 | 4 | 2 |
 
   Passes are turned sideways where that fits more. For the 150 × 100 mm passes, a strip of paper that
   would be left over is filled with passes turned the other way: then the sheet has two blocks, and
@@ -128,6 +132,10 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   Gate 3 - VIP and Admin print in design v2, picked from the redesign (`../passes-design-v2`): Gate
   3 - VIP as the **Ticket** (a perforated stub with the QR code and serial), Admin as the **Rail**
   (colour bars top and bottom, Rozha One masthead).
+
+  E-Rickshaw, Eco and Metro print in design round 24: the word on a colour band with FREE HELPLINE SEWA
+  under it, the serial large, and "केवल बुजुर्गों व विकलांगों के लिए" (only for the elderly and the
+  disabled) in a box, in Mukta (`src/fonts`).
 
   Pick **A3** (297 × 420 mm, the default), **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4**
   in the preview; each desk remembers its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and

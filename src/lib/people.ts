@@ -33,7 +33,7 @@ export const RULES: readonly Rule[] = [
   { types: ['bike-pandal', 'bike-non-pandal'], by: 'phone', noun: 'a bike pass', text: 'One bike pass per person.' },
   { types: ['bike-pandal', 'bike-non-pandal'], by: 'vehicle_no', noun: 'a bike pass', text: 'One bike pass per bike.' },
   // Each vehicle sheet on its own: the same car may hold, say, a Sewa Vehicle and a BAV Parking pass.
-  ...PASS_TYPES.filter((t) => TYPE_INFO[t].layout === 'vehicle').map((t): Rule => (
+  ...PASS_TYPES.filter((t) => ['vehicle', 'gate'].includes(TYPE_INFO[t].layout)).map((t): Rule => (
     { types: [t], by: 'vehicle_no', noun: `a ${TYPE_INFO[t].label} pass`, text: `One ${TYPE_INFO[t].label} pass per vehicle.` }
   )),
 ];

@@ -1,11 +1,12 @@
 'use client';
-import { CARD_SIZE } from '@/lib/sheets';
 import { type Field, type PassType, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
-  A6, A7, BIG, C900, GREY, kindOf, mm, MONO, Monogram, ORG, ROZHA, type Row, serialText, T, tagText, upper, VEHICLE_ROWS, WHITE, widthOf,
+  A6, A7, BIG, C900, GREY, kindOf, MONO, type Row, serialText, T, tagText, upper, WHITE, widthOf,
 } from './v2kit';
+import { ORG_LOGO, OrgHead, RegPlate } from './Modern';
+import { GH, stretchY, VW } from './vehicleBox';
 
 /**
  * Design v2 "Ticket" (round 7), the Gate 3 - VIP pass: a dotted perforation splits the pass into a body
@@ -24,21 +25,6 @@ function inkOf(t: PassType): { color: string; line: number } {
   return { color: name === 'Grey' ? '#5f6062' : band, line: name === 'Grey' || name === 'Orange' ? 0.3 : 0.25 };
 }
 
-/** The monogram (`w` wide) and beside it "RSSB SIKANDERPUR (MC)" over a tracked line, the two centred on the monogram. */
-function Masthead({ x, y, w, cap, max, sub, subCap }: { x: number; y: number; w: number; cap: number; max: number; sub: string; subCap: number }) {
-  const h = w * 1.2;
-  const tx = x + w + w * 0.28;
-  const block = cap + subCap * 1.5 + subCap;
-  const top = y + (h - block) / 2;
-  return (
-    <g>
-      <Monogram x={x} y={y} w={w} />
-      <T t={ORG} f={ROZHA} cap={cap} x={tx} y={top + cap} max={max} />
-      <T t={upper(sub)} f={A7} cap={subCap} x={tx} y={top + block} track={caps(subCap)} fill={GREY} max={max} />
-    </g>
-  );
-}
-
 /** A line of colour dots from (x, y1) to (x, y2), with a punched hole beyond each end. */
 function Perforation({ x, y1, y2, h, color }: { x: number; y1: number; y2: number; h: number; color: string }) {
   return (
@@ -46,20 +32,6 @@ function Perforation({ x, y1, y2, h, color }: { x: number; y1: number; y2: numbe
       <line x1={x} y1={y1} x2={x} y2={y2} stroke={color} strokeWidth={0.55} strokeLinecap="round" strokeDasharray="0 1.5" />
       <circle cx={x} cy={3.4} r={0.95} fill="none" stroke={color} strokeWidth={0.3} />
       <circle cx={x} cy={h - 3.4} r={0.95} fill="none" stroke={color} strokeWidth={0.3} />
-    </g>
-  );
-}
-
-/** Microtext running up the perforation: the venue and the tag, repeated `len` mm. */
-function Micro({ x, y, len, tag, color }: { x: number; y: number; len: number; tag: string; color: string }) {
-  const unit = `${ORG} · ZONE-III · ${tagText(tag)} · `;
-  const n = Math.max(1, Math.floor(len / widthOf(unit, A6, 0.75)));
-  const t = unit.repeat(n).trim().replace(/·$/, '').trim();
-  /* about 0.75 mm capitals, sized to run the whole length */
-  const cap = Math.min(0.9, 0.75 * len / widthOf(t, A6, 0.75));
-  return (
-    <g transform={`rotate(-90 ${mm(x)} ${mm(y)})`}>
-      <T t={t} f={A6} cap={cap} x={x} y={y} max={len} fill={color} />
     </g>
   );
 }
@@ -87,6 +59,9 @@ function SignOff({ href, x0, x1, y, h, cap }: { href: string; x0: number; x1: nu
     </g>
   );
 }
+
+/** Name and Vehicle only, as on Gate 3 Entry (the owner, 2026-11-15); the Reg. No. prints in its plate (RegPlate). */
+const PLATE_ROWS: Row[] = [['name'], ['vehicle']];
 
 const LABEL: Partial<Record<Field, string>> = {
   name: 'NAME', dept: 'DEPT.', area: 'AREA', phone: 'PHONE', vehicle: 'VEHICLE', vehicle_no: 'REG. NO.',
@@ -126,27 +101,32 @@ function Fields({ p, rows, x0, x1, ys, label, value, gutter, split }: {
   );
 }
 
-/** 150 × 100 mm; the stub is the right 40 mm. */
+/** 151 × 103 mm, drawn on 150 × GH (vehicleBox.ts; laid out on 150 × 100, the y's through Y); the stub is the right 40. */
 export function TicketVehicle({ p, texts, code }: CardProps) {
-  const { w, h } = CARD_SIZE.vehicle;
+  const [w, h] = [VW, GH];
+  const Y = stretchY(6.4, 93.6, GH);
   const { color, line } = inkOf(p.type);
   const x = 110;
-  const mid = 126.5;
+  /** A strip of the pass colour down the right edge, 4 wide (the owner, 2026-11-15); the stub's things centred in what is left. */
+  const strip = 4;
+  const mid = (x + w - strip) / 2;
   return (
     <>
       <rect width={w} height={h} fill={WHITE} />
-      <Masthead x={7} y={7} w={11} cap={3.8} max={82} sub="Zone-III" subCap={1.9} />
-      <T t="VEHICLE PASS" f={A7} cap={2} x={7} y={29.6} track={caps(2)} fill={GREY} />
-      <T t={kindOf(p.type)} f={C900} cap={10.34} scale={0.87} x={7} y={44.2} max={97} fill={color} />
-      <Fields p={p} rows={VEHICLE_ROWS} x0={7} x1={104} ys={[59, 71.5, 84]} label={1.7} value={3.6} gutter={6}
-        split={[[1], [0.56, 0.44], [0.56, 0.44]]} />
-      <Micro x={x - 1.8} y={93.6} len={87.2} tag={texts.tag} color={color} />
-      <Perforation x={x} y1={6.4} y2={93.6} h={h} color={color} />
-      {code && <Qr text={code} x={mid - 10} y={8} size={20} pad={0} />}
-      <T t="SR. NO." f={A7} cap={1.6} x={mid} y={38.24} align="middle" track={caps(1.6)} fill={GREY} />
-      <T t={serialText(p.serial, 3)} f={BIG} cap={10.6} scale={1.257} x={mid} y={52} align="middle" max={25} />
-      <TagPill t={tagText(texts.tag)} x={mid} cy={58.6} cap={1.8} color={color} line={line} />
-      <SignOff href={texts.signature} x0={114} x1={139} y={88} h={9} cap={1.2} />
+      <rect x={w - strip} width={strip} height={h} fill={color} />
+      <OrgHead x={7} y={7} max={x - 3 - (7 + ORG_LOGO.w + 3.2)} />
+      <T t="VEHICLE PASS" f={A7} cap={2} x={7} y={Y(29.6)} track={caps(2)} fill={GREY} />
+      <T t={kindOf(p.type)} f={C900} cap={10.34} scale={0.87} x={7} y={Y(44.2)} max={97} fill={color} />
+      {/* Name and Vehicle (no Area or Dept.); the Reg. No. large in a plate centred under them. */}
+      <Fields p={p} rows={PLATE_ROWS} x0={7} x1={104} ys={[59, 72].map(Y)} label={1.9} value={4.4} gutter={6}
+        split={[[1], [1]]} />
+      <RegPlate v={p.vehicle_no} x0={55.5 - 38} x1={55.5 + 38} top={Y(80)} bottom={Y(93.6)} />
+      <Perforation x={x} y1={Y(6.4)} y2={Y(93.6)} h={h} color={color} />
+      {code && <Qr text={code} x={mid - 10} y={Y(8)} size={20} pad={0} />}
+      <T t="SR. NO." f={A7} cap={1.6} x={mid} y={Y(38.24)} align="middle" track={caps(1.6)} fill={GREY} />
+      <T t={serialText(p.serial, 3)} f={BIG} cap={10.6} scale={1.257} x={mid} y={Y(52)} align="middle" max={25} />
+      <TagPill t={tagText(texts.tag)} x={mid} cy={Y(58.6)} cap={1.8} color={color} line={line} />
+      <SignOff href={texts.signature} x0={mid - 12.5} x1={mid + 12.5} y={Y(88)} h={9} cap={1.2} />
     </>
   );
 }

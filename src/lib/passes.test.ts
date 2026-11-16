@@ -244,7 +244,7 @@ describe('report', () => {
     expect(r.groups.map((g) => [g.label, g.total])).toEqual([['Delhi', 1], ['Sirsa', 2]]);
     expect(r.groups[1].lines[0]).toMatchObject({ label: 'Langar', serials: 'MP 0001 · BP 0002' });
     expect(r.total.counts['sewa-vehicle']).toBe(1);
-    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,3,,');
+    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,0,0,0,3,,');
   });
 });
 

@@ -1,5 +1,6 @@
 'use client';
-import { type Font, inkWidth, layLine, placeText } from '@/client/measure';
+import { type Font, inkWidth, layLine } from '@/client/measure';
+import { RssbLogo } from './rssbLogo';
 import { archivoSemi, bigShoulders, condensed, humanist, legible, martianMono, rozha } from '@/fonts';
 import type { CardData } from '@/lib/passes';
 import { type Field, type PassType, TYPE_INFO } from '@/shared/types';
@@ -16,7 +17,7 @@ export const WHITE = '#fff';
 /** Labels and captions. */
 export const GREY = '#58595b';
 
-/** Rozha One: "RSSB SIKANDERPUR (MC)" and the monogram letters. */
+/** Rozha One: "RSSB SIKANDERPUR (MC)". */
 export const ROZHA: Font = { family: rozha.style.fontFamily, weight: 400 };
 /** Archivo SemiCondensed: the Ticket's labels (700) and values (600). */
 export const A6: Font = { family: archivoSemi.style.fontFamily, weight: 600 };
@@ -78,22 +79,7 @@ export function T({ t, f, cap, x, y, align = 'start', max, track = 0, scale, fil
 /** How wide `t` prints (ink), with `track`. */
 export const widthOf = (t: string, f: Font, cap: number, track = 0) => inkWidth(t, f, cap) + track * (t.length - 1);
 
-/** The RS/SB monogram, `w` wide and 1.2 w tall: black box with white Rozha letters in a thin black frame. */
+/** The RSSB logo (traced from the official artwork, rssbLogo.tsx), `w` wide and 1.2 w tall, in black. */
 export function Monogram({ x, y, w }: { x: number; y: number; w: number }) {
-  const h = w * 1.2;
-  const s = w * 0.032;
-  const i = w * 0.088;
-  const letters = (t: string, base: number) => {
-    const p = placeText(t, ROZHA, w * 0.3, x + w * 0.22, x + w * 0.78);
-    return <text x={mm(p.x)} y={mm(y + h * base)} fontSize={mm(p.size)} textLength={mm(p.length)} lengthAdjust="spacingAndGlyphs"
-      style={{ fontFamily: ROZHA.family }} fill={WHITE}>{t}</text>;
-  };
-  return (
-    <g>
-      <rect x={mm(x + s / 2)} y={mm(y + s / 2)} width={mm(w - s)} height={mm(h - s)} fill="none" stroke={INK} strokeWidth={mm(s)} />
-      <rect x={mm(x + i)} y={mm(y + i)} width={mm(w - 2 * i)} height={mm(h - 2 * i)} fill={INK} />
-      {letters('RS', 0.46)}
-      {letters('SB', 0.785)}
-    </g>
-  );
+  return <RssbLogo x0={x} y0={y} x1={x + w} y1={y + w * 1.2} color={INK} />;
 }

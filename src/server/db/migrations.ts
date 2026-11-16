@@ -174,4 +174,16 @@ export const migrations: Record<string, Migration> = {
       await sql.raw(`ALTER TABLE passes ADD COLUMN issued_to text NOT NULL DEFAULT '' CHECK (length(issued_to) <= 120);`).execute(db);
     },
   },
+  // Three Free Helpline Sewa sheets: E-Rickshaw, Eco and Metro (the owner, 2026-11-15). Added at the end:
+  // a pass's QR code holds its sheet's position in the list. The Vehicle and Reg. No. rules name the sheets
+  // that may not have them, so these need no change.
+  '0009_helpline': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'e-rickshaw';
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'eco';
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'metro';
+      `).execute(db);
+    },
+  },
 };

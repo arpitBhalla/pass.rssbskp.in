@@ -27,7 +27,8 @@ function spokes(cx: number, cy: number, r0: number, r1: number, n: number) {
 }
 
 /** Commuter motorbike facing right: white outline, the watermark of the Bike passes. Local box 100 × 62. */
-export function Motorbike({ transform }: { transform: string }) {
+/** `stroke`: the drawing's colour (white, on the tinted Bike pass). */
+export function Motorbike({ transform, stroke = '#fff' }: { transform: string; stroke?: string }) {
   const wheel = (cx: number) => (
     <>
       <circle cx={cx} cy={46} r={15.5} />
@@ -37,7 +38,7 @@ export function Motorbike({ transform }: { transform: string }) {
     </>
   );
   return (
-    <g transform={transform} fill="none" stroke="#fff" strokeWidth={0.85} strokeLinecap="round" strokeLinejoin="round" opacity={0.92}>
+    <g transform={transform} fill="none" stroke={stroke} strokeWidth={0.85} strokeLinecap="round" strokeLinejoin="round" opacity={0.92}>
       {wheel(20)}
       {wheel(81)}
       <path d="M4 37C5 29 11 25.5 20 25.5C24 25.5 27 26.5 29 28" />

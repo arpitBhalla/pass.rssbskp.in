@@ -1,17 +1,19 @@
 'use client';
-import { type Font, inkWidth, layLine, placeText } from '@/client/measure';
-import { barlow, barlowCondensed, barlowSemi, marcellus, plexMono } from '@/fonts';
+import { type Font, inkWidth, layLine } from '@/client/measure';
+import { barlow, barlowCondensed, barlowSemi, plexMono } from '@/fonts';
 import type { CardData } from '@/lib/passes';
-import { CARD_SIZE } from '@/lib/sheets';
 import { type Field, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
+import { ORG_LOGO, OrgHead } from './Modern';
+import { GH, stretchY, VW } from './vehicleBox';
 
 /**
  * Design v2 "Ledger · colour bar" (round 3 of ../passes-design-v2), the Gate 3 Entry pass, as the user
  * picked it on 2026-11-14. Black does the work: everything small is black capitals over a ruled table
  * of fields, and the kind word is white on a solid bar of the pass colour. The QR, serial, gate sign and
- * signature sit on a stub behind a dotted tear line. Gate 3 Entry passes print Name, Vehicle and Reg. No.
+ * signature sit on a stub behind a dotted tear line. Gate 3 Entry passes print Name, Vehicle and Reg. No.;
+ * the Reg. No. large in a number plate under the table (the owner, 2026-11-15: "improve reg no, increase size").
  */
 
 const INK = '#000';
@@ -29,10 +31,10 @@ const BS800 = font(SEMI, 800);
 const B800 = font(barlow.style.fontFamily, 800);
 /** IBM Plex Mono: serial and Reg. No. (every digit one width, dotted zero). */
 const MONO = font(plexMono.style.fontFamily, 600);
-/** Marcellus: the monogram letters. */
-const SERIF = font(marcellus.style.fontFamily, 400);
 /** Loaded (and measured with) before any pass is drawn: see useCardFonts. */
-export const LEDGER_FONTS = [BC500, BC600, BC700, BC800, BS600, BS800, B800, MONO, SERIF];
+export const LEDGER_FONTS = [BC500, BC600, BC700, BC800, BS600, BS800, B800, MONO];
+/** The labels' face (Barlow Condensed 700, set in capitals, tracked +12 %): other passes borrow it. */
+export const LABEL_FONT = BC700;
 
 const mm = (n: number) => Math.round(n * 1000) / 1000;
 const upper = (v: string) => v.trim().toUpperCase();
@@ -75,42 +77,7 @@ function Label({ t, x, y, cap, align, max }: { t: string; x: number; y: number; 
 
 /* ---------- parts ---------- */
 
-/** The RS/SB monogram, `w` wide and 1.2 w tall: black box with white letters in a thin black frame. */
-function Monogram({ x, y, w }: { x: number; y: number; w: number }) {
-  const h = w * 1.2;
-  const s = w * 0.032;
-  const i = w * 0.088;
-  const letters = (t: string, base: number) => {
-    const p = placeText(t, SERIF, w * 0.3, x + w * 0.22, x + w * 0.78);
-    return <text x={mm(p.x)} y={mm(y + h * base)} fontSize={mm(p.size)} textLength={mm(p.length)} lengthAdjust="spacingAndGlyphs"
-      style={{ fontFamily: SERIF.family, fontWeight: 400 }} fill={WHITE}>{t}</text>;
-  };
-  return (
-    <g>
-      <rect x={mm(x + s / 2)} y={mm(y + s / 2)} width={mm(w - s)} height={mm(h - s)} fill="none" stroke={INK} strokeWidth={mm(s)} />
-      <rect x={mm(x + i)} y={mm(y + i)} width={mm(w - 2 * i)} height={mm(h - 2 * i)} fill={INK} />
-      {letters('RS', 0.46)}
-      {letters('SB', 0.785)}
-    </g>
-  );
-}
-
-/** "RSSB SIKANDERPUR (MC)": the name in 700, "(MC)" in 500. Shrinks as a whole to fit `max`. */
-function OrgName({ x, y, cap, max }: { x: number; y: number; cap: number; max: number }) {
-  const [a, b] = ['RSSB SIKANDERPUR', '(MC)'];
-  const space = (c: number) => layLine(' ', BC700, c, { x: 0 }).length;
-  const total = (c: number) => widthOf(a, BC700, c, c * 0.05) + space(c) + c * 0.05 + widthOf(b, BC500, c, c * 0.05);
-  const c = Math.min(cap, cap * (max / total(cap)));
-  const tr = c * 0.05;
-  return (
-    <g>
-      <T t={a} f={BC700} cap={c} x={x} y={y} track={tr} />
-      <T t={b} f={BC500} cap={c} x={x + widthOf(a, BC700, c, tr) + space(c) + tr} y={y} track={tr} />
-    </g>
-  );
-}
-
-/** The kind word, white on a solid bar of the colour, in the widest Barlow (normal, semi condensed, condensed) that fits. */
+/** The kind word, white on a solid bar of the colour, centred on it (the owner, 2026-11-15), in the widest Barlow (normal, semi condensed, condensed) that fits. */
 function Kind({ t, x0, x1, y, cap, color }: { t: string; x0: number; x1: number; y: number; cap: number; color: string }) {
   const pad = cap * 0.24;
   const max = x1 - x0 - 2 * pad;
@@ -118,7 +85,7 @@ function Kind({ t, x0, x1, y, cap, color }: { t: string; x0: number; x1: number;
   return (
     <g>
       <rect x={x0} y={mm(y - cap - pad)} width={mm(x1 - x0)} height={mm(cap + 2 * pad)} fill={color} />
-      <T t={t} f={f} cap={cap} x={x0 + pad} y={y} max={max} fill={WHITE} />
+      <T t={t} f={f} cap={cap} x={(x0 + x1) / 2} y={y} align="middle" max={max} fill={WHITE} />
     </g>
   );
 }
@@ -165,11 +132,30 @@ function SignOff({ href, x0, x1, y, h, cap, captionY }: { href: string; x0: numb
 
 /* ---------- the ledger of fields ---------- */
 
+/**
+ * "REG. NO." and the number large in a white number plate with a black border, from `x` to `x1`, `top` to
+ * `bottom`; empty on a blank pass, to write in.
+ */
+function RegPlate({ v, x0, x, x1, top, bottom, label }: { v: string; x0: number; x: number; x1: number; top: number; bottom: number; label: number }) {
+  const h = bottom - top;
+  const cap = h * 0.56;
+  const max = x1 - x - 6;
+  const t = upper(v);
+  const f = pick(t, [MONO, BS600, BC600], cap, max);
+  return (
+    <g>
+      <Label t="REG. NO." x={x0} y={top + h / 2 + label / 2} cap={label} />
+      <rect x={x} y={mm(top)} width={mm(x1 - x)} height={mm(h)} rx={1.6} fill={WHITE} stroke={INK} strokeWidth={0.5} />
+      {t && <T t={t} f={f} cap={cap} x={(x + x1) / 2} y={top + h / 2 + cap / 2} align="middle" max={max} />}
+    </g>
+  );
+}
+
 type Row = (keyof CardData & Field)[];
 const LABEL: Partial<Record<Field, string>> = { name: 'NAME', vehicle: 'VEHICLE', vehicle_no: 'REG. NO.' };
-/** Gate 3 Entry passes ask for Name, Vehicle and Reg. No. only; Vehicle gets 55 % of its row. */
-const ROWS: Row[] = [['name'], ['vehicle', 'vehicle_no']];
-const SPLIT = [[1], [0.55, 0.45]];
+/** Gate 3 Entry passes ask for Name, Vehicle and Reg. No. only: Name and Vehicle in the table, Reg. No. in its plate. */
+const ROWS: Row[] = [['name'], ['vehicle']];
+const SPLIT = [[1], [1]];
 
 function Value({ k, v, x, y, cap, max }: { k: Field; v: string; x: number; y: number; cap: number; max: number }) {
   const t = upper(v);
@@ -179,29 +165,27 @@ function Value({ k, v, x, y, cap, max }: { k: Field; v: string; x: number; y: nu
 }
 
 /**
- * Fields as a ruled table: heavier opening and closing rules, a label on each rule's baseline at the
- * left, then the value (printed, or written by hand). Blank and printed passes look the same.
+ * Fields as lines to write on: a label at the left, then the value (printed, or written by hand) on a
+ * hairline, the two on one baseline. Blank and printed passes look the same.
  */
-function Fields({ p, x0, x1, top, rules, lw, label, value, base, gutter }: {
-  p: CardData; x0: number; x1: number; top: number; rules: number[]; lw: number; label: number; value: number; base: number; gutter: number;
+function Fields({ p, x0, x1, rules, lw, label, value, base, gutter }: {
+  p: CardData; x0: number; x1: number; rules: number[]; lw: number; label: number; value: number; base: number; gutter: number;
 }) {
   return (
     <g>
-      <Rule x0={x0} x1={x1} y={top} w={0.35} />
       {ROWS.map((row, i) => {
         const y = rules[i];
         const room = x1 - x0 - gutter * (row.length - 1);
         const shares = SPLIT[i];
         return (
           <g key={row.join()}>
-            <Rule x0={x0} x1={x1} y={y} w={i === ROWS.length - 1 ? 0.35 : 0.2} />
+            <Rule x0={x0 + lw} x1={x1} y={y} w={0.2} />
             {row.map((k, j) => {
               const cx = x0 + shares.slice(0, j).reduce((a, b) => a + b * room + gutter, 0);
               const cw = shares[j] * room;
               return (
                 <g key={k}>
                   <Label t={LABEL[k] ?? k} x={cx} y={y - base} cap={label} max={lw - 1.2} />
-                  <rect x={mm(cx + lw)} y={mm(y - 2.5)} width={0.2} height={2.5} fill={INK} />
                   <Value k={k} v={p[k]} x={cx + lw + 1.2} y={y - base} cap={value} max={cw - lw - 1.6} />
                 </g>
               );
@@ -213,28 +197,28 @@ function Fields({ p, x0, x1, top, rules, lw, label, value, base, gutter }: {
   );
 }
 
-/** 150 × 100 mm. */
+/** 151 × 103 mm, drawn on 150 × GH (vehicleBox.ts; laid out on 150 × 100, the y's through Y). */
 export function LedgerVehicle({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color.band;
   const [x0, x1] = [7, 113];
   const stub = 133;
+  const Y = stretchY(9, 91, GH);
   return (
     <>
-      <rect width={CARD_SIZE.vehicle.w} height={CARD_SIZE.vehicle.h} fill={WHITE} />
-      <Monogram x={x0} y={9.5} w={10} />
-      <OrgName x={20.5} y={13.7} cap={4.2} max={x1 - 20.5} />
-      <Label t="ZONE-III" x={20.5} y={21.5} cap={2.4} />
-      <Rule x0={x0} x1={x1} y={25} />
-      <Label t="VEHICLE PASS" x={x0} y={30.4} cap={2.4} />
-      <Label t={tagText(texts.tag)} x={x1} y={30.4} cap={2.4} align="end" />
-      <Kind t={TYPE_INFO[p.type].title.replace(/ PASS$/, '')} x0={x0} x1={x1} y={44.6} cap={9} color={c} />
-      <Fields p={p} x0={x0} x1={x1} top={50} rules={[68, 86]} lw={13.5} label={2.4} value={5.4} base={1.6} gutter={5} />
+      <rect width={VW} height={GH} fill={WHITE} />
+      <OrgHead x={x0} y={8.5} max={x1 - (x0 + ORG_LOGO.w + 3.2)} />
+      <Rule x0={x0} x1={x1} y={Y(25)} />
+      <Label t="VEHICLE PASS" x={x0} y={Y(31)} cap={3} />
+      <Label t={tagText(texts.tag)} x={x1} y={Y(31)} cap={3} align="end" />
+      <Kind t={TYPE_INFO[p.type].title.replace(/ PASS$/, '')} x0={x0} x1={x1} y={Y(44.6)} cap={9} color={c} />
+      <Fields p={p} x0={x0} x1={x1} rules={[60, 71.5].map(Y)} lw={17} label={2.7} value={6} base={1.1} gutter={5} />
+      <RegPlate v={p.vehicle_no} x0={x0} x={x0 + 17} x1={x1} top={Y(76)} bottom={Y(89.5)} label={2.7} />
 
-      <Perforation x={118} y0={9} y1={91} />
-      {code && <Qr text={code} x={125.5} y={9.5} size={15} pad={0} />}
-      <Serial no={serialText(p.serial, 3)} x={stub} y={44.4} cap={7.5} caption={2.4} captionY={34.6} />
-      <GateSign cx={stub} y={53} size={17} />
-      <SignOff href={texts.signature} x0={123} x1={143} y={86} h={9.5} cap={1.9} captionY={89.8} />
+      <Perforation x={118} y0={Y(9)} y1={Y(91)} />
+      {code && <Qr text={code} x={125.5} y={Y(9.5)} size={15} pad={0} />}
+      <Serial no={serialText(p.serial, 3)} x={stub} y={Y(44.4)} cap={7.5} caption={2.4} captionY={Y(34.6)} />
+      <GateSign cx={stub} y={Y(53)} size={17} />
+      <SignOff href={texts.signature} x0={123} x1={143} y={Y(86)} h={9.5} cap={1.9} captionY={Y(89.8)} />
     </>
   );
 }

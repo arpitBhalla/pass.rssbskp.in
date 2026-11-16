@@ -1,10 +1,25 @@
 import type { Layout } from '@/shared/types';
 
-/** Pass sizes in mm (per A3 / A3+ / A4 sheet: Mobile 72 / 91 / 32, Bike 16 / 21 / 8, the 150 × 100 mm passes 6 / 9 / 3). */
+/**
+ * Pass sizes in mm (per A3 / A3+ / A4 sheet: Mobile 72 / 91 / 32, Bike 8 / 9 / 4, Sewa Vehicle, Tractor Trolley
+ * and the Free Helpline Sewa passes 4 / 4 / 2, the gate passes 6 / 9 / 2).
+ */
 export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
   mobile: { w: 36, h: 45 },
-  bike: { w: 100, h: 68 },
-  vehicle: { w: 150, h: 100 },
+  /** The largest that fits 4 to an A4 sheet (2 × 2, turned, inside MARGIN). */
+  bike: { w: 145, h: 99 },
+  /**
+   * Sewa Vehicle and Tractor Trolley: half an A4 sheet, the largest that fits 2 to an A4 inside MARGIN
+   * (150 × 100 until 2026-11-15).
+   */
+  vehicle: { w: 204, h: 145 },
+  /**
+   * Gate 3 Entry, Gate 1 & 12, VIP and Admin: the largest of the Bike pass's shape that fits 6 to an A3
+   * (4 upright, 2 turned beside them; the owner, 2026-11-15; 145 × 99, 8 to an A3, before that).
+   */
+  gate: { w: 151, h: 103 },
+  /** E-Rickshaw, Eco and Metro (Free Helpline Sewa): Sewa Vehicle's size. */
+  helpline: { w: 204, h: 145 },
 };
 
 export type Paper = 'a3' | 'a3plus' | 'a4';

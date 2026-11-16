@@ -51,3 +51,7 @@ export const barlowCondensed = localFont({
 export const plexMono = localFont({ src: './IBMPlexMono-600.woff2', weight: '600', display: 'block' });
 /** Marcellus: the RS/SB monogram letters on the Ledger. */
 export const marcellus = localFont({ src: './Marcellus-400.woff2', weight: '400', display: 'block' });
+
+/* Free Helpline Sewa passes (E-Rickshaw, Eco, Metro): see components/cards/Helpline.tsx. */
+/** Mukta 800 (Devanagari and Basic Latin; Latin so its cap height measures): "केवल बुजुर्गों व विकलांगों के लिए". */
+export const mukta = localFont({ src: './Mukta-800.woff2', weight: '800', display: 'block' });

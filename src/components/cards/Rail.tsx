@@ -1,11 +1,12 @@
 'use client';
-import { CARD_SIZE } from '@/lib/sheets';
 import { type Field, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
-  BIG, C700, C800, C900, GREY, kindOf, LEGIBLE, mm, Monogram, ORG, ROZHA, S600, S700, serialText, T, upper, VEHICLE_ROWS, WHITE, widthOf,
+  BIG, C700, C800, C900, GREY, kindOf, LEGIBLE, mm, type Row, S600, S700, serialText, T, upper, WHITE, widthOf,
 } from './v2kit';
+import { ORG_LOGO, OrgHead, RegPlate } from './Modern';
+import { GH, stretchY, VW } from './vehicleBox';
 
 /**
  * Design v2 "Rail" (round 6 A, Rozha masthead), the Admin and Gate 1 & 12 Entry (BAV Parking) passes: thin colour bars at the top and bottom
@@ -52,23 +53,28 @@ function SignOff({ href, x0, x1, y, h, line }: { href: string; x0: number; x1: n
     <g>
       {href && <image href={href} x={x0} y={y - h - 0.3} width={x1 - x0} height={h} preserveAspectRatio="xMidYMax meet" />}
       <rect x={x0} y={y} width={mm(x1 - x0)} height={0.18} fill={line} />
-      <Caption t="Auth. Signatory" at={[119.538, 91.8, 2.375, 14.92]} />
+      <Caption t="Auth. Signatory" at={[119.538, y + 3.2, 2.375, 14.92]} />
     </g>
   );
 }
+
+/** Gate 1 & 12 Entry: Vehicle on a row of its own, the Reg. No. in its plate (RegPlate). */
+const PLATE_ROWS: Row[] = [['name'], ['vehicle'], ['area', 'dept']];
+/** Admin: Name and Vehicle, no Area or Dept. (the owner, 2026-11-15); the Reg. No. in its plate too. */
+const ADMIN_ROWS: Row[] = [['name'], ['vehicle']];
 
 const LABEL: Partial<Record<Field, string>> = {
   name: 'Name', dept: 'Dept.', area: 'Area', phone: 'Phone', vehicle: 'Vehicle', vehicle_no: 'Reg. No.',
 };
 
 /** Rows of fields (label at the left, value on a colour line); a row of two splits the width with 6 mm between. `ys`: each row's line. */
-function Fields({ p, ys, x0, x1, lw, cap, color }: {
-  p: CardProps['p']; ys: number[]; x0: number; x1: number; lw: number; cap: number; color: string;
+function Fields({ p, rows, ys, x0, x1, lw, cap, color }: {
+  p: CardProps['p']; rows: Row[]; ys: number[]; x0: number; x1: number; lw: number; cap: number; color: string;
 }) {
   const gap = 6;
   return (
     <g>
-      {VEHICLE_ROWS.map((row, i) => {
+      {rows.map((row, i) => {
         const w = (x1 - x0 - gap * (row.length - 1)) / row.length;
         return row.map((k, j) => {
           const x = x0 + j * (w + gap);
@@ -108,37 +114,50 @@ function ParkingTile({ x, y, size, color }: { x: number; y: number; size: number
 /** Gate 1 & 12 Entry passes print two lines of one size and colour where other passes print the kind word. */
 const BAV_LINES = ['GATE 1 & 12 ENTRY', 'BAV PARKING'];
 
-/** The two lines at one cap height (up to `cap`, each fitting `max`), 1.3 × cap apart; `y`: the last line's baseline. */
-function TwoLines({ x, y, cap, max, color }: { x: number; y: number; cap: number; max: number; color: string }) {
-  const c = Math.min(cap, ...BAV_LINES.map((l) => cap * (max / widthOf(l, C900, cap))));
+/** The two lines' cap height: up to `cap`, each line fitting `max`. */
+const twoLinesCap = (cap: number, max: number) => Math.min(cap, ...BAV_LINES.map((l) => cap * (max / widthOf(l, C900, cap))));
+
+/** The two lines at cap height `c`, 1.3 × c apart; `y`: the last line's baseline. Their ink is 2.3 × c tall. */
+function TwoLines({ x, y, c, max, color }: { x: number; y: number; c: number; max: number; color: string }) {
   return <g>{BAV_LINES.map((l, i) => <T key={l} t={l} f={C900} cap={c} x={x} y={y - (BAV_LINES.length - 1 - i) * c * 1.3} max={max} fill={color} />)}</g>;
 }
 
-/** 150 × 100 mm. Gate 1 & 12 Entry: the parking sign and two lines instead of "VEHICLE PASS" over the kind word. */
+/**
+ * 151 × 103 mm, drawn on 150 × GH (vehicleBox.ts; laid out on 150 × 100, the y's through Y). Gate 1 & 12
+ * Entry: the parking sign and two lines instead of "VEHICLE PASS" over the kind word. Admin: "VEHICLE PASS"
+ * larger, from the left margin like the logo and fields; the kind word taller but narrower (80 %), centred on the pass, as on
+ * Sewa Vehicle (the owner, 2026-11-15).
+ */
 export function RailVehicle({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color.band;
-  const { w, h } = CARD_SIZE.vehicle;
+  const [w, h] = [VW, GH];
+  const Y = stretchY(5, 96.5, GH);
   const bav = p.type === 'bav-entry';
+  /** Gate 1 & 12 Entry: the two lines' cap height, and the parking sign as tall as they are (cap top of the first to the baseline of the second). */
+  const bc = bav ? twoLinesCap(6.2, 118) : 0;
   return (
     <>
       <rect width={w} height={h} fill={WHITE} />
       <rect width={w} height={4.5} fill={c} />
       <rect y={h - 3.5} width={w} height={3.5} fill={c} />
-      <Monogram x={6} y={8.6} w={10.5} />
-      <T t={ORG} f={ROZHA} cap={4} x={20.5} y={14} max={100} />
-      <Caption t="ZONE-III" at={[20.27, 19.6, 2.5, 17.15]} tracked />
-      {code && <Qr text={code} x={129} y={8.5} size={15} pad={0} />}
+      <OrgHead x={6} y={7} max={129 - 4 - (6 + ORG_LOGO.w + 3.2)} />
+      {code && <Qr text={code} x={129} y={Y(8.5)} size={15} pad={0} />}
       {bav
-        ? <ParkingTile x={6} y={26.5} size={16} color={c} />
-        : <Caption t="VEHICLE PASS" at={[25.507, 29.4, 2.5, 25.95]} weight={S700} tracked />}
-      <Pill t={texts.tag} x={144} cy={28.4} h={4.6} cap={2.3} color={c} />
+        ? <ParkingTile x={6} y={Y(42.4) - 2.3 * bc} size={2.3 * bc} color={c} />
+        : <Caption t="VEHICLE PASS" at={[6, Y(29.4), 3.4, 25.95 * (3.4 / 2.5)]} weight={S700} tracked />}
+      <Pill t={texts.tag} x={144} cy={Y(28.4)} h={4.6} cap={2.3} color={c} />
       {bav
-        ? <TwoLines x={25.3} y={42.4} cap={6.2} max={118} color={c} />
-        : <T t={kindOf(p.type)} f={C900} cap={10.5} x={25.3} y={42.4} max={118} fill={c} />}
-      <Fields p={p} ys={[54.5, 65, 75.5]} x0={6} x1={144} lw={16} cap={4.2} color={c} />
-      <Caption t="Sr. No." at={[5.938, 83.6, 2.5, 7.637]} />
-      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={93.4} max={30} />
-      <SignOff href={texts.signature} x0={110} x1={144} y={88.6} h={8.4} line={c} />
+        ? <TwoLines x={25.3} y={Y(42.4)} c={bc} max={118} color={c} />
+        : <T t={p.type === 'admin' ? 'ADMINISTRATION' : kindOf(p.type)} f={C900} cap={12} scale={0.8} x={VW / 2} y={Y(45)} align="middle" max={110} fill={c} />}
+      {/* lw 11 (was 16): the values start closer to their labels (owner, 2026-11-15: "reduce gap"). */}
+      {/* Admin: two rows, so the values larger (5.6, was 4.2; the owner, 2026-11-15). */}
+      <Fields p={p} rows={bav ? PLATE_ROWS : ADMIN_ROWS} ys={(bav ? [54.5, 65, 75.5] : [57.5, 70]).map(Y)} x0={6} x1={144} lw={11}
+        cap={bav ? 4.2 : 5.6} color={c} />
+      <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
+      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
+      {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room. */}
+      <RegPlate v={p.vehicle_no} x0={VW / 2 - 34} x1={VW / 2 + 34} top={Y(80)} bottom={Y(94)} />
+      <SignOff href={texts.signature} x0={114} x1={144} y={Y(88.6)} h={8.4} line={c} />
     </>
   );
 }

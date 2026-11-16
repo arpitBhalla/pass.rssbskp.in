@@ -103,7 +103,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           <nav ref={tabsRef} className="flex items-end overflow-x-auto px-2" aria-label="Sheets">
             {PASS_TYPES.map((t, i) => {
               const on = path === `/s/${t}`;
-              const newGroup = i > 0 && TYPE_INFO[t].layout !== TYPE_INFO[PASS_TYPES[i - 1]].layout;
+              const newGroup = i > 0 && groupOf(t) !== groupOf(PASS_TYPES[i - 1]);
               return (
                 <Fragment key={t}>
                   {newGroup && <span aria-hidden className="mx-1.5 mb-2.5 h-4 w-px shrink-0 bg-white/25 max-[1599px]:mx-1" />}
@@ -144,13 +144,16 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   );
 }
 
+/** A sheet's tab group: Mobile, Bike, Vehicle (the gate passes too, smaller since 2026-11-15, stay with the vehicle sheets), Helpline. */
+const groupOf = (t: PassType) => (TYPE_INFO[t].layout === 'gate' ? 'vehicle' : TYPE_INFO[t].layout);
+
 /**
  * The sheet's mark: the shape of its pass (portrait Mobile, landscape Bike, wide Vehicle) in the
  * template's colours, so sheets that share a colour still look different.
  */
 export function PassMark({ type, size = 14 }: { type: PassType; size?: number }) {
   const { layout, color: c } = TYPE_INFO[type];
-  const [w, h] = layout === 'mobile' ? [10, 14] : layout === 'bike' ? [14, 10] : [16, 11];
+  const [w, h] = layout === 'mobile' ? [10, 14] : layout === 'bike' || layout === 'gate' ? [14, 10] : [16, 11];
   const band = layout === 'mobile' ? 4 : 3;
   return (
     <svg aria-hidden width={(w * size) / 14} height={(h * size) / 14} viewBox={`0 0 ${w} ${h}`} className="shrink-0">

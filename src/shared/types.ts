@@ -15,6 +15,9 @@ export const PASS_TYPES = [
   'bav-entry',
   'vip-gate',
   'admin',
+  'e-rickshaw',
+  'eco',
+  'metro',
 ] as const;
 export type PassType = (typeof PASS_TYPES)[number];
 
@@ -35,8 +38,14 @@ export const HANDOVER_FIELDS: readonly Field[] = ['issued_to'];
 /** False for the handover columns: a printed pass can still record who it was issued to. */
 export const locksWhenPrinted = (k: Field) => !HANDOVER_FIELDS.includes(k);
 
-/** Which printed template a sheet uses (the RSSB SKP pass templates). */
-export type Layout = 'mobile' | 'bike' | 'vehicle';
+/**
+ * Which printed template a sheet uses (the RSSB SKP pass templates), and so its size (CARD_SIZE).
+ * 'gate': Gate 3 Entry, Gate 1 & 12 (BAV), Gate 3 - VIP and Admin, vehicle passes printed smaller since
+ * 2026-11-15, 6 to an A3 (the owner's choice); Sewa Vehicle and Tractor Trolley stay 'vehicle'.
+ * 'helpline': the Free Helpline Sewa passes (E-Rickshaw, Eco, Metro), Sewa Vehicle's size; they print only
+ * their serial number.
+ */
+export type Layout = 'mobile' | 'bike' | 'vehicle' | 'gate' | 'helpline';
 
 export interface PassTypeInfo {
   /** Tab / sheet name. */
@@ -58,6 +67,8 @@ export interface PassTypeInfo {
 const MOBILE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'incharge', 'issued_to'];
 const BIKE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'vehicle_no', 'phone', 'incharge', 'issued_to'];
 const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area', 'dept', 'phone', 'incharge', 'issued_to'];
+/** Free Helpline Sewa passes print only their serial: the sheet records who each pass went to (the owner, 2026-11-15). */
+const HELPLINE_FIELDS: readonly Field[] = ['incharge', 'issued_to'];
 /** Gate 3, Gate 3 - VIP and Admin passes are given on someone's word: the Incharge column is who referred them. */
 const REFERRED = { incharge: 'Referred by' };
 
@@ -65,7 +76,8 @@ const REFERRED = { incharge: 'Referred by' };
 // vehicle passes green; Mobile (portrait) and Bike (landscape, tinted card) differ by shape.
 // Gate 3 Entry (orange) and BAV Parking (purple) have no template: the Sewa Vehicle pass in their colour,
 // title included, so the gate tells them apart at a glance. Gate 3 - VIP (red) and Admin (teal) print in
-// the design v2 Ticket and Rail passes (components/cards), in their colour.
+// the design v2 Ticket and Rail passes (components/cards), in their colour. Gate 3 - VIP prints as
+// "GATE 3 ENTRY" (the user's wish, 15 Nov: no VIP on the pass); the app still calls the sheet Gate 3 - VIP.
 const BLUE = { name: 'Blue', band: '#2e3192', logo: '#231f20' };
 const GREY = { name: 'Grey', band: '#808285', logo: '#9e0b0f' };
 const GREEN = { name: 'Green', band: '#007236', stripe: '#bcbec0', bg: '#ffffff', logo: '#939598' };
@@ -73,6 +85,10 @@ const ORANGE = { ...GREEN, name: 'Orange', band: '#d35400', title: '#d35400' };
 const PURPLE = { ...GREEN, name: 'Purple', band: '#5b2c83', title: '#5b2c83' };
 const RED = { ...GREEN, name: 'Red', band: '#b3122e', title: '#b3122e' };
 const TEAL = { ...GREEN, name: 'Teal', band: '#00727a', title: '#00727a' };
+// The Free Helpline Sewa passes (design round 24): E-Rickshaw in Gate 3 - VIP's red, Eco in a leaf green
+// (yellower than Sewa Vehicle's, so the two don't look alike), Metro in navy (no other pass's colour).
+const LEAF = { ...GREEN, name: 'Leaf green', band: '#3f7d20', title: '#3f7d20' };
+const NAVY = { ...GREEN, name: 'Navy', band: '#1d4e89', title: '#1d4e89' };
 
 export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'mobile-pandal': {
@@ -93,10 +109,14 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   },
   'sewa-vehicle': { label: 'Sewa Vehicle', short: 'SV', layout: 'vehicle', title: 'SEWA VEHICLE PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'tractor-trolley': { label: 'Tractor Trolley', short: 'TT', layout: 'vehicle', title: 'TRACTOR TROLLEY PASS', fields: VEHICLE_FIELDS, color: GREEN },
-  'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'vehicle', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: ORANGE },
-  'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'vehicle', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
-  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'vehicle', title: 'GATE 3 - VIP PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: RED },
-  admin: { label: 'Admin', short: 'AD', layout: 'vehicle', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: TEAL },
+  'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: ORANGE },
+  'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'gate', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
+  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: RED },
+  admin: { label: 'Admin', short: 'AD', layout: 'gate', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: TEAL },
+  'e-rickshaw': { label: 'E-Rickshaw', short: 'ER', layout: 'helpline', title: 'E-RICKSHAW', fields: HELPLINE_FIELDS, color: RED },
+  // The Eco pass prints FREE HELPLINE SEWA on its band (the owner, 2026-11-16); the app still calls the sheet Eco.
+  eco: { label: 'Eco', short: 'EC', layout: 'helpline', title: 'FREE HELPLINE SEWA', fields: HELPLINE_FIELDS, color: LEAF },
+  metro: { label: 'Metro', short: 'ME', layout: 'helpline', title: 'METRO', fields: HELPLINE_FIELDS, color: NAVY },
 };
 
 /** A column's name on this sheet: Incharge is "Referred by" on Gate 3, Gate 3 - VIP and Admin. */

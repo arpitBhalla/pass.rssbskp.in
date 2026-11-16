@@ -200,6 +200,10 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
   'bav-entry': { name: 'Rajinder Kumar', vehicle: 'Mahindra Bolero', vehicle_no: 'DL-8CAB-3310', area: 'Delhi', dept: 'Traffic' },
   'vip-gate': { name: 'Amarjit Singh', vehicle: 'Toyota Fortuner', vehicle_no: 'HR-26DK-0007', area: 'Gurugram', dept: 'Reception' },
   admin: { name: 'Sukhwinder Kaur', vehicle: 'Honda City', vehicle_no: 'HR-29T-4512', area: 'Faridabad', dept: 'Administration' },
+  /* The Free Helpline Sewa passes print only their serial. */
+  'e-rickshaw': {},
+  eco: {},
+  metro: {},
 };
 
 /** A made-up code as long as a real one (44 digits: a sample QR the right size; it checks NOT VALID). */

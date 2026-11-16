@@ -1,22 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import { CARD_SIZE, MARGIN, PAPERS, sheetPlan } from './sheets';
 
-const LAYOUTS = ['mobile', 'bike', 'vehicle'] as const;
+const LAYOUTS = ['mobile', 'bike', 'vehicle', 'gate', 'helpline'] as const;
 
 describe('sheetPlan', () => {
-  it('fits 72 Mobile, 16 Bike and 6 vehicle passes on A3; 91, 21 and 9 on A3+; 32, 8 and 3 on A4', () => {
+  it('fits 72 Mobile, 8 Bike, 4 Sewa / Tractor and 6 gate passes on A3; 91, 9, 4 and 9 on A3+; 32, 4, 2 and 2 on A4', () => {
     const counts = (paper: (typeof PAPERS)[number]) => LAYOUTS.map((l) => sheetPlan(paper, l).perSheet);
-    expect(counts('a3')).toEqual([72, 16, 6]);
-    expect(counts('a3plus')).toEqual([91, 21, 9]);
-    expect(counts('a4')).toEqual([32, 8, 3]);
+    expect(counts('a3')).toEqual([72, 8, 4, 6, 4]);
+    expect(counts('a3plus')).toEqual([91, 9, 4, 9, 4]);
+    expect(counts('a4')).toEqual([32, 4, 2, 2, 2]);
   });
 
   it('fills a strip left over with passes turned the other way, except Mobile; one block when that fits as many', () => {
     const turns = (paper: (typeof PAPERS)[number], l: (typeof LAYOUTS)[number]) => new Set(sheetPlan(paper, l).slots.map((s) => s.turn)).size;
     for (const paper of PAPERS) expect(turns(paper, 'mobile')).toBe(1); // all one way, even where turned ones would fit
-    expect(turns('a3', 'vehicle')).toBe(2);
     expect(turns('a3', 'bike')).toBe(1);
-    expect(turns('a3plus', 'vehicle')).toBe(1);
+    expect(turns('a3', 'gate')).toBe(2); // 151 × 103: 4 upright, 2 turned beside them
+    expect(turns('a3plus', 'gate')).toBe(1);
+    expect(turns('a3', 'vehicle')).toBe(1); // 204 × 145: four, all turned
+    // No pass size today leaves such a strip on A3, so try the vehicle passes' old size, 150 × 100:
+    // 4 upright and 2 turned beside them on A3, all one way on A3+.
+    const was = CARD_SIZE.vehicle;
+    CARD_SIZE.vehicle = { w: 150, h: 100 };
+    try {
+      expect(turns('a3', 'vehicle')).toBe(2);
+      expect(sheetPlan('a3', 'vehicle').perSheet).toBe(6);
+      expect(turns('a3plus', 'vehicle')).toBe(1);
+    } finally {
+      CARD_SIZE.vehicle = was;
+    }
   });
 
   it('keeps every pass inside the margin, touching, never overlapping, centred, with a cut along every edge and none across a pass', () => {
