@@ -1,14 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { CARD_SIZE, MARGIN, PAPERS, sheetPlan } from './sheets';
 
-const LAYOUTS = ['mobile', 'bike', 'vehicle', 'gate', 'helpline'] as const;
+const LAYOUTS = ['mobile', 'bike', 'vehicle', 'gate', 'large'] as const;
 
 describe('sheetPlan', () => {
   it('fits 72 Mobile, 8 Bike, 4 Sewa / Tractor and 6 gate passes on A3; 91, 9, 4 and 9 on A3+; 32, 4, 2 and 2 on A4', () => {
     const counts = (paper: (typeof PAPERS)[number]) => LAYOUTS.map((l) => sheetPlan(paper, l).perSheet);
-    expect(counts('a3')).toEqual([72, 8, 4, 6, 4]);
+    expect(counts('a3')).toEqual([72, 8, 4, 6, 4]); // Tractor Trolley and the helpline passes 2 × 2 (the owner, 2026-11-16)
     expect(counts('a3plus')).toEqual([91, 9, 4, 9, 4]);
     expect(counts('a4')).toEqual([32, 4, 2, 2, 2]);
+  });
+
+  it('leaves 6 mm between the large passes on A3+ and touches everywhere else', () => {
+    const gaps = (paper: (typeof PAPERS)[number], l: (typeof LAYOUTS)[number]) => {
+      const c = CARD_SIZE[l];
+      const r = sheetPlan(paper, l).slots.map((o) => ({ x: o.x, y: o.y, w: o.turn ? c.h : c.w, h: o.turn ? c.w : c.h }));
+      return new Set(r.flatMap((a) => r.map((b) => Math.max(b.x - a.x - a.w, b.y - a.y - a.h))).filter((g) => g >= -1e-6).map((g) => g.toFixed(3)));
+    };
+    expect(Math.min(...[...gaps('a3plus', 'large')].map(Number))).toBeCloseTo(6);
+    for (const l of ['bike', 'vehicle', 'gate', 'large'] as const) expect(gaps('a3', l).has('0.000')).toBe(true);
   });
 
   it('fills a strip left over with passes turned the other way, except Mobile; one block when that fits as many', () => {
@@ -31,7 +41,7 @@ describe('sheetPlan', () => {
     }
   });
 
-  it('keeps every pass inside the margin, touching, never overlapping, centred, with a cut along every edge and none across a pass', () => {
+  it('keeps every pass inside the margin, never overlapping, centred, with a cut along every edge and none across a pass', () => {
     for (const paper of PAPERS) {
       for (const layout of LAYOUTS) {
         const s = sheetPlan(paper, layout);

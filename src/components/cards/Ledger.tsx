@@ -77,15 +77,17 @@ function Label({ t, x, y, cap, align, max }: { t: string; x: number; y: number; 
 
 /* ---------- parts ---------- */
 
-/** The kind word, white on a solid bar of the colour, centred on it (the owner, 2026-11-15), in the widest Barlow (normal, semi condensed, condensed) that fits. */
-function Kind({ t, x0, x1, y, cap, color }: { t: string; x0: number; x1: number; y: number; cap: number; color: string }) {
-  const pad = cap * 0.24;
-  const max = x1 - x0 - 2 * pad;
+/**
+ * The kind word, white on a solid bar of the colour from `top` to `bottom`, centred on it both ways (the owner,
+ * 2026-11-15; the bar taller on 2026-11-16), in the widest Barlow (normal, semi condensed, condensed) that fits.
+ */
+function Kind({ t, x0, x1, top, bottom, cap, color }: { t: string; x0: number; x1: number; top: number; bottom: number; cap: number; color: string }) {
+  const max = x1 - x0 - cap * 0.5;
   const f = pick(t, [B800, BS800, BC800], cap, max);
   return (
     <g>
-      <rect x={x0} y={mm(y - cap - pad)} width={mm(x1 - x0)} height={mm(cap + 2 * pad)} fill={color} />
-      <T t={t} f={f} cap={cap} x={(x0 + x1) / 2} y={y} align="middle" max={max} fill={WHITE} />
+      <rect x={x0} y={mm(top)} width={mm(x1 - x0)} height={mm(bottom - top)} fill={color} />
+      <T t={t} f={f} cap={cap} x={(x0 + x1) / 2} y={(top + bottom) / 2 + cap / 2} align="middle" max={max} fill={WHITE} />
     </g>
   );
 }
@@ -210,7 +212,8 @@ export function LedgerVehicle({ p, texts, code }: CardProps) {
       <Rule x0={x0} x1={x1} y={Y(25)} />
       <Label t="VEHICLE PASS" x={x0} y={Y(31)} cap={3} />
       <Label t={tagText(texts.tag)} x={x1} y={Y(31)} cap={3} align="end" />
-      <Kind t={TYPE_INFO[p.type].title.replace(/ PASS$/, '')} x0={x0} x1={x1} y={Y(44.6)} cap={9} color={c} />
+      {/* The bar 16.5 tall (was 13.3), from just under VEHICLE PASS to above the fields. */}
+      <Kind t={TYPE_INFO[p.type].title.replace(/ PASS$/, '')} x0={x0} x1={x1} top={Y(32.6)} bottom={Y(48.6)} cap={9} color={c} />
       <Fields p={p} x0={x0} x1={x1} rules={[60, 71.5].map(Y)} lw={17} label={2.7} value={6} base={1.1} gutter={5} />
       <RegPlate v={p.vehicle_no} x0={x0} x={x0 + 17} x1={x1} top={Y(76)} bottom={Y(89.5)} label={2.7} />
 

@@ -116,16 +116,17 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   | --- | --- | --- | --- | --- |
   | Mobile Pandal / Non Pandal | 36 × 45 mm | 72 | 91 | 32 |
   | Bike Pandal / Non Pandal | 145 × 99 mm | 8 | 9 | 4 |
-  | Sewa Vehicle, Tractor Trolley | 204 × 145 mm (half an A4) | 4 | 4 | 2 |
+  | Sewa Vehicle | 204 × 145 mm (half an A4) | 4 | 4 | 2 |
   | Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 151 × 103 mm | 6 | 9 | 2 |
-  | E-Rickshaw (red), Eco (leaf green), Metro (navy) | 204 × 145 mm | 4 | 4 | 2 |
+  | Tractor Trolley (green), E-Rickshaw (red), Eco (brown), Metro (navy) | 204 × 145 mm (6 mm apart on A3+) | 4 | 4 | 2 |
 
   Passes are turned sideways where that fits more. For the 150 × 100 mm passes, a strip of paper that
   would be left over is filled with passes turned the other way: then the sheet has two blocks, and
   the long line between them runs right across the paper. Cut that line first, then each block.
   Mobile passes always face one way on a sheet.
 
-  On every sheet the passes touch, so one cut separates two. Faint cut lines run along every edge and
+  On every sheet the passes touch, so one cut separates two, except Tractor Trolley and the helpline
+  passes on A3+, which stand 6 mm apart. Faint cut lines run along every edge and
   out to the paper's edge (never across a pass), to line the cutter up with. The passes keep at least
   3 mm from the paper's edge.
 
@@ -133,15 +134,17 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   3 - VIP as the **Ticket** (a perforated stub with the QR code and serial), Admin as the **Rail**
   (colour bars top and bottom, Rozha One masthead).
 
-  E-Rickshaw, Eco and Metro print in design round 24: the word on a colour band with FREE HELPLINE SEWA
-  under it, the serial large, and "केवल बुजुर्गों व विकलांगों के लिए" (only for the elderly and the
-  disabled) in a box, in Mukta (`src/fonts`).
+  E-Rickshaw, Eco and Metro print in design round 24: the word on a colour band (Eco's says FREE HELPLINE
+  SEWA; the others have it under the band), the serial large, and "केवल बुजुर्गों व विकलांगों के लिए"
+  (only for the elderly and the disabled) in a box, in Mukta (`src/fonts`). The kind word on every vehicle
+  pass but Gate 3 Entry and Gate 1 & 12 is Atkinson Hyperlegible Next 800 with a little extra letter space.
 
   Pick **A3** (297 × 420 mm, the default), **A3+** (329 × 483 mm, also sold as 13 × 19 in) or **A4**
   in the preview; each desk remembers its choice. In the print dialog choose that paper, scale 100% (Actual size), margins None, and
   headers and footers off. When the dialog closes the passes are ticked **Printed**. If it didn't
   print, click **Didn't print? Undo**. Printed passes are skipped next time. Missing serials in the
   range print as blank passes. Print one sheet first and measure a pass with a ruler.
+
 - **Mark printed:** passes printed some other way? Pick them and click **Mark … printed**. Same
   rules as printing; **Undo** reverses it.
 - **Mark unprinted:** to change or print passes again, pick them and click **Mark … unprinted**: it
@@ -209,6 +212,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   ```
 
   Open desks reload by themselves.
+
 - **Several desks:** each open sheet asks the server for changes every 5 seconds (every 15 seconds
   in a background tab). Only changed rows are sent, so it's light.
 
@@ -236,3 +240,7 @@ raise it when the design changes. v2 passes are `Ticket.tsx` and `Rail.tsx`, wit
 Fonts are bundled in `src/fonts` (SIL Open Font License): Roboto Condensed, Source Sans 3 and
 Archivo Black for the passes, and for the v2 passes also Rozha One, Archivo SemiCondensed, Martian
 Mono and Big Shoulders Display; Atkinson Hyperlegible Next for the app.
+
+erikshaw -> 100
+metro -> 20
+eco -> 15

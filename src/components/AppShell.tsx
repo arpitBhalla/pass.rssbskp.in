@@ -144,8 +144,11 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   );
 }
 
-/** A sheet's tab group: Mobile, Bike, Vehicle (the gate passes too, smaller since 2026-11-15, stay with the vehicle sheets), Helpline. */
-const groupOf = (t: PassType) => (TYPE_INFO[t].layout === 'gate' ? 'vehicle' : TYPE_INFO[t].layout);
+/** A sheet's tab group: Mobile, Bike, Vehicle (every vehicle sheet, whatever its size), Helpline. */
+const groupOf = (t: PassType) => {
+  const { layout, helpline } = TYPE_INFO[t];
+  return helpline ? 'helpline' : layout === 'mobile' || layout === 'bike' ? layout : 'vehicle';
+};
 
 /**
  * The sheet's mark: the shape of its pass (portrait Mobile, landscape Bike, wide Vehicle) in the

@@ -3,9 +3,9 @@ import { type Field, type PassType, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
-  A6, A7, BIG, C900, GREY, kindOf, MONO, type Row, serialText, T, tagText, upper, WHITE, widthOf,
+  A6, A7, BIG, GREY, kindOf, MONO, type Row, serialText, T, tagText, upper, WHITE, widthOf,
 } from './v2kit';
-import { ORG_LOGO, OrgHead, RegPlate } from './Modern';
+import { KindWord, kindCap, ORG_LOGO, OrgHead, RegPlate } from './Modern';
 import { GH, stretchY, VW } from './vehicleBox';
 
 /**
@@ -116,7 +116,8 @@ export function TicketVehicle({ p, texts, code }: CardProps) {
       <rect x={w - strip} width={strip} height={h} fill={color} />
       <OrgHead x={7} y={7} max={x - 3 - (7 + ORG_LOGO.w + 3.2)} />
       <T t="VEHICLE PASS" f={A7} cap={2} x={7} y={Y(29.6)} track={caps(2)} fill={GREY} />
-      <T t={kindOf(p.type)} f={C900} cap={10.34} scale={0.87} x={7} y={Y(44.2)} max={97} fill={color} />
+      {/* GATE 3 ENTRY in Atkinson 800, a little extra letter space, as large as fits before the stub (the owner, 2026-11-16; was Roboto Condensed). */}
+      <KindWord t={kindOf(p.type)} cap={kindCap([kindOf(p.type)], 10.34, 99)} x={7} y={Y(44.2)} max={99} align="start" fill={color} />
       {/* Name and Vehicle (no Area or Dept.); the Reg. No. large in a plate centred under them. */}
       <Fields p={p} rows={PLATE_ROWS} x0={7} x1={104} ys={[59, 72].map(Y)} label={1.9} value={4.4} gutter={6}
         split={[[1], [1]]} />

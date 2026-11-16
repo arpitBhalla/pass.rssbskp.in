@@ -1,4 +1,5 @@
 import { CARD_SIZE } from '@/lib/sheets';
+import type { Layout } from '@/shared/types';
 
 /**
  * The 150 × 100 mm vehicle passes changed size on 2026-11-15 (the owner's choice): Sewa Vehicle and
@@ -12,6 +13,8 @@ export const VW = 150;
 export const VH = (VW * CARD_SIZE.vehicle.h) / CARD_SIZE.vehicle.w;
 /** The drawing's height: the gate passes (150 × 102.3). */
 export const GH = (VW * CARD_SIZE.gate.h) / CARD_SIZE.gate.w;
+/** The drawing's height for a layout: 150 wide, the pass's shape (Sewa Vehicle, Tractor Trolley and the helpline passes: 150 × 106.6). */
+export const drawHeight = (layout: Layout) => (VW * CARD_SIZE[layout].h) / CARD_SIZE[layout].w;
 
 /**
  * A y on the old 150 × 100 drawing, on one `h` tall: above `a` where it was, below `b` moved down by the

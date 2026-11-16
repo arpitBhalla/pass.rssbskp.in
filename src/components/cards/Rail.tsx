@@ -5,7 +5,7 @@ import { Qr } from './Qr';
 import {
   BIG, C700, C800, C900, GREY, kindOf, LEGIBLE, mm, type Row, S600, S700, serialText, T, upper, WHITE, widthOf,
 } from './v2kit';
-import { ORG_LOGO, OrgHead, RegPlate } from './Modern';
+import { KindWord, kindCap, ORG_LOGO, OrgHead, RegPlate } from './Modern';
 import { GH, stretchY, VW } from './vehicleBox';
 
 /**
@@ -135,6 +135,7 @@ export function RailVehicle({ p, texts, code }: CardProps) {
   const bav = p.type === 'bav-entry';
   /** Gate 1 & 12 Entry: the two lines' cap height, and the parking sign as tall as they are (cap top of the first to the baseline of the second). */
   const bc = bav ? twoLinesCap(6.2, 118) : 0;
+  const kindWord = p.type === 'admin' ? 'ADMINISTRATION' : kindOf(p.type);
   return (
     <>
       <rect width={w} height={h} fill={WHITE} />
@@ -148,7 +149,8 @@ export function RailVehicle({ p, texts, code }: CardProps) {
       <Pill t={texts.tag} x={144} cy={Y(28.4)} h={4.6} cap={2.3} color={c} />
       {bav
         ? <TwoLines x={25.3} y={Y(42.4)} c={bc} max={118} color={c} />
-        : <T t={p.type === 'admin' ? 'ADMINISTRATION' : kindOf(p.type)} f={C900} cap={12} scale={0.8} x={VW / 2} y={Y(45)} align="middle" max={110} fill={c} />}
+        /* Admin: ADMINISTRATION in Atkinson 800, a little extra letter space, as large as fits the pass (the owner, 2026-11-16; was Roboto Condensed). */
+        : <KindWord t={kindWord} cap={kindCap([kindWord], 12, 138)} x={VW / 2} y={Y(45)} max={138} fill={c} />}
       {/* lw 11 (was 16): the values start closer to their labels (owner, 2026-11-15: "reduce gap"). */}
       {/* Admin: two rows, so the values larger (5.6, was 4.2; the owner, 2026-11-15). */}
       <Fields p={p} rows={bav ? PLATE_ROWS : ADMIN_ROWS} ys={(bav ? [54.5, 65, 75.5] : [57.5, 70]).map(Y)} x0={6} x1={144} lw={11}

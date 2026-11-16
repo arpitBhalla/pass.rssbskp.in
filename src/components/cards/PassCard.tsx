@@ -636,7 +636,7 @@ function VehicleCard({ p, texts, code }: CardProps) {
 }
 
 type Card = (props: CardProps) => React.JSX.Element;
-const CARDS: Record<Layout, Card> = { mobile: MobileCard, bike: BikeCardLedger, vehicle: VehicleCard, gate: VehicleCard, helpline: HelplineVehicle };
+const CARDS: Record<Layout, Card> = { mobile: MobileCard, bike: BikeCardLedger, vehicle: VehicleCard, gate: VehicleCard, large: HelplineVehicle };
 /** Sheets printed in a design v2 pass instead of their layout's template. */
 const BY_TYPE: Partial<Record<PassType, Card>> = {
   'vip-gate': TicketVehicle, admin: RailVehicle, 'bav-entry': RailVehicle, 'gate3-entry': LedgerVehicle,
@@ -657,7 +657,7 @@ export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, t
   const layout = TYPE_INFO[p.type].layout;
   const Card = BY_TYPE[p.type] ?? CARDS[layout];
   const { w, h } = CARD_SIZE[layout];
-  /** Vehicle, gate and helpline passes are drawn VW wide (vehicleBox.ts) and printed CARD_SIZE[layout].w wide. */
+  /** Vehicle, gate and large passes are drawn VW wide (vehicleBox.ts) and printed CARD_SIZE[layout].w wide. */
   const k = layout === 'mobile' || layout === 'bike' ? 1 : w / VW;
   const transform = turn ? `translate(${x + h} ${y}) rotate(90)` : x || y ? `translate(${x} ${y})` : undefined;
   return (
