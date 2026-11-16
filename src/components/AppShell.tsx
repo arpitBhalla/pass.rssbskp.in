@@ -56,6 +56,18 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   // On narrow screens the tabs scroll sideways: keep the open sheet's tab in view.
   const tabsRef = useRef<HTMLElement>(null);
   useEffect(() => { tabsRef.current?.querySelector('[aria-current=page]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [path]);
+  // Their scrollbar is hidden (the owner, 2026-11-16), so a mouse wheel scrolls them sideways.
+  useEffect(() => {
+    const nav = tabsRef.current;
+    if (!nav) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || nav.scrollWidth <= nav.clientWidth) return;
+      e.preventDefault();
+      nav.scrollLeft += e.deltaY;
+    };
+    nav.addEventListener('wheel', onWheel, { passive: false });
+    return () => nav.removeEventListener('wheel', onWheel);
+  }, []);
   const logout = useMutation(trpc.auth.logout.mutationOptions({ onSettled: () => window.location.assign('/login') }));
   const pages = [
     { href: '/people', label: 'People' },
@@ -100,7 +112,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           </div>
           {/* The sheets, as tabs of the register. The open one joins the page below. */}
           {/* Mobile, Bike and Vehicle sheets in three groups. Below 1440 px only the open tab shows its count (the others on hover). */}
-          <nav ref={tabsRef} className="flex items-end overflow-x-auto px-2" aria-label="Sheets">
+          <nav ref={tabsRef} className="flex items-end overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Sheets">
             {PASS_TYPES.map((t, i) => {
               const on = path === `/s/${t}`;
               const newGroup = i > 0 && groupOf(t) !== groupOf(PASS_TYPES[i - 1]);
