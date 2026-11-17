@@ -2,7 +2,7 @@ import type { Layout } from '@/shared/types';
 
 /**
  * Pass sizes in mm (per A3 / A3+ / A4 sheet: Mobile 72 / 91 / 32, Bike 8 / 9 / 4, Sewa Vehicle 4 / 4 / 2,
- * the gate passes 6 / 9 / 2, Tractor Trolley and the Free Helpline Sewa passes 4 / 4 / 2).
+ * the gate passes 6 / 9 / 2, Tractor Trolley and the Free Helpline Sewa passes 2 / 4 / 1).
  */
 export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
   mobile: { w: 36, h: 45 },
@@ -19,10 +19,11 @@ export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
    */
   gate: { w: 151, h: 103 },
   /**
-   * Tractor Trolley, E-Rickshaw, Eco and Metro: Sewa Vehicle's size, 4 to an A3 touching, and on A3+ GAP apart
-   * (the owner, 2026-11-16; earlier that day 231 × 155, 225 × 150 and 200 × 138, for other papers and gaps).
+   * Tractor Trolley, E-Rickshaw, Eco and Metro: the owner asked for 232 wide (2026-11-17), printed on A3+
+   * with 5 mm of margin and 2 mm between the passes (MARGINS, GAP); 158 high is the most that then puts 4
+   * on an A3+ (2 × 2, turned). 2 to an A3, one over the other. (204 × 145, 4 to an A3, until then.)
    */
-  large: { w: 204, h: 145 },
+  large: { w: 232, h: 158 },
 };
 
 export type Paper = 'a3' | 'a3plus' | 'a4';
@@ -36,6 +37,9 @@ export const PAPER: Record<Paper, { label: string; w: number; h: number; dialog:
 
 /** The least space between the paper's edge and the passes, in mm: printers can't print right to the edge. */
 export const MARGIN = 3;
+/** More for some passes: the large ones keep 5 mm (the owner, 2026-11-17). */
+const MARGINS: Partial<Record<Layout, number>> = { large: 5 };
+export const marginOf = (layout: Layout) => MARGINS[layout] ?? MARGIN;
 
 export interface SheetPlan {
   paper: { w: number; h: number };
@@ -66,14 +70,14 @@ function bestGrid(card: { w: number; h: number }, W: number, H: number): Grid | 
 const ONE_WAY: readonly Layout[] = ['mobile'];
 
 /**
- * Space between passes on a sheet, in mm: none (they touch, one cut separates two) but for the large passes
- * on A3+, which has the room: 6 mm between them (the owner, 2026-11-16; on A3 they fill the sheet).
+ * Space between passes on a sheet, in mm, by layout and paper: none (they touch, one cut separates two) but
+ * for the large passes, 2 mm apart on every paper (the owner, 2026-11-17).
  */
-const GAP: Partial<Record<Layout, Partial<Record<Paper, number>>>> = { large: { a3plus: 6 } };
+const GAP: Partial<Record<Layout, Partial<Record<Paper, number>>>> = { large: { a3: 2, a3plus: 2, a4: 2 } };
 
 /**
  * Where each pass goes on one sheet. The passes touch, so one cut separates two (or stand GAP apart, two
- * cuts between them), and keep MARGIN from the paper's edge. A main block all one way round; if a strip of
+ * cuts between them), and keep their margin (marginOf) from the paper's edge. A main block all one way round; if a strip of
  * paper is left beside or below it, a second block fills it with passes turned the other way, touching the first (cut the line between
  * the two blocks first, then each block), except for ONE_WAY passes. Whatever fits most; a single
  * block when that fits as many. The whole is centred on the sheet.
@@ -83,7 +87,8 @@ export function sheetPlan(paper: Paper, layout: Layout): SheetPlan {
   const gap = GAP[layout]?.[paper] ?? 0;
   /** Each pass with the gap after it, in room that much bigger: n passes fit when n × (size + gap) ≤ room + gap. */
   const card = { w: CARD_SIZE[layout].w + gap, h: CARD_SIZE[layout].h + gap };
-  const [W, H] = [p.w - 2 * MARGIN + gap, p.h - 2 * MARGIN + gap];
+  const margin = marginOf(layout);
+  const [W, H] = [p.w - 2 * margin + gap, p.h - 2 * margin + gap];
 
   let best: { main: Grid; strip: Grid | null; side: 'right' | 'below' } | null = null;
   const consider = (main: Grid, strip: Grid | null, side: 'right' | 'below') => {

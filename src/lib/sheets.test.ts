@@ -1,24 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_SIZE, MARGIN, PAPERS, sheetPlan } from './sheets';
+import { CARD_SIZE, marginOf, PAPERS, sheetPlan } from './sheets';
 
 const LAYOUTS = ['mobile', 'bike', 'vehicle', 'gate', 'large'] as const;
 
 describe('sheetPlan', () => {
-  it('fits 72 Mobile, 8 Bike, 4 Sewa / Tractor and 6 gate passes on A3; 91, 9, 4 and 9 on A3+; 32, 4, 2 and 2 on A4', () => {
+  it('fits 72 Mobile, 8 Bike, 4 Sewa, 6 gate and 2 large passes on A3; 91, 9, 4, 9 and 4 on A3+; 32, 4, 2, 2 and 1 on A4', () => {
     const counts = (paper: (typeof PAPERS)[number]) => LAYOUTS.map((l) => sheetPlan(paper, l).perSheet);
-    expect(counts('a3')).toEqual([72, 8, 4, 6, 4]); // Tractor Trolley and the helpline passes 2 × 2 (the owner, 2026-11-16)
-    expect(counts('a3plus')).toEqual([91, 9, 4, 9, 4]);
-    expect(counts('a4')).toEqual([32, 4, 2, 2, 2]);
+    expect(counts('a3')).toEqual([72, 8, 4, 6, 2]);
+    expect(counts('a3plus')).toEqual([91, 9, 4, 9, 4]); // Tractor Trolley and the helpline passes 2 × 2, 232 × 158 (the owner, 2026-11-17)
+    expect(counts('a4')).toEqual([32, 4, 2, 2, 1]);
   });
 
-  it('leaves 6 mm between the large passes on A3+ and touches everywhere else', () => {
+  it('leaves 2 mm between the large passes and touches everywhere else', () => {
     const gaps = (paper: (typeof PAPERS)[number], l: (typeof LAYOUTS)[number]) => {
       const c = CARD_SIZE[l];
       const r = sheetPlan(paper, l).slots.map((o) => ({ x: o.x, y: o.y, w: o.turn ? c.h : c.w, h: o.turn ? c.w : c.h }));
       return new Set(r.flatMap((a) => r.map((b) => Math.max(b.x - a.x - a.w, b.y - a.y - a.h))).filter((g) => g >= -1e-6).map((g) => g.toFixed(3)));
     };
-    expect(Math.min(...[...gaps('a3plus', 'large')].map(Number))).toBeCloseTo(6);
-    for (const l of ['bike', 'vehicle', 'gate', 'large'] as const) expect(gaps('a3', l).has('0.000')).toBe(true);
+    for (const paper of PAPERS) for (const l of ['bike', 'vehicle', 'gate', 'large'] as const) {
+      if (sheetPlan(paper, l).perSheet > 1) expect(Math.min(...[...gaps(paper, l)].map(Number))).toBeCloseTo(l === 'large' ? 2 : 0);
+    }
   });
 
   it('fills a strip left over with passes turned the other way, except Mobile; one block when that fits as many', () => {
@@ -48,6 +49,7 @@ describe('sheetPlan', () => {
         const c = CARD_SIZE[layout];
         const rects = s.slots.map((o) => ({ x: o.x, y: o.y, w: o.turn ? c.h : c.w, h: o.turn ? c.w : c.h }));
         const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+        const MARGIN = marginOf(layout);
         for (const [i, a] of rects.entries()) {
           expect(a.x).toBeGreaterThanOrEqual(MARGIN - 1e-9);
           expect(a.y).toBeGreaterThanOrEqual(MARGIN - 1e-9);

@@ -118,7 +118,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   | Bike Pandal / Non Pandal | 145 × 99 mm | 8 | 9 | 4 |
   | Sewa Vehicle | 204 × 145 mm (half an A4) | 4 | 4 | 2 |
   | Gate 3 Entry (orange), BAV Parking (purple), Gate 3 - VIP (red), Admin (teal) | 151 × 103 mm | 6 | 9 | 2 |
-  | Tractor Trolley (green), E-Rickshaw (red), Eco (brown), Metro (navy) | 204 × 145 mm (6 mm apart on A3+) | 4 | 4 | 2 |
+  | Tractor Trolley (green), E-Rickshaw (red), Eco (brown), Metro (navy) | 232 × 158 mm (best on A3+) | 2 | 4 | 1 |
 
   Passes are turned sideways where that fits more. For the 150 × 100 mm passes, a strip of paper that
   would be left over is filled with passes turned the other way: then the sheet has two blocks, and
@@ -126,7 +126,7 @@ server (`pnpm dev`) only works fully on this computer, as Next.js blocks its pag
   Mobile passes always face one way on a sheet.
 
   On every sheet the passes touch, so one cut separates two, except Tractor Trolley and the helpline
-  passes on A3+, which stand 6 mm apart. Faint cut lines run along every edge and
+  passes, which stand 2 mm apart and keep 5 mm from the paper's edge. Faint cut lines run along every edge and
   out to the paper's edge (never across a pass), to line the cutter up with. The passes keep at least
   3 mm from the paper's edge.
 

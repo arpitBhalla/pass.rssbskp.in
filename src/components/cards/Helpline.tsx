@@ -13,7 +13,7 @@ import { drawHeight, stretchY, VW } from './vehicleBox';
  * the sheet's word on the band, FREE HELPLINE SEWA under it, and no fields: the serial large at the left,
  * the signature under it, and at the right, in a box, "केवल बुजुर्गों व विकलांगों के लिए" (only for the
  * elderly and the disabled; the owner's words, kewal bujurgo v viklango ke liye) with the English under it.
- * Only the word and the colour differ between the three. 204 × 145 mm, Sewa Vehicle's size, drawn on 150 × drawHeight (vehicleBox.ts;
+ * Only the word and the colour differ between the three. 232 × 158 mm (Tractor Trolley's size), drawn on 150 × drawHeight (vehicleBox.ts;
  * laid out on 150 × 100, the y's through Y).
  */
 

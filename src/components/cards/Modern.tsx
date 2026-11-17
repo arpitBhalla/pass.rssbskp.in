@@ -16,7 +16,7 @@ import { drawHeight, stretchY, VW } from './vehicleBox';
  * Atkinson Hyperlegible Next, in three weights; labels small in sentence case, values bold capitals.
  * Changed from the design at the owner's ask: the real RSSB logo, larger, for the RS/SB mark (the name
  * and zone beside it larger to match), and "Vehicle pass" and the month larger, a smaller QR code, the Reg. no.
- * large in a plate centred between the Sr. no. and a narrower signature, and on Sewa Vehicle the kind word centred on its band. 204 × 145 mm, drawn on 150 × VH (vehicleBox.ts; laid out on
+ * large in a plate centred between the Sr. no. and a narrower signature, and on Sewa Vehicle the kind word centred on its band. Sewa 204 × 145 mm, Tractor 232 × 158, drawn on 150 × drawHeight (vehicleBox.ts; laid out on
  * 150 × 100, the y's through Y).
  */
 
@@ -151,7 +151,7 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
   const { title, color } = TYPE_INFO[p.type];
   const ink = color.band;
   const [x0, x1] = [7, 143];
-  /** Sewa Vehicle and Tractor Trolley 204 × 145: the drawing takes the pass's shape. */
+  /** Sewa Vehicle 204 × 145, Tractor Trolley 232 × 158: the drawing takes the pass's shape. */
   const h = drawHeight(TYPE_INFO[p.type].layout);
   const Y = stretchY(5, 96, h);
   const tag = tagText(texts.tag);
