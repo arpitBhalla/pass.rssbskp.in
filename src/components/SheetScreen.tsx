@@ -120,7 +120,9 @@ export function SheetScreen({ type }: { type: PassType }) {
   // A paste over cells that already hold something waits here until it's confirmed (or cancelled).
   const [pendingPaste, setPendingPaste] = useState<{ replaced: PastePlan['replaced']; run: () => void; back: string } | null>(null);
   const onPaste = useCallback((rows: Pass[][], start: number, key: Field, text: string | string[][], canCreate: boolean, fill = false) => {
-    const plan = planPaste({ type, rows, start, key, text, nextSerial: nextSerial(sheetRef.current), canCreate });
+    // Lines past the last row on screen (the blank rows after the last pass included) get the serials after it.
+    const after = rows.reduce((n, r) => Math.max(n, ...r.map((p) => p.serial + 1)), nextSerial(sheetRef.current));
+    const plan = planPaste({ type, rows, start, key, text, nextSerial: after, canCreate });
     if (plan.error) return toast(plan.error, 'error');
     if (!plan.set.length && !plan.create.length) return toast('Nothing to change: those cells already hold that.');
     const serials = [...rows.slice(start, start + plan.rows).flat().map((p) => p.serial), ...plan.create.map((c) => c.serial)];

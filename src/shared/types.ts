@@ -150,8 +150,27 @@ export function formatRegNo(v: string): string {
   return m ? `${m[1]}-${m[2]}${m[3]}-${m[4]}` : v;
 }
 
-/** A value as it's saved in this column: cleaned, and number plates written one way. */
-export const cleanField = (k: Field, v: string) => (k === 'vehicle_no' ? formatRegNo(cleanText(v)) : cleanText(v));
+/**
+ * A mobile number written one way: "9876543210", "98765 43210", "+91 98765-43210" and "098765 43210" all
+ * become "98765-43210" (the owner, 2026-11-17). Several numbers ("…, …", "… / …"): each one. Anything
+ * else (a half-typed or landline number) stays as typed.
+ */
+export function formatPhone(v: string): string {
+  return v.split(/([,;/&]| or )/i).map((part, i) => {
+    if (i % 2) return part; // a separator
+    const m = part.replace(/[\s\-.()]/g, '').match(/^(?:\+?91|0)?([6-9]\d{9})$/);
+    return m ? part.replace(/\S.*\S|\S/, `${m[1].slice(0, 5)}-${m[1].slice(5)}`) : part;
+  }).join('');
+}
+
+/**
+ * A value as it's saved in this column: cleaned, in capitals (the owner, 2026-11-17), number plates and
+ * mobile numbers written one way.
+ */
+export function cleanField(k: Field, v: string): string {
+  const s = cleanText(v).toUpperCase();
+  return (k === 'vehicle_no' ? formatRegNo(s) : k === 'phone' ? formatPhone(s) : s).slice(0, MAX_TEXT);
+}
 
 /** A pass as the browser sees it. */
 export interface Pass {

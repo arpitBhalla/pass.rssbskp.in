@@ -10,11 +10,11 @@ describe('Referred by', () => {
     expect(fieldLabel('admin', 'name')).toBe('Name');
   });
   it('is the export header, and a "Referred by" column imports into it', () => {
-    const p = { ...blankPass('admin', 1), id: 1, name: 'Ram', incharge: 'Sh. Mehta', created_at: '2026-11-14T10:00:00Z' };
+    const p = { ...blankPass('admin', 1), id: 1, name: 'RAM', incharge: 'SH. MEHTA', created_at: '2026-11-14T10:00:00Z' };
     const [head] = exportTable([p], 'admin');
     expect(head).toContain('Referred by');
     expect(head).not.toContain('Incharge');
-    const plan = planImport([], 'admin', 'Sr. No.,Pass type,Name,Referred by\n0002,Admin,Shyam,Sh. Mehta\n');
-    expect(plan.create).toMatchObject([{ type: 'admin', serial: 2, values: { name: 'Shyam', incharge: 'Sh. Mehta' } }]);
+    const plan = planImport([], 'admin', 'Sr. No.,Pass type,Name,Referred by\n0002,Admin,SHYAM,SH. MEHTA\n');
+    expect(plan.create).toMatchObject([{ type: 'admin', serial: 2, values: { name: 'SHYAM', incharge: 'SH. MEHTA' } }]);
   });
 });

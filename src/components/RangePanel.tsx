@@ -1,8 +1,8 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
-import { cleanFill, nPasses, parseSerial, planFill, ranges } from '@/lib/passes';
-import { type Field, fieldLabel, fieldsFor, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { cleanFill, nextSerial, nPasses, parseSerial, planFill, ranges } from '@/lib/passes';
+import { type Field, fieldLabel, fieldsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { btnPrimary, heading, input, label } from './ui';
 
 const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
@@ -29,17 +29,24 @@ export function RangePanel({ type, sheet, range, setRange }: {
   const [values, setValues] = useState<Values>({});
   const fill = useMemo(() => cleanFill(type, values), [type, values]);
   const hasRange = range.from.trim() !== '';
-  const give = useMemo(() => (hasRange ? planFill(sheet, type, range.from, range.to, fill) : null), [hasRange, sheet, type, range, fill]);
-  const giveCount = give ? give.serials.length : 0;
+  // No range: one new pass at the end (the owner, 2026-11-17). If another desk takes that serial meanwhile,
+  // it is saved after the last pass instead, as when typed into the sheet's last row.
+  const end = nextSerial(sheet);
+  const give = useMemo(
+    () => planFill(sheet, type, hasRange ? range.from : String(end), hasRange ? range.to : '', fill),
+    [hasRange, sheet, type, range, end, fill],
+  );
+  const giveCount = give.serials.length;
   const hasWho = WHO.some((k) => fill[k]);
+  const typedAny = Object.values(values).some((v) => v?.trim());
 
   const doGive = async () => {
-    if (!give || !giveCount || !hasWho) return;
+    if (!giveCount || !hasWho) return;
     const who = fill.incharge || fill.name || fill.dept || fill.phone;
-    const summary = `Gave ${info.label} ${ranges(give.serials)} to ${who}`;
+    const summary = hasRange ? `Gave ${info.label} ${ranges(give.serials)} to ${who}` : `Added ${info.label} ${fmtSerial(end)} for ${who}`;
     const typed = values;
     setValues({}); // the passes show as given at once; if the server refuses, the box gets its values back
-    const r = await apply({ action: 'give', summary, set: give.set, create: give.create });
+    const r = await apply({ action: 'give', summary, set: give.set, create: give.create, next: !hasRange });
     if (!r) setValues((v) => (Object.values(v).some(Boolean) ? v : typed));
   };
 
@@ -60,7 +67,8 @@ export function RangePanel({ type, sheet, range, setRange }: {
         </p>
       </section>
 
-      <section className="space-y-2.5 border-t border-border pt-3">
+      {/* Enter in any box gives too. */}
+      <form className="space-y-2.5 border-t border-border pt-3" onSubmit={(e) => { e.preventDefault(); void doGive(); }}>
         <h2 className={heading}>Give</h2>
         {fields.map((k) => (
           <label key={k} className={label}>
@@ -68,11 +76,14 @@ export function RangePanel({ type, sheet, range, setRange }: {
             <input className={input} list={SUGGEST[k]} value={values[k] ?? ''} onChange={(e) => setValues({ ...values, [k]: e.target.value })} />
           </label>
         ))}
-        {give?.err && <p className="text-[13.5px] text-destructive">{give.err}</p>}
-        {give && !give.err && !hasWho && (
+        {give.err && <p className="text-[13.5px] text-destructive">{give.err}</p>}
+        {!give.err && !hasWho && (hasRange || typedAny) && (
           <p className="text-[13.5px] leading-snug text-muted-foreground">Fill {fieldLabel(type, 'incharge')}, or at least one of Name, Dept and Phone.</p>
         )}
-        {give && !give.err && hasWho && (
+        {!give.err && hasWho && !hasRange && (
+          <p className="text-[13.5px] leading-snug text-muted-foreground">No range: adds a new pass at the end, <b className="text-foreground">{fmtSerial(end)}</b>.</p>
+        )}
+        {!give.err && hasWho && hasRange && (
           <div className="space-y-1 text-[13.5px] leading-snug text-muted-foreground">
             {giveCount > 0 && (
               <p>
@@ -89,10 +100,10 @@ export function RangePanel({ type, sheet, range, setRange }: {
             )}
           </div>
         )}
-        <button className={`${btnPrimary} w-full`} disabled={!giveCount || !hasWho} onClick={() => void doGive()}>
-          {!hasRange ? 'Enter a range' : !hasWho ? 'Give' : !giveCount ? 'Nothing to change' : `Give ${nPasses(giveCount)}`}
+        <button type="submit" className={`${btnPrimary} w-full`} disabled={!giveCount || !hasWho}>
+          {!hasWho ? 'Give' : !hasRange ? `Add ${fmtSerial(end)} at the end` : !giveCount ? 'Nothing to change' : `Give ${nPasses(giveCount)}`}
         </button>
-      </section>
+      </form>
 
     </aside>
   );

@@ -38,7 +38,10 @@ type Item =
   | { kind: 'row'; key: string; p: Pass }
   | { kind: 'group'; key: string; passes: Pass[]; open: boolean }
   | { kind: 'empty'; key: string; serial: number }
-  | { kind: 'new'; key: string };
+  | { kind: 'new'; key: string; serial: number };
+
+/** Blank rows after the last pass, the first the "+" row (the owner, 2026-11-17: a few extra rows to type into). */
+const BLANK_ROWS = 10;
 
 /**
  * The sheet's columns: its fields up to Incharge, then Printed and Given, the handover fields
@@ -139,9 +142,14 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       if (open) for (const p of run) out.push({ kind: 'row', key: String(p.id), p });
     }
     emptiesBefore(Infinity);
-    if (canAdd) out.push({ kind: 'new', key: 'new' });
+    if (canAdd) {
+      out.push({ kind: 'new', key: 'new', serial: next });
+      for (let s = next + 1; s < next + BLANK_ROWS; s++) out.push({ kind: 'empty', key: `e${s}`, serial: s });
+    }
     return out;
-  }, [view, opened, canAdd, missing]);
+  }, [view, opened, canAdd, missing, next]);
+  /** Every row's passes, an entry per row (the "+" row's pass-to-be too), for a paste or fill from row `i`. */
+  const pasteRows = () => items.map((it) => (it.kind === 'new' ? [blankPass(type, it.serial)] : itemPasses(type, it)));
 
   const toggle = (key: string) => setOpened((s) => {
     const nextSet = new Set(s);
@@ -170,6 +178,18 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   const vItems = virtualizer.getVirtualItems();
   const padTop = vItems.length ? vItems[0].start - ROW_H : 0;
   const padBottom = vItems.length ? virtualizer.getTotalSize() - vItems[vItems.length - 1].end : 0;
+
+  // A sheet opens with the last pass added in the middle of the screen, the blank rows under it (the owner,
+  // 2026-11-17). Once, when its passes are in; opened with a search, it starts at the top as before.
+  const openedAt = useRef<PassType | null>(null);
+  useEffect(() => {
+    if (openedAt.current === type || !total) return;
+    openedAt.current = type;
+    if (!canAdd || !view.length) return;
+    const newest = view.reduce((a, p) => (p.id > a.id ? p : a));
+    const i = items.findIndex((it) => (it.kind === 'row' ? it.p.id === newest.id : it.kind === 'group' && it.passes.includes(newest)));
+    if (i >= 0) virtualizer.scrollToIndex(i, { align: 'center' });
+  }, [type, total, canAdd, view, items, virtualizer]);
 
   /* ----- selecting rows: click # or Sr. No.; Shift+click or drag for more ----- */
   const anchor = useRef<Span | null>(null);
@@ -227,9 +247,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       }
       lines.push(line);
     }
-    const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
-    const start = items[to.r0]?.kind === 'new' ? rows.length : to.r0;
-    onPaste(rows, start, fields[to.c0], lines, canAdd, true);
+    onPaste(pasteRows(), to.r0, fields[to.c0], lines, canAdd, true);
     if (select) setBlock({ a: { key: items[Math.min(from.r0, to.r0)].key, c: Math.min(from.c0, to.c0) }, b: { key: items[Math.max(from.r1, to.r1)].key, c: Math.max(from.c1, to.c1) } });
   };
 
@@ -610,8 +628,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       if (startEdit(el, undefined, true)) { el.value = cleanText(text); el.setSelectionRange(el.value.length, el.value.length); }
       return;
     }
-    const rows = items.filter((it) => it.kind !== 'new').map((it) => itemPasses(type, it));
-    onPaste(rows, items[i].kind === 'new' ? rows.length : i, k, text, canAdd);
+    onPaste(pasteRows(), i, k, text, canAdd);
   };
 
   const lookup = (phone: string) => detailsFor(phones, phone);
@@ -690,7 +707,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       )}
       {total === 0 && canAdd && (
         <p className="py-10 text-center text-muted-foreground">
-          No passes yet. Give a range in the panel on the right, or type / paste rows from Excel into the row above.
+          No passes yet. Give a range in the panel on the right, or type / paste rows from Excel into the rows above.
         </p>
       )}
     </div>
@@ -1043,7 +1060,7 @@ function caretAt(el: HTMLInputElement, x: number): number {
 }
 
 const cellCls = (locked: boolean, k: Field, warn = false) =>
-  `h-[29px] w-full bg-transparent px-2 outline-none ${warn ? '!text-red-700' : ''} placeholder:text-muted-foreground/50 read-only:selection:bg-transparent ${locked ? 'cursor-default text-muted-foreground' : 'read-only:cursor-cell'} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
+  `h-[29px] w-full bg-transparent px-2 uppercase outline-none ${warn ? '!text-red-700' : ''} placeholder:normal-case placeholder:text-muted-foreground/50 read-only:selection:bg-transparent ${locked ? 'cursor-default text-muted-foreground' : 'read-only:cursor-cell'} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
 
 /**
  * Uncontrolled box that saves on blur. Keyed by its value, so it redraws when the value changes
@@ -1062,7 +1079,8 @@ function CellInput({ target, k, saved, locked, warn, onEdit }: {
     const { target: t, onEdit: edit, locked: l } = latest.current;
     const v = cleanField(k, raw);
     if (l) return;
-    if (v === sent.current) { if (ref.current) ref.current.value = v; return; } // e.g. a plate typed without dashes
+    // Nothing new: e.g. a plate typed without dashes, or a value saved before capitals, left as it was.
+    if (v === cleanField(k, sent.current)) { if (ref.current) ref.current.value = v; return; }
     sent.current = v;
     void edit(t, k, v, saved).then((ok) => {
       if (ok || !ref.current) return;

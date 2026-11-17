@@ -1,5 +1,6 @@
 import { type Kysely, sql } from 'kysely';
 import type { Migration } from 'kysely/migration';
+import { cleanField, type Field, FIELDS } from '@/shared/types';
 
 /**
  * Database migrations, applied in name order when the server starts.
@@ -184,6 +185,26 @@ export const migrations: Record<string, Migration> = {
         ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'eco';
         ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'metro';
       `).execute(db);
+    },
+  },
+  // Every value is saved in capitals and mobiles as 98765-43210 since 2026-11-17 (cleanField): the passes
+  // saved before then are written the same way, once (the owner's yes, 2026-11-17), so "Ramesh" and "RAMESH"
+  // are one value. One new revision, so every desk picks the changes up on its next sync. Not in History.
+  '0010_capitals': {
+    async up(db: Kysely<unknown>) {
+      type Row = { id: number } & Record<Field, string>;
+      const { rows } = await sql<Row>`SELECT id, ${sql.join(FIELDS.map((k) => sql.ref(k)))} FROM passes`.execute(db);
+      const changed = rows.flatMap((r) => {
+        const v = Object.fromEntries(FIELDS.map((k) => [k, cleanField(k, r[k])])) as Record<Field, string>;
+        return FIELDS.some((k) => v[k] !== r[k]) ? [{ id: r.id, ...v }] : [];
+      });
+      if (!changed.length) return;
+      const { rows: [{ version }] } = await sql<{ version: number }>`UPDATE meta SET version = version + 1 WHERE id = 1 RETURNING version`.execute(db);
+      await sql`
+        UPDATE passes p SET ${sql.join(FIELDS.map((k) => sql`${sql.ref(k)} = v.${sql.ref(k)}`))}, rev = ${version}
+        FROM jsonb_to_recordset(${JSON.stringify(changed)}::jsonb)
+          AS v(id int, ${sql.join(FIELDS.map((k) => sql`${sql.ref(k)} text`))})
+        WHERE p.id = v.id`.execute(db);
     },
   },
 };
