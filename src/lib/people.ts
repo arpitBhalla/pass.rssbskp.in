@@ -151,6 +151,23 @@ export function detailsFor(phones: ReadonlyMap<string, Pass[]>, phone: string): 
   return { from, values };
 }
 
+/**
+ * The Name box's suggestions: everyone with a phone and a name, as "RAMESH KUMAR — 98765-43210 · SEWA · SIRSA"
+ * (the phone tells two of the same name apart), by name. Each with what picking them fills in: the name,
+ * phone, dept and area from their latest passes. A person with a mobile pass gets their bike pass this way.
+ */
+export function namePicks(phones: ReadonlyMap<string, Pass[]>): Map<string, Values> {
+  const list: [string, Values][] = [];
+  for (const passes of phones.values()) {
+    const recent = [...passes].sort(newestFirst);
+    const name = latest(recent, 'name');
+    if (!name) continue;
+    const values: Values = { name, phone: recent[0].phone, dept: latest(recent, 'dept'), area: latest(recent, 'area') };
+    list.push([`${name} — ${[values.phone, values.dept, values.area].filter(Boolean).join(' · ')}`, values]);
+  }
+  return new Map(list.sort(([a], [b]) => a.localeCompare(b)));
+}
+
 /** A person in the People list: their profile, with how many of their passes break a rule. */
 export interface Person extends Profile { key: string; broken: number }
 

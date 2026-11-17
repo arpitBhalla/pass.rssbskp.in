@@ -1,11 +1,25 @@
 import { describe as group, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
 import { blankPass } from './passes';
-import { alsoHeld, byPhone, describe, detailsFor, duplicatesOf, findDuplicates, listPeople, matchesPerson, phoneKey, profileOf, regKey } from './people';
+import { alsoHeld, byPhone, describe, detailsFor, duplicatesOf, findDuplicates, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey } from './people';
 
 let nextId = 1;
 const pass = (type: PassType, serial: number, extra: Partial<Pass> = {}): Pass =>
   ({ ...blankPass(type, serial), id: nextId++, created_at: '2026-11-14T10:00:00Z', ...extra });
+
+group('name suggestions', () => {
+  it('lists everyone with a phone and a name once, with what picking them fills in', () => {
+    const picks = namePicks(byPhone([
+      pass('mobile-pandal', 1, { name: 'RAMESH KUMAR', phone: '98765-43210', dept: 'SEWA', area: 'SIRSA', created_at: '2026-11-10T10:00:00Z' }),
+      pass('bike-pandal', 2, { name: 'RAMESH KUMAR', phone: '98765-43210', area: 'HISAR', created_at: '2026-11-12T10:00:00Z' }),
+      pass('mobile-pandal', 3, { name: 'RAMESH KUMAR', phone: '99999-11111' }), // another Ramesh: told apart by phone
+      pass('mobile-pandal', 4, { phone: '98111-22222' }), // no name: nothing to suggest
+      pass('mobile-pandal', 5, { name: 'NO PHONE' }),
+    ]));
+    expect([...picks.keys()]).toEqual(['RAMESH KUMAR — 98765-43210 · SEWA · HISAR', 'RAMESH KUMAR — 99999-11111']);
+    expect(picks.get('RAMESH KUMAR — 98765-43210 · SEWA · HISAR')).toEqual({ name: 'RAMESH KUMAR', phone: '98765-43210', dept: 'SEWA', area: 'HISAR' });
+  });
+});
 
 group('who is the same person', () => {
   it('matches a phone however it is written: its last 10 digits', () => {

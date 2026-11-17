@@ -4,7 +4,7 @@ import { isUnsaved } from '@/client/store';
 import { toast } from '@/client/toast';
 import { addedBy, useUserNames } from '@/client/users';
 import {
-  type ClipboardEvent, type FocusEvent, type KeyboardEvent, memo, type MouseEvent, useEffect, useMemo, useRef, useState,
+  type ClipboardEvent, type FocusEvent, type FormEvent, type KeyboardEvent, memo, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
 import { alsoHeld, detailsFor, type Duplicate, passLabel, phoneKey } from '@/lib/people';
@@ -16,8 +16,8 @@ type Arrow = { dr: number; dc: number };
 const ARROWS: Record<string, Arrow> = {
   ArrowUp: { dr: -1, dc: 0 }, ArrowDown: { dr: 1, dc: 0 }, ArrowLeft: { dr: 0, dc: -1 }, ArrowRight: { dr: 0, dc: 1 },
 };
-/** Columns with typing suggestions (datalists rendered by SheetScreen). */
-const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
+/** Columns with typing suggestions (datalists rendered by SheetScreen). Name: people, see `namePicks`. */
+const SUGGEST: Partial<Record<Field, string>> = { name: 'dl-person', incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
 const WIDTH: Partial<Record<Field, number>> = { dept: 118, area: 118, phone: 112, vehicle: 140, vehicle_no: 124 };
 /** Name, Incharge and Issued To take the spare width, but never less than this: the table scrolls sideways first. */
 const FLEX_MIN = 112;
@@ -87,6 +87,10 @@ const itemPasses = (type: PassType, it: Item): Pass[] =>
 
 /** Saves one cell for these passes. `saved` is the value the user started from. Resolves false if nothing was saved. */
 export type EditFn = (target: Pass[], key: Field, value: string, saved: string) => Promise<boolean>;
+/** Saves a person picked from the Name suggestions for this pass (see `namePicks`). Resolves false if nothing was saved. */
+export type PickFn = (p: Pass, values: Values) => Promise<boolean>;
+/** The person a Name suggestion stands for, if `text` is one. */
+type PickOf = (text: string) => Values | undefined;
 
 export interface SheetProps {
   type: PassType;
@@ -116,11 +120,14 @@ export interface SheetProps {
   /** Everyone's passes by phone: a phone on more passes shows how many, and opens them (`onPerson`). */
   phones: ReadonlyMap<string, Pass[]>;
   onPerson: (phoneKey: string) => void;
+  /** The Name suggestions (`namePicks`): picking one fills in the person's phone, dept and area too. */
+  picks: ReadonlyMap<string, Values>;
+  onPick: PickFn;
 }
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson } = props;
+  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
   const fields = fieldsFor(type);
   const cols = 5 + fields.length;
   const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0);
@@ -632,6 +639,9 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   };
 
   const lookup = (phone: string) => detailsFor(phones, phone);
+  const picksRef = useRef(picks);
+  useEffect(() => { picksRef.current = picks; });
+  const pickOf = useCallback<PickOf>((text) => picksRef.current.get(text), []); // the same each time: rows stay memoised
   /** One row of the sheet. */
   const drawItem = (v: (typeof vItems)[number]) => {
     const it = items[v.index];
@@ -646,7 +656,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
         <Row
           key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
           dupePhone={alsoHeld(ds, 'phone') || undefined} dupeReg={alsoHeld(ds, 'vehicle_no') || undefined}
-          held={phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson}
+          held={phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
         />
       );
     }
@@ -660,9 +670,9 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       );
     }
     if (it.kind === 'empty') {
-      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} lookup={lookup} />;
+      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} lookup={lookup} pickOf={pickOf} />;
     }
-    return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} lookup={lookup} last />;
+    return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} lookup={lookup} pickOf={pickOf} last />;
   };
 
   return (
@@ -767,9 +777,10 @@ const picked = '!bg-sand-200 !text-sand-900';
  * on hover). `held`: passes on its phone, on every sheet. The Sr. No. shows a person icon that opens them all
  * (with the count from 2; for one, only while the row is pointed at or has the cursor).
  */
-const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, dupePhone, dupeReg, held, onPerson }: {
+const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, dupePhone, dupeReg, held, onPerson, pickOf, onPick }: {
   p: Pass; i: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
   onGiven: SheetProps['onGiven']; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
+  pickOf: PickOf; onPick: PickFn;
 }) {
   const printed = isPrinted(p);
   const given = isGiven(p);
@@ -779,7 +790,10 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
     return (
       <td key={k} data-c={c} className={`${cellTd(c, mark)} ${warn ? 'relative' : ''}`} title={warn}>
         {warn && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-red-600" />}
-        <CellInput key={p[k]} target={[p]} k={k} saved={p[k]} locked={printed && locksWhenPrinted(k)} warn={!!warn} onEdit={onEdit} />
+        <CellInput
+          key={p[k]} target={[p]} k={k} saved={p[k]} locked={printed && locksWhenPrinted(k)} warn={!!warn} onEdit={onEdit}
+          pick={k === 'name' ? { of: pickOf, save: (v) => onPick(p, v) } : undefined}
+        />
         {mark?.handle === c && <FillHandle />}
       </td>
     );
@@ -886,9 +900,9 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
  * bottom. Type across it (Tab between cells); the pass is added when you leave the row, with
  * everything typed in it. Enter on the last row adds it and stays there for the next one.
  */
-function BlankRow({ i, serial, fields, mark, selected, onCreate, lookup, last = false }: {
+function BlankRow({ i, serial, fields, mark, selected, onCreate, lookup, pickOf, last = false }: {
   i: number; serial: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onCreate: SheetProps['onCreate'];
-  lookup: (phone: string) => ReturnType<typeof detailsFor>; last?: boolean;
+  lookup: (phone: string) => ReturnType<typeof detailsFor>; pickOf: PickOf; last?: boolean;
 }) {
   const ref = useRef<HTMLTableRowElement>(null);
   const latest = useRef({ onCreate, serial, lookup });
@@ -941,13 +955,24 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, lookup, last = 
     }
     if (filled.length) toast(`Filled in ${filled.join(', ')} from ${passLabel(found.from)}. Change them if they're not right.`);
   };
+  // A person picked from the Name suggestions: their name, and their phone, dept and area where still empty.
+  // Added with the rest when the row is left, as if typed.
+  const pickPerson = (e: FormEvent<HTMLInputElement>) => {
+    const found = pickOf(e.currentTarget.value);
+    if (!found) return;
+    e.currentTarget.value = found.name ?? '';
+    for (const el of ref.current?.querySelectorAll<HTMLInputElement>('input[data-k]') ?? []) {
+      const v = found[el.dataset.k as Field];
+      if (el !== e.currentTarget && v && !el.value.trim()) el.value = v;
+    }
+  };
   const cell = (k: Field) => {
     const c = fields.indexOf(k);
     return (
       <td key={k} data-c={c} className={cellTd(c, mark)}>
         <input
           data-k={k} readOnly list={SUGGEST[k]} placeholder={last && c === 0 ? 'type or paste…' : ''} className={cellCls(false, k)}
-          onBlur={k === 'phone' ? fillFromPhone : undefined}
+          onBlur={k === 'phone' ? fillFromPhone : undefined} onInput={k === 'name' ? pickPerson : undefined}
         />
         {mark?.handle === c && <FillHandle />}
       </td>
@@ -1067,8 +1092,10 @@ const cellCls = (locked: boolean, k: Field, warn = false) =>
  * from outside (another desk, undo, paste). A row scrolled out of view mid-edit still saves.
  * If a save fails the box goes back to the saved value, so it never shows something unsaved.
  */
-function CellInput({ target, k, saved, locked, warn, onEdit }: {
+function CellInput({ target, k, saved, locked, warn, onEdit, pick }: {
   target: Pass[]; k: Field; saved: string; locked: boolean; warn?: boolean; onEdit: EditFn;
+  /** Name, on a single pass: suggests people, and a person picked is saved at once with their phone, dept and area. */
+  pick?: { of: PickOf; save: (v: Values) => Promise<boolean> };
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const sent = useRef(saved); // last value saved, or being saved
@@ -1097,6 +1124,25 @@ function CellInput({ target, k, saved, locked, warn, onEdit }: {
     return () => { if (el) saveRef.current(el.value); };
   }, []);
 
+  const pickPerson = (e: FormEvent<HTMLInputElement>) => {
+    const el = e.currentTarget;
+    const found = pick?.of(el.value);
+    if (!pick || !found) return;
+    el.value = found.name ?? '';
+    sent.current = el.value; // saved here, not again on leaving the cell
+    stopEdit(el);
+    const back = `tbody tr[data-i="${el.closest('tr')?.dataset.i}"] input[data-k="${k}"]`;
+    void pick.save(found).then((ok) => {
+      if (ok || !ref.current) return;
+      ref.current.value = saved;
+      sent.current = saved;
+    });
+    // The row is drawn again with the new values: the cursor stays on it (unless a question took it).
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) document.querySelector<HTMLInputElement>(back)?.focus();
+    });
+  };
+
   return (
     <input
       ref={ref}
@@ -1104,7 +1150,8 @@ function CellInput({ target, k, saved, locked, warn, onEdit }: {
       defaultValue={saved}
       readOnly // until edited: see startEdit
       data-locked={locked || undefined}
-      list={locked ? undefined : SUGGEST[k]}
+      list={locked || (k === 'name' && !pick) ? undefined : SUGGEST[k]}
+      onInput={pick && pickPerson}
       title={locked ? 'Printed: locked. Untick Printed to change it.' : undefined}
       onBlur={(e) => save(e.target.value)}
       className={cellCls(locked, k, warn)}

@@ -12,8 +12,8 @@ import {
   blankPass, filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
-import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates } from '@/lib/people';
-import { cleanField, type Field, fieldLabel, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks } from '@/lib/people';
+import { cleanField, type Field, fieldLabel, fieldsFor, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { Menu, Popover } from './Menu';
 import { ProfileCard } from './Profile';
 import { RangeBar } from './RangeBar';
@@ -46,6 +46,7 @@ export function SheetScreen({ type }: { type: PassType }) {
   const all = useAllPasses();
   const dupes = useMemo(() => findDuplicates(all), [all]);
   const phones = useMemo(() => byPhone(all), [all]);
+  const picks = useMemo(() => namePicks(phones), [phones]);
   const nDupes = useMemo(() => sheet.reduce((n, p) => n + (dupes.has(p.id) ? 1 : 0), 0), [sheet, dupes]);
 
   // ?q=0012 (from a person's passes on another sheet) starts with that search.
@@ -105,6 +106,22 @@ export function SheetScreen({ type }: { type: PassType }) {
     const where = `${info.label} ${passRanges(target)}`;
     const summary = `${fieldLabel(type, k)} ${saved ? `"${saved}"` : '(blank)'} → ${v ? `"${v}"` : '(blank)'} · ${where}`;
     return !!(await apply({ action: 'edit', summary, set }, { toast: target.length > 1 ? undefined : false }));
+  }, [apply, checkDupes, info.label, type]);
+
+  // A person picked from the Name suggestions: their name, and their phone, dept and area where this pass has
+  // none (what's there is never overwritten). One change, so one Undo.
+  const onPick = useCallback(async (p: Pass, found: Values) => {
+    const values: Values = {};
+    for (const k of fieldsFor(type)) {
+      const v = found[k];
+      if (v && v !== p[k] && (k === 'name' || !p[k])) values[k] = v;
+    }
+    const keys = Object.keys(values) as Field[];
+    if (!keys.length) return true;
+    if (values.phone && !(await checkDupes([{ before: p, after: { ...p, ...values } }], 'Save'))) return false;
+    const expect = Object.fromEntries(keys.map((k) => [k, p[k]])) as Values;
+    const summary = `Picked ${values.name ?? p.name}: ${keys.map((k) => fieldLabel(type, k)).join(', ')} · ${info.label} ${fmtSerial(p.serial)}`;
+    return !!(await apply({ action: 'edit', summary, set: [{ id: p.id, values, expect }] }, { toast: false }));
   }, [apply, checkDupes, info.label, type]);
 
   // Typed as the next pass (or into an empty row): if another desk takes that serial meanwhile, it is
@@ -296,12 +313,12 @@ export function SheetScreen({ type }: { type: PassType }) {
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} next={next} missing={missing}
           onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven}
           onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
-          dupes={dupes} phones={phones} onPerson={setPerson}
+          dupes={dupes} phones={phones} onPerson={setPerson} picks={picks} onPick={onPick}
         />
       </section>
 
-      <RangePanel type={type} sheet={sheet} range={range} setRange={setRange} />
-      <Suggestions />
+      <RangePanel type={type} sheet={sheet} range={range} setRange={setRange} picks={picks} />
+      <Suggestions picks={picks} />
       {person && <ProfileCard phone={person} passes={phones.get(person) ?? []} dupes={dupes} onJump={goTo} onClose={closePerson} />}
 
       {importPlan && (
@@ -367,8 +384,8 @@ function ImportSummary({ plan, found }: { plan: ImportPlan; found: Duplicate[] }
   );
 }
 
-/** Typing suggestions for Incharge / Area / Dept, from everything entered so far on every sheet. */
-const Suggestions = memo(function Suggestions() {
+/** Typing suggestions for Incharge / Area / Dept, from everything entered so far on every sheet; for Name, people (`namePicks`). */
+const Suggestions = memo(function Suggestions({ picks }: { picks: ReadonlyMap<string, Values> }) {
   const all = useAllPasses();
   const lists = useMemo(() => {
     const pick = (k: Field, extra: string[] = []) =>
@@ -380,6 +397,7 @@ const Suggestions = memo(function Suggestions() {
       {(Object.keys(lists) as (keyof typeof lists)[]).map((k) => (
         <datalist key={k} id={`dl-${k}`}>{lists[k].map((v) => <option key={v} value={v} />)}</datalist>
       ))}
+      <datalist id="dl-person">{[...picks.keys()].map((v) => <option key={v} value={v} />)}</datalist>
     </>
   );
 });

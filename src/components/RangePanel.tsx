@@ -5,7 +5,7 @@ import { cleanFill, nextSerial, nPasses, parseSerial, planFill, ranges } from '@
 import { type Field, fieldLabel, fieldsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { btnPrimary, heading, input, label } from './ui';
 
-const SUGGEST: Partial<Record<Field, string>> = { incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
+const SUGGEST: Partial<Record<Field, string>> = { name: 'dl-person', incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
 /** Give box order: Area first, then who it's given to. */
 const GIVE_ORDER: Field[] = ['area', 'incharge', 'dept', 'name', 'phone', 'vehicle', 'vehicle_no'];
 /** A Give needs one of these: the incharge, or the holder's Name / Dept / Phone. */
@@ -15,11 +15,13 @@ const WHO: Field[] = ['incharge', 'name', 'dept', 'phone'];
  * Side panel: pick a range of serials (or select rows in the sheet) and Give them to someone. It shows
  * exactly what will happen before anything is saved. Print / Given / Delete are in the RangeBar.
  */
-export function RangePanel({ type, sheet, range, setRange }: {
+export function RangePanel({ type, sheet, range, setRange, picks }: {
   type: PassType;
   sheet: Pass[];
   range: { from: string; to: string };
   setRange: (r: { from: string; to: string }) => void;
+  /** The Name suggestions (`namePicks`): picking one fills in the person's phone, dept and area too. */
+  picks: ReadonlyMap<string, Values>;
 }) {
   const info = TYPE_INFO[type];
   const { apply } = useActions();
@@ -39,6 +41,13 @@ export function RangePanel({ type, sheet, range, setRange }: {
   const giveCount = give.serials.length;
   const hasWho = WHO.some((k) => fill[k]);
   const typedAny = Object.values(values).some((v) => v?.trim());
+  // A person picked from the Name suggestions: their name, and their phone, dept and area in the boxes still empty.
+  const change = (k: Field, v: string) => {
+    const found = k === 'name' ? picks.get(v) : undefined;
+    if (!found) return setValues({ ...values, [k]: v });
+    const add = fields.filter((f) => found[f] && (f === 'name' || !values[f]?.trim())).map((f) => [f, found[f]]);
+    setValues({ ...values, ...Object.fromEntries(add) });
+  };
 
   const doGive = async () => {
     if (!giveCount || !hasWho) return;
@@ -73,7 +82,7 @@ export function RangePanel({ type, sheet, range, setRange }: {
         {fields.map((k) => (
           <label key={k} className={label}>
             {fieldLabel(type, k)}
-            <input className={input} list={SUGGEST[k]} value={values[k] ?? ''} onChange={(e) => setValues({ ...values, [k]: e.target.value })} />
+            <input className={input} list={SUGGEST[k]} value={values[k] ?? ''} onChange={(e) => change(k, e.target.value)} />
           </label>
         ))}
         {give.err && <p className="text-[13.5px] text-destructive">{give.err}</p>}
