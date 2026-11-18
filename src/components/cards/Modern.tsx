@@ -171,7 +171,6 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
   const kbase = (Y(27.2) + Y(48.4) - rule) / 2 + kcap / 2;
   const gap = (kbase - kcap - (Y(7) + qr) - 3.2) / 2;
   const lineY = plain ? Y(7) + qr + gap + 3.2 : Y(27.2);
-  const sigH = plain ? 7.6 : 15;
   /** The serial's cap height, and its baseline: its middle level with the plate's. */
   const scap = 10;
   const serialY = (plate.top + plate.bottom) / 2 + scap / 2;
@@ -197,9 +196,9 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
       {/* The serial larger, its middle level with the plate's (the owner, 2026-11-16), "Sr. no." over it, level with the plate's top; digits narrowed to 92 % to fit before the plate. */}
       <T t="Sr. no." f={REG} cap={2.4} x={x0} y={plate.top + 2.4} />
       <T t={serialText(p.serial, 3)} f={HEAVY} cap={scap} scale={0.92} x={x0} y={serialY} max={plate.x0 - 4.5 - x0} />
-      {/* Sewa Vehicle's signature larger, 15 tall, down to just under the Area / Dept. line (the owner, 2026-11-18); Tractor Trolley's 7.6. */}
+      {/* The signature larger, 15 tall (7.6 before), up to just under the Area / Dept. line (the owner, 2026-11-18). */}
       {texts.signature && (
-        <image href={texts.signature} x={x1 - sw} y={mm(Y(90.6) - sigH - 0.3)} width={sw} height={sigH} preserveAspectRatio="xMidYMax meet" />
+        <image href={texts.signature} x={x1 - sw} y={mm(Y(90.6) - 15 - 0.3)} width={sw} height={15} preserveAspectRatio="xMidYMax meet" />
       )}
       <rect x={x1 - sw} y={Y(90.6)} width={sw} height={0.18} fill={INK} />
       <T t="Auth. signatory" f={REG} cap={1.6} x={x1 - sw / 2} y={Y(90.6) + 1.6 * 1.9} align="middle" max={sw} />
