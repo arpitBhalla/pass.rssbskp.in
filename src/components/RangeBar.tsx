@@ -129,15 +129,20 @@ export function RangeBar({ type, sheet, range, onClear }: {
                 className={btnPrimary} disabled={!nCards} onClick={() => print && setPrinting(print)}
                 title={nCards
                   ? `${nPasses(nCards)} on ${sheets} ${PAPER[paper].label} sheet${sheets === 1 ? '' : 's'}${print?.create.length ? `, ${print.create.length} blank` : ''}${print?.printed.length ? `. Skips ${print.printed.length} already printed (${ranges(print.printed)}).` : ''}`
-                  : 'All of these are printed already'}
+                  : print?.unfilled.length ? 'Nothing to print: none of these is filled in and unprinted' : 'All of these are printed already'}
               >
                 Preview &amp; print
               </button>
               <button className={btn} disabled={!nCards} onClick={() => void markPrinted()} title="Tick Printed without printing (printed some other way). Undo reverses it.">
                 {nCards ? `Mark ${nCards} printed` : 'Mark printed'}
               </button>
-              {print && !nCards && print.printed.length > 0 && (
+              {print && !nCards && !print.unfilled.length && print.printed.length > 0 && (
                 <span className={note} title="Mark them unprinted to print them again.">all printed</span>
+              )}
+              {print && print.unfilled.length > 0 && (
+                <span className="text-[13.5px] leading-snug text-amber-800" title={`Not printed until every detail is filled in (Incharge and Issued To don't count): ${ranges(print.unfilled)}`}>
+                  {print.unfilled.length === 1 ? `${fmtSerial(print.unfilled[0])} isn't` : `${print.unfilled.length} aren't`} filled in: left out
+                </span>
               )}
               {nCards > 0 && !settings.isLoading && missing.length > 0 && <MissingSetup missing={missing as string[]} />}
             </>

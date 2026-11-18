@@ -3,7 +3,7 @@ import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '
 import { exportCSV, exportTable, planImport } from './csv';
 import {
   blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
-  planPrint, ranges,
+  planPrint, ranges, unfilledOf,
 } from './passes';
 import { buildReport, reportCSV } from './report';
 
@@ -267,14 +267,27 @@ describe('report', () => {
 });
 
 describe('print', () => {
-  it('prints unprinted and missing serials, skipping printed ones', () => {
-    const s = [pass(1, { name: 'AMIT' }), pass(2, { printed_at: 'x' })];
-    const plan = planPrint(s, 'mobile-pandal', '1', '3');
-    expect(plan.cards.map((c) => c.serial)).toEqual([1, 3]);
+  const full = { name: 'AMIT', dept: 'LANGAR', area: 'SIRSA', phone: '98765-43210' };
+  it('prints the passes filled in and not printed yet', () => {
+    const s = [pass(1, full), pass(2, { ...full, printed_at: 'x' }), pass(4, { ...full, phone: '' }), pass(5, { incharge: 'MOHAN', area: 'DELHI' })];
+    const plan = planPrint(s, 'mobile-pandal', '1', '5');
+    expect(plan.cards.map((c) => c.serial)).toEqual([1]);
     expect(plan.printed).toEqual([2]);
-    expect(plan.set).toEqual([{ id: s[0].id, printed: true, expect: { name: 'AMIT', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', printed: false } }]);
-    expect(plan.create).toEqual([{ type: 'mobile-pandal', serial: 3, values: {}, printed: true }]);
-    expect(planPrint([], 'mobile-pandal', '1', '1000').err).toMatch(/at most 900/);
+    expect(plan.unfilled).toEqual([3, 4, 5]); // not in the register; no phone; only an area
+    expect(plan.set).toEqual([{ id: s[0].id, printed: true, expect: { ...full, vehicle: '', vehicle_no: '', printed: false } }]);
+    expect(plan.create).toEqual([]);
+  });
+  it('needs every detail its sheet has: a bike pass its Reg. No. too, not Incharge or Issued To', () => {
+    const bike = (extra: Partial<Pass>) => ({ ...blankPass('bike-pandal', 1), id: 1, ...full, ...extra });
+    expect(unfilledOf('bike-pandal', bike({}))).toEqual(['vehicle_no']);
+    expect(unfilledOf('bike-pandal', bike({ vehicle_no: 'HR-24K-9300' }))).toEqual([]);
+    expect(unfilledOf('mobile-pandal', undefined)).toEqual(['name', 'dept', 'area', 'phone']);
+  });
+  it('helpline passes have no details: serials not in the register print, and are added', () => {
+    const plan = planPrint([], 'e-rickshaw', '1', '2');
+    expect(plan.cards.map((c) => c.serial)).toEqual([1, 2]);
+    expect(plan.create[0]).toEqual({ type: 'e-rickshaw', serial: 1, values: {}, printed: true });
+    expect(planPrint([], 'eco', '1', '1000').err).toMatch(/at most 900/);
   });
 });
 

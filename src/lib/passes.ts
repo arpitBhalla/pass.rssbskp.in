@@ -312,17 +312,28 @@ export type CardData = Pick<Pass, 'type' | 'serial' | 'name' | 'dept' | 'area' |
 
 export interface PrintPlan {
   cards: CardData[];
-  /** Saving these marks the cards printed (serials not in the register yet are added, blank). */
+  /** Saving these marks the cards printed (on a helpline sheet, serials not in the register yet are added). */
   set: SetOp[];
   create: CreateOp[];
   /** Already printed: left out (untick Printed in the sheet to print again). */
   printed: number[];
+  /** Not filled in (a detail empty, or not in the register yet): left out. */
+  unfilled: number[];
   err: string;
 }
 
-/** The passes from–to that aren't printed yet, including serials not in the register yet. */
+/** The holder's details: a pass prints only with every one its sheet has filled in. Not Incharge or Issued To. */
+const DETAILS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no'];
+/** The details this pass still needs before it prints (every one, for a serial not in the register). */
+export const unfilledOf = (type: PassType, p: Pass | undefined): Field[] =>
+  fieldsFor(type).filter((k) => DETAILS.includes(k) && !p?.[k].trim());
+
+/**
+ * The passes from–to that aren't printed yet and are filled in: nothing empty is printed (the owner,
+ * 2026-11-18). The helpline sheets have no details, so their serials not in the register print too.
+ */
 export function planPrint(sheet: Pass[], type: PassType, from: string, to: string): PrintPlan {
-  const plan: PrintPlan = { cards: [], set: [], create: [], printed: [], err: '' };
+  const plan: PrintPlan = { cards: [], set: [], create: [], printed: [], unfilled: [], err: '' };
   const f = parseSerial(from);
   const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
   if (Number.isNaN(f)) return { ...plan, err: 'Enter the From and To serial numbers.' };
@@ -333,6 +344,7 @@ export function planPrint(sheet: Pass[], type: PassType, from: string, to: strin
   for (let n = lo; n <= hi; n++) {
     const p = bySerial.get(n);
     if (p && isPrinted(p)) { plan.printed.push(n); continue; }
+    if (unfilledOf(type, p).length) { plan.unfilled.push(n); continue; }
     if (plan.cards.length >= MAX_PRINT) return { ...plan, err: `Please print at most ${MAX_PRINT} passes at a time (${MAX_PRINT / 9} pages).` };
     if (!p) {
       plan.cards.push({ type, serial: n, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '' });
