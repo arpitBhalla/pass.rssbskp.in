@@ -157,9 +157,9 @@ export function RailVehicle({ p, texts, code }: CardProps) {
         cap={bav ? 4.2 : 5.6} color={c} />
       <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
-      {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room. */}
+      {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall (the owner, 2026-11-18). */}
       <RegPlate v={p.vehicle_no} x0={VW / 2 - 34} x1={VW / 2 + 34} top={Y(80)} bottom={Y(94)} />
-      <SignOff href={texts.signature} x0={114} x1={144} y={Y(88.6)} h={8.4} line={c} />
+      <SignOff href={texts.signature} x0={114} x1={144} y={Y(88.6)} h={bav ? 8.4 : 16} line={c} />
     </>
   );
 }

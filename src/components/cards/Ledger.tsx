@@ -220,8 +220,10 @@ export function LedgerVehicle({ p, texts, code }: CardProps) {
       <Perforation x={118} y0={Y(9)} y1={Y(91)} />
       {code && <Qr text={code} x={125.5} y={Y(9.5)} size={15} pad={0} />}
       <Serial no={serialText(p.serial, 3)} x={stub} y={Y(44.4)} cap={7.5} caption={2.4} captionY={Y(34.6)} />
-      <GateSign cx={stub} y={Y(53)} size={17} />
-      <SignOff href={texts.signature} x0={123} x1={143} y={Y(86)} h={9.5} cap={1.9} captionY={Y(89.8)} />
+      {/* The 3 a little higher (Y(53) before 2026-11-18) to make room for the signature. */}
+      <GateSign cx={stub} y={Y(51.5)} size={17} />
+      {/* The signature larger: 15 tall on a 26 line (9.5 on 20 before; the owner, 2026-11-18). */}
+      <SignOff href={texts.signature} x0={stub - 13} x1={stub + 13} y={Y(86)} h={15} cap={1.9} captionY={Y(89.8)} />
     </>
   );
 }

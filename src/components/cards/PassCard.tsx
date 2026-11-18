@@ -228,10 +228,10 @@ const MOBILE_LOGO: LogoSpec = (() => {
   return { frame: box([20.83, 0.73, 29.17, 10.62]), line: box([21.15, 1.05, 28.85, 10.3]) };
 })();
 
-/** `max`: room for the value (on the 50 × 60 drawing); Area and Phone stop 2 mm short of the QR code (its quiet zone). */
+/** `max`: room for the value (on the 50 × 60 drawing); Dept., Area and Phone stop 2 mm short of the QR code (its quiet zone). */
 const MOBILE_ROWS = [
   { label: 'NAME', key: 'name', y: 34.16, end: 47 },
-  { label: 'DEPT', key: 'dept', y: 38.34, end: 47 },
+  { label: 'DEPT', key: 'dept', y: 38.34, end: 35.4 },
   { label: 'AREA', key: 'area', y: 42.53, end: 35.4 },
   { label: 'PHONE', key: 'phone', y: 46.71, end: 35.4 },
 ] as const;
@@ -294,12 +294,14 @@ function MobileCard({ p, texts, code }: CardProps) {
         </g>
       ))}
 
-      {code && <Qr text={code} x={MR(37.4)} y={MY(39.8)} size={cap(10)} pad={0} />}
+      {/* The QR code 2.6 higher (beside Dept. now) and the signature larger under it (the owner, 2026-11-18). */}
+      {code && <Qr text={code} x={MR(37.4)} y={MY(37.2)} size={cap(10)} pad={0} />}
 
       <Fixed t="Sr. No." f={NARROW} cap={cap(2.7)} x0={ML(2)} x1={ML(10.26)} y={MY(53)} />
       <Value t={serialText(p.serial, 4)} f={NARROW} cap={cap(4.06)} x={ML(11.65)} y={MY(53.4)} scale={scaleFor('0001', NARROW, 4.06, 10.53)} max={cap(17.5)} />
-      <Signature href={texts.signature} x={MR(36.2)} y={MY(50.3)} w={cap(11.2)} h={cap(3.2)} />
-      <Fixed t="Auth Signatory" f={NARROW} cap={cap(1.42)} x0={MR(35.4)} x1={MR(47.4)} y={MY(54.6)} />
+      {/* Larger still (the owner, 2026-11-18: "increase size more"): 14.4 × 7.1, centred over "Auth Signatory", which moves down to make room. */}
+      <Signature href={texts.signature} x={MR(34.2)} y={MY(47.8)} w={cap(14.4)} h={cap(7.1)} />
+      <Fixed t="Auth Signatory" f={NARROW} cap={cap(1.42)} x0={MR(35.4)} x1={MR(47.4)} y={MY(56.3)} />
 
       {/* The bottom band, with no grey line over it (taken off 2026-11-15). */}
       <rect y={MY(57.17)} width={MW} height={CARD_SIZE.mobile.h - MY(57.17)} fill={c.band} />

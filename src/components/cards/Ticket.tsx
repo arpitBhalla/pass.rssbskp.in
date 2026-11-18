@@ -127,7 +127,8 @@ export function TicketVehicle({ p, texts, code }: CardProps) {
       <T t="SR. NO." f={A7} cap={1.6} x={mid} y={Y(38.24)} align="middle" track={caps(1.6)} fill={GREY} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={10.6} scale={1.257} x={mid} y={Y(52)} align="middle" max={25} />
       <TagPill t={tagText(texts.tag)} x={mid} cy={Y(58.6)} cap={1.8} color={color} line={line} />
-      <SignOff href={texts.signature} x0={mid - 12.5} x1={mid + 12.5} y={Y(88)} h={9} cap={1.2} />
+      {/* The signature larger, 18 tall on a 30 line (9 on 25 before; the owner, 2026-11-18). */}
+      <SignOff href={texts.signature} x0={mid - 15} x1={mid + 15} y={Y(88)} h={18} cap={1.2} />
     </>
   );
 }
