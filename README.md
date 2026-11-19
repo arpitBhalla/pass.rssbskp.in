@@ -2,7 +2,7 @@
 
 The register for numbered passes, with thirteen sheets: **Mobile Pandal, Mobile Non Pandal, Bike Pandal, Bike
 Non Pandal, Sewa Vehicle, Tractor Trolley, Gate 3 Entry, BAV Parking, Gate 3 - VIP, Admin**, and the Free
-Helpline Sewa passes **E-Rickshaw, Eco and Metro**. Each sheet has its own serial
+Helpline Sewa passes **E-Rickshaw, Helpline (the Eco pass) and Metro**. Each sheet has its own serial
 numbers from 0001. Every printed pass carries a QR code that the gate checks with a phone.
 Several desks can work at once; every change is saved in Postgres with who made it.
 

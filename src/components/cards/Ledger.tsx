@@ -121,17 +121,6 @@ function Serial({ no, x, y, cap, caption, captionY }: { no: string; x: number; y
   );
 }
 
-/** The signature image over its line, "AUTH. SIGNATORY" under it. `y`: the line. */
-function SignOff({ href, x0, x1, y, h, cap, captionY }: { href: string; x0: number; x1: number; y: number; h: number; cap: number; captionY: number }) {
-  return (
-    <g>
-      {href && <image href={href} x={x0} y={mm(y - h - 0.3)} width={mm(x1 - x0)} height={h} preserveAspectRatio="xMidYMax meet" />}
-      <Rule x0={x0} x1={x1} y={y} w={0.2} />
-      <Label t="AUTH. SIGNATORY" x={(x0 + x1) / 2} y={captionY} cap={cap} align="middle" max={x1 - x0} />
-    </g>
-  );
-}
-
 /* ---------- the ledger of fields ---------- */
 
 /**
@@ -222,8 +211,7 @@ export function LedgerVehicle({ p, texts, code }: CardProps) {
       <Serial no={serialText(p.serial, 3)} x={stub} y={Y(44.4)} cap={7.5} caption={2.4} captionY={Y(34.6)} />
       {/* The 3 a little higher (Y(53) before 2026-11-18) to make room for the signature. */}
       <GateSign cx={stub} y={Y(51.5)} size={17} />
-      {/* The signature larger: 15 tall on a 26 line (9.5 on 20 before; the owner, 2026-11-18). */}
-      <SignOff href={texts.signature} x0={stub - 13} x1={stub + 13} y={Y(86)} h={15} cap={1.9} captionY={Y(89.8)} />
+      {/* No signature or "Auth. Signatory" on Gate 3 Entry (the owner, 2026-11-19). */}
     </>
   );
 }

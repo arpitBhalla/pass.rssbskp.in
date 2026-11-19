@@ -116,8 +116,8 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: RED },
   admin: { label: 'Admin', short: 'AD', layout: 'gate', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: TEAL },
   'e-rickshaw': { label: 'E-Rickshaw', short: 'ER', layout: 'large', helpline: true, title: 'E-RICKSHAW', fields: HELPLINE_FIELDS, color: RED },
-  // The Eco pass prints FREE HELPLINE SEWA on its band (the owner, 2026-11-16); the app still calls the sheet Eco.
-  eco: { label: 'Eco', short: 'EC', layout: 'large', helpline: true, title: 'FREE HELPLINE SEWA', fields: HELPLINE_FIELDS, color: BROWN },
+  // The Eco pass prints FREE HELPLINE SEWA on its band (the owner, 2026-11-16); its tab says Helpline (2026-11-19).
+  eco: { label: 'Helpline', short: 'EC', layout: 'large', helpline: true, title: 'FREE HELPLINE SEWA', fields: HELPLINE_FIELDS, color: BROWN },
   metro: { label: 'Metro', short: 'ME', layout: 'large', helpline: true, title: 'METRO', fields: HELPLINE_FIELDS, color: NAVY },
 };
 
