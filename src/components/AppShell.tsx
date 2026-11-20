@@ -9,6 +9,7 @@ import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { PASS_TYPES, type PassType, TYPE_INFO, type User } from '@/shared/types';
 import { nPasses } from '@/lib/passes';
+import { PrintQueueButton } from './PrintQueue';
 
 const MeContext = createContext<User | null>(null);
 
@@ -99,6 +100,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
               })}
             </nav>
             <span className="flex-1" />
+            <PrintQueueButton />
             {status.saving && <span role="status" className="text-[13.5px] text-white/75">Saving…</span>}
             <span className="flex items-center gap-2 text-[14.5px] text-white/90">
               <span aria-hidden className="grid size-6 place-items-center rounded-full bg-white/15 text-[12.5px] font-bold">

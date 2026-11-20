@@ -3,7 +3,7 @@ import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '
 import { exportCSV, exportTable, planImport } from './csv';
 import {
   blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
-  planPrint, ranges, unfilledOf,
+  cardsLabel, planPrint, planQueue, ranges, unfilledOf,
 } from './passes';
 import { buildReport, reportCSV } from './report';
 
@@ -282,6 +282,18 @@ describe('print', () => {
     expect(unfilledOf('bike-pandal', bike({}))).toEqual(['vehicle_no']);
     expect(unfilledOf('bike-pandal', bike({ vehicle_no: 'HR-24K-9300' }))).toEqual([]);
     expect(unfilledOf('mobile-pandal', undefined)).toEqual(['name', 'dept', 'area', 'phone']);
+  });
+  it('the print queue: Pandal and Non Pandal together, sheet by sheet and by serial, by the same rules', () => {
+    const mp = [pass(7, full), pass(3, full), pass(5, { ...full, printed_at: 'x' })];
+    const mn = [pass(2, full, 'mobile-non-pandal'), pass(4, { ...full, area: '' }, 'mobile-non-pandal')];
+    const sheetOf = (t: PassType) => (t === 'mobile-pandal' ? mp : t === 'mobile-non-pandal' ? mn : []);
+    const items = [{ type: 'mobile-non-pandal', serial: 2 }, { type: 'mobile-pandal', serial: 7 }, { type: 'mobile-pandal', serial: 3 },
+      { type: 'mobile-pandal', serial: 5 }, { type: 'mobile-non-pandal', serial: 4 }] as const;
+    const plan = planQueue(items, sheetOf);
+    expect(plan.cards.map((c) => `${c.type} ${c.serial}`)).toEqual(['mobile-pandal 3', 'mobile-pandal 7', 'mobile-non-pandal 2']);
+    expect(plan.set.map((o) => o.id)).toEqual([mp[1].id, mp[0].id, mn[0].id]);
+    expect([plan.printed, plan.unfilled]).toEqual([[5], [4]]);
+    expect(cardsLabel(plan.cards)).toBe('Mobile Pandal 0003, 0007, Mobile Non Pandal 0002');
   });
   it('helpline passes have no details: serials not in the register print, and are added', () => {
     const plan = planPrint([], 'e-rickshaw', '1', '2');

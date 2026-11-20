@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useCallback, useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { usePaper } from '@/client/paper';
+import { printQueue } from '@/client/printQueue';
+import { toast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { nPasses, parseSerial, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
 import { PAPER, sheetPlan } from '@/lib/sheets';
@@ -48,6 +50,7 @@ export function RangeBar({ type, sheet, range, onClear }: {
     const summary = `Printed ${info.label} ${ranges(printing.cards.map((c) => c.serial))}`;
     const r = await apply({ action: 'print', summary, set: printing.set, create: printing.create });
     if (!r) return { error: 'see the message below. Tick Printed in the sheet once it is sorted out.' };
+    printQueue.remove(printing.cards); // printed: not waiting in the queue any more
     return { undo: () => undo(r.changeId) };
   }, [apply, undo, printing, info.label]);
   const closePrint = useCallback(() => setPrinting(null), []);
@@ -55,6 +58,15 @@ export function RangeBar({ type, sheet, range, onClear }: {
   const markPrinted = async () => {
     if (!print || !nCards) return;
     await apply({ action: 'print', summary: `Marked ${info.label} ${ranges(print.cards.map((c) => c.serial))} printed`, set: print.set, create: print.create });
+  };
+
+  /** Keeps them for the print queue (top right), to print with passes of the same size from other sheets. */
+  const addToQueue = () => {
+    if (!print || !nCards) return;
+    const added = printQueue.add(print.cards);
+    toast(added
+      ? `Added ${nPasses(added)} to the print queue (top right): ${printQueue.get().length} waiting.`
+      : 'These are in the print queue already.');
   };
 
   /** Unticks Printed (to print them again), like unticking it in the sheet; Undo reverses it. */
@@ -132,6 +144,12 @@ export function RangeBar({ type, sheet, range, onClear }: {
                   : print?.unfilled.length ? 'Nothing to print: none of these is filled in and unprinted' : 'All of these are printed already'}
               >
                 Preview &amp; print
+              </button>
+              <button
+                className={btn} disabled={!nCards} onClick={addToQueue}
+                title="Keep them in the print queue (top right): passes of the same size from other sheets print on the same paper sheet, so a sheet fills sooner."
+              >
+                {nCards ? `Add ${nCards} to queue` : 'Add to queue'}
               </button>
               <button className={btn} disabled={!nCards} onClick={() => void markPrinted()} title="Tick Printed without printing (printed some other way). Undo reverses it.">
                 {nCards ? `Mark ${nCards} printed` : 'Mark printed'}

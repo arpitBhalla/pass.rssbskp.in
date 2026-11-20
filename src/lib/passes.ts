@@ -1,6 +1,6 @@
 import {
   cleanField, type CreateOp, type Field, fieldLabel, FIELDS, fieldsFor, fmtSerial, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass,
-  type PassType, type SetOp, type Values,
+  PASS_TYPES, type PassType, type SetOp, TYPE_INFO, type Values,
 } from '@/shared/types';
 
 /** Number part of a serial: "M-0105" → 105, "0105" → 105. NaN if there is none. */
@@ -333,19 +333,43 @@ export const unfilledOf = (type: PassType, p: Pass | undefined): Field[] =>
  * 2026-11-18). The helpline sheets have no details, so their serials not in the register print too.
  */
 export function planPrint(sheet: Pass[], type: PassType, from: string, to: string): PrintPlan {
-  const plan: PrintPlan = { cards: [], set: [], create: [], printed: [], unfilled: [], err: '' };
+  const plan = emptyPlan();
   const f = parseSerial(from);
   const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
   if (Number.isNaN(f)) return { ...plan, err: 'Enter the From and To serial numbers.' };
   const lo = Math.min(f, t);
   const hi = Math.max(f, t);
   if (lo < 1 || hi > MAX_SERIAL) return { ...plan, err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
+  addToPlan(plan, sheet, type, Array.from({ length: hi - lo + 1 }, (_, i) => lo + i));
+  return plan;
+}
+
+/**
+ * The print queue's passes (printQueue.ts): sheet by sheet (in tab order), each by serial, by the same rules.
+ * Passes of one size only (one Layout), so they share the paper sheets: Mobile Pandal with Non Pandal, ….
+ */
+export function planQueue(items: readonly { type: PassType; serial: number }[], sheetOf: (t: PassType) => readonly Pass[]): PrintPlan {
+  const plan = emptyPlan();
+  for (const t of PASS_TYPES) {
+    const serials = items.filter((x) => x.type === t).map((x) => x.serial).sort((a, b) => a - b);
+    if (serials.length && !addToPlan(plan, sheetOf(t), t, serials)) break;
+  }
+  return plan;
+}
+
+const emptyPlan = (): PrintPlan => ({ cards: [], set: [], create: [], printed: [], unfilled: [], err: '' });
+
+/** Adds these serials of one sheet to the plan, leaving out what's printed or not filled in. False once it's full (MAX_PRINT). */
+function addToPlan(plan: PrintPlan, sheet: readonly Pass[], type: PassType, serials: readonly number[]): boolean {
   const bySerial = new Map(sheet.map((p) => [p.serial, p]));
-  for (let n = lo; n <= hi; n++) {
+  for (const n of serials) {
     const p = bySerial.get(n);
     if (p && isPrinted(p)) { plan.printed.push(n); continue; }
     if (unfilledOf(type, p).length) { plan.unfilled.push(n); continue; }
-    if (plan.cards.length >= MAX_PRINT) return { ...plan, err: `Please print at most ${MAX_PRINT} passes at a time (${MAX_PRINT / 9} pages).` };
+    if (plan.cards.length >= MAX_PRINT) {
+      plan.err = `Please print at most ${MAX_PRINT} passes at a time (${MAX_PRINT / 9} pages).`;
+      return false;
+    }
     if (!p) {
       plan.cards.push({ type, serial: n, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '' });
       plan.create.push({ type, serial: n, values: {}, printed: true });
@@ -356,8 +380,15 @@ export function planPrint(sheet: Pass[], type: PassType, from: string, to: strin
     const seen = { name: p.name, dept: p.dept, area: p.area, phone: p.phone, vehicle: p.vehicle, vehicle_no: p.vehicle_no };
     plan.set.push({ id: p.id, printed: true, expect: { ...seen, printed: false } });
   }
-  return plan;
+  return true;
 }
+
+/** "Mobile Pandal 0001–40, Mobile Non Pandal 0005": the cards, sheet by sheet. */
+export const cardsLabel = (cards: readonly CardData[]) =>
+  PASS_TYPES.flatMap((t) => {
+    const serials = cards.filter((c) => c.type === t).map((c) => c.serial);
+    return serials.length ? [`${TYPE_INFO[t].label} ${ranges(serials)}`] : [];
+  }).join(', ');
 
 /* ---------------- Given and Delete for a range ---------------- */
 

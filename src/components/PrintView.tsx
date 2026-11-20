@@ -11,13 +11,16 @@ import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
 import { btn, btnPrimary } from './ui';
 
 type Mark = { state: 'idle' } | { state: 'busy' } | { state: 'done'; undo: () => Promise<boolean> } | { state: 'error'; text: string };
-type Codes = { state: 'loading' } | { state: 'ready'; bySerial: Map<number, string> } | { state: 'error'; text: string };
+/** The QR codes by `type:serial`. */
+type Codes = { state: 'loading' } | { state: 'ready'; byPass: Map<string, string> } | { state: 'error'; text: string };
+const keyOf = (c: CardData) => `${c.type}:${c.serial}`;
 
 /**
  * Full-screen preview of the passes on A3, A3+ or A4 sheets, each sheet one vector SVG: the passes edge to
  * edge, with faint cut lines out to the paper's edge. Each pass gets a
  * QR code made by the server. When the print dialog closes (Print button or Ctrl/Cmd+P) the passes
- * are marked printed, with "Didn't print? Undo".
+ * are marked printed, with "Didn't print? Undo". The passes may come from several sheets of one size (the
+ * print queue): they share the paper sheets.
  */
 export function PrintView({ cards, texts, onMark, onClose }: {
   cards: CardData[];
@@ -31,7 +34,8 @@ export function PrintView({ cards, texts, onMark, onClose }: {
   useEffect(() => { markRef.current = mark; });
   const fonts = useCardFonts();
 
-  const type = cards[0]?.type ?? 'mobile-pandal';
+  const types = useMemo(() => [...new Set(cards.map((c) => c.type))], [cards]);
+  const type = types[0] ?? 'mobile-pandal';
   const paper = usePaper();
   const plan = useMemo(() => sheetPlan(paper, TYPE_INFO[type].layout), [paper, type]);
   const sheets = useMemo(() => {
@@ -45,18 +49,27 @@ export function PrintView({ cards, texts, onMark, onClose }: {
   const [codes, setCodes] = useState<Codes>({ state: 'loading' });
   useEffect(() => {
     let live = true;
-    client.passes.codes.mutate({ type, serials: cards.map((c) => c.serial) }).then(
-      (r) => {
+    Promise.all(types.map(async (t) => {
+      const list = cards.filter((c) => c.type === t);
+      return { t, list, r: await client.passes.codes.mutate({ type: t, serials: list.map((c) => c.serial) }) };
+    })).then(
+      (sheets) => {
         if (!live) return;
-        const changed = r.find((x, i) => x.name !== cards[i].name.trim().toUpperCase());
-        setCodes(changed
-          ? { state: 'error', text: `Pass ${fmtSerial(changed.serial)} was just changed on another desk. Close and print again.` }
-          : { state: 'ready', bySerial: new Map(r.map((x) => [x.serial, x.code])) });
+        const byPass = new Map<string, string>();
+        for (const { t, list, r } of sheets) {
+          const changed = r.find((x, i) => x.name !== list[i].name.trim().toUpperCase());
+          if (changed) {
+            setCodes({ state: 'error', text: `${TYPE_INFO[t].label} ${fmtSerial(changed.serial)} was just changed on another desk. Close and print again.` });
+            return;
+          }
+          for (const x of r) byPass.set(keyOf({ ...list[0], serial: x.serial }), x.code);
+        }
+        setCodes({ state: 'ready', byPass });
       },
       (e) => { if (live) setCodes({ state: 'error', text: errorMessage(e) }); },
     );
     return () => { live = false; };
-  }, [client, cards, type]);
+  }, [client, cards, types]);
 
   const ready = fonts && codes.state === 'ready';
 
@@ -93,10 +106,13 @@ export function PrintView({ cards, texts, onMark, onClose }: {
     <div className="print-root fixed inset-0 z-40 overflow-auto bg-sand-200/95">
       <style>{`@page { size: ${w}mm ${h}mm; margin: 0; } @media print { .sheet-page { height: ${h - 1}mm !important; } }`}</style>
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border bg-background px-4 py-2.5 print:hidden">
-        <span className="flex items-center gap-2 font-condensed text-[18px] font-bold">
-          <PassMark type={type} size={16} />
-          {TYPE_INFO[type].label}
-        </span>
+        {types.map((t, i) => (
+          <span key={t} className="flex items-center gap-2 font-condensed text-[18px] font-bold">
+            {i > 0 && <span className="font-normal text-muted-foreground">+</span>}
+            <PassMark type={t} size={16} />
+            {TYPE_INFO[t].label}
+          </span>
+        ))}
         <span className="tabular-nums">{nPasses(cards.length)} on {sheets.length} {PAPER[paper].label} sheet{sheets.length === 1 ? '' : 's'}</span>
         <span role="group" aria-label="Paper" className="inline-flex overflow-hidden rounded-[3px] border border-input">
           {PAPERS.map((p) => (
@@ -143,7 +159,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
                   key={`${c.type}-${c.serial}`}
                   p={c}
                   texts={texts}
-                  code={codes.bySerial.get(c.serial)}
+                  code={codes.byPass.get(keyOf(c))}
                   x={plan.slots[j].x}
                   y={plan.slots[j].y}
                   turn={plan.slots[j].turn}
