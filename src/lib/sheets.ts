@@ -136,3 +136,214 @@ export function sheetPlan(paper: Paper, layout: Layout): SheetPlan {
   }
   return { paper: { w: p.w, h: p.h }, perSheet: slots.length, slots, cuts: [...cuts.values()] };
 }
+
+/* ---------------- passes of several sizes on one sheet (the print queue) ---------------- */
+
+/** One printed paper sheet: card `i` (of the cards printed) at x, y, turned a quarter when `turn`. */
+export interface PagePlan {
+  paper: { w: number; h: number };
+  items: { i: number; x: number; y: number; turn: boolean }[];
+  cuts: SheetPlan['cuts'];
+}
+
+interface Rect { x: number; y: number; w: number; h: number }
+/** A pass's spot on a sheet of several sizes: the pass and the gap after it (GAP), all one way round. */
+interface Cell { layout: Layout; w: number; h: number; gap: number }
+interface Placed { layout: Layout; x: number; y: number }
+
+const capOf = (r: Rect, c: Cell) => fits(r.w, c.w) * fits(r.h, c.h);
+const cardArea = (l: Layout) => CARD_SIZE[l].w * CARD_SIZE[l].h;
+
+/**
+ * The ways to cut what's left of R once a bw × bh block sits in its top-left corner: across first (at the
+ * block's foot, or lower so the strip under the cut holds whole rows of a size still to place), or down
+ * first (likewise). Each way is the rectangles it leaves; all straight cuts, so the sheet cuts edge to edge.
+ */
+function waysToCut(R: Rect, bw: number, bh: number, cells: Cell[]): Rect[][] {
+  const ts = new Map<string, number>([[bh.toFixed(3), bh]]);
+  const ss = new Map<string, number>([[bw.toFixed(3), bw]]);
+  for (const c of cells) {
+    for (let k = 0, t = R.h; t >= bh - 1e-9; t = R.h - ++k * c.h) ts.set(Math.max(t, bh).toFixed(3), Math.max(t, bh));
+    for (let k = 0, s = R.w; s >= bw - 1e-9; s = R.w - ++k * c.w) ss.set(Math.max(s, bw).toFixed(3), Math.max(s, bw));
+  }
+  const some = (rs: Rect[]) => rs.filter((r) => r.w > 1e-6 && r.h > 1e-6);
+  return [
+    ...[...ts.values()].map((t) => some([
+      { x: R.x, y: R.y + bh, w: bw, h: t - bh }, { x: R.x + bw, y: R.y, w: R.w - bw, h: t }, { x: R.x, y: R.y + t, w: R.w, h: R.h - t },
+    ])),
+    ...[...ss.values()].map((s) => some([
+      { x: R.x + bw, y: R.y, w: s - bw, h: bh }, { x: R.x, y: R.y + bh, w: s, h: R.h - bh }, { x: R.x + s, y: R.y, w: R.w - s, h: R.h },
+    ])),
+  ];
+}
+
+/**
+ * Fills the free rectangles with the passes still to place (`left`, by layout, counted down), in the order of
+ * `cells` (biggest first): a block of one size goes in the corner of the rectangle that holds most of them, and
+ * the rest of that rectangle is cut in two. With `look`, every way to cut is tried by filling on without
+ * looking ahead, and the one that then places the most (by area) is taken; otherwise the one leaving the
+ * biggest rectangle.
+ */
+function fill(start: Rect[], left: Map<Layout, number>, cells: Cell[], look: boolean): Placed[] {
+  const out: Placed[] = [];
+  let free = [...start];
+  for (const [ci, c] of cells.entries()) {
+    while ((left.get(c.layout) ?? 0) > 0) {
+      let at = -1;
+      for (const [r, R] of free.entries()) {
+        const cap = capOf(R, c);
+        const best = at < 0 ? 0 : capOf(free[at], c);
+        if (cap > best || (cap > 0 && cap === best && R.w * R.h < free[at].w * free[at].h)) at = r;
+      }
+      if (at < 0) break;
+      const R = free[at];
+      const n = Math.min(left.get(c.layout)!, capOf(R, c));
+      const cols = Math.min(fits(R.w, c.w), n);
+      const rows = Math.ceil(n / cols);
+      for (let k = 0; k < n; k++) out.push({ layout: c.layout, x: R.x + (k % cols) * c.w, y: R.y + Math.floor(k / cols) * c.h });
+      left.set(c.layout, left.get(c.layout)! - n);
+      const rest = free.filter((_, r) => r !== at);
+      const inLast = n - (rows - 1) * cols; // the last row's empty end is free too
+      if (inLast < cols) rest.push({ x: R.x + inLast * c.w, y: R.y + (rows - 1) * c.h, w: (cols - inLast) * c.w, h: c.h });
+      const todo = cells.slice(ci).filter((x) => (left.get(x.layout) ?? 0) > 0);
+      const ways = waysToCut(R, cols * c.w, rows * c.h, look ? todo : []);
+      const score = (way: Rect[]) => (look
+        ? fill([...rest, ...way], new Map(left), todo, false).reduce((a, p) => a + cardArea(p.layout), 0)
+        : Math.max(0, ...way.map((r) => r.w * r.h)));
+      let pick = ways[0];
+      for (const way of ways) if (score(way) > score(pick) + 1e-6) pick = way;
+      free = [...rest, ...pick];
+    }
+  }
+  return out;
+}
+
+/** Sheets of passes of several sizes, all one way round (`turn`: all turned a quarter); null if one doesn't fit. */
+function packMixed(paper: Paper, counts: Map<Layout, number>, turn: boolean): Placed[][] | null {
+  const p = PAPER[paper];
+  const layouts = [...counts.keys()];
+  const gapOf = (l: Layout) => GAP[l]?.[paper] ?? 0;
+  const cells: Cell[] = layouts
+    .map((l) => {
+      const { w, h } = CARD_SIZE[l];
+      return { layout: l, w: (turn ? h : w) + gapOf(l), h: (turn ? w : h) + gapOf(l), gap: gapOf(l) };
+    })
+    .sort((a, b) => cardArea(b.layout) - cardArea(a.layout));
+  const left = new Map(counts);
+  const pages: Placed[][] = [];
+  while ([...left.values()].some((n) => n > 0)) {
+    // The margin (and room for the gap after the last pass) of the sizes still to place: 5 mm only while large passes are left.
+    const now = layouts.filter((l) => left.get(l)! > 0);
+    const [m, g] = [Math.max(...now.map(marginOf)), Math.max(...now.map(gapOf))];
+    const page = fill([{ x: m, y: m, w: p.w - 2 * m + g, h: p.h - 2 * m + g }], left, cells.filter((c) => now.includes(c.layout)), true);
+    if (!page.length) return null;
+    pages.push(page);
+  }
+  return pages;
+}
+
+/** Cut lines along every edge of every pass, out to the paper's edge but stopping before they'd cross a pass. */
+export function cutLines(rects: Rect[], paper: { w: number; h: number }): SheetPlan['cuts'] {
+  const e = 1e-6;
+  const lines = new Map<string, { at: number; down: boolean; spans: [number, number][] }>();
+  const add = (down: boolean, at: number, a: number, b: number) => {
+    const key = `${down ? 'x' : 'y'}${at.toFixed(3)}`;
+    if (!lines.has(key)) lines.set(key, { at, down, spans: [] });
+    lines.get(key)!.spans.push([a, b]);
+  };
+  for (const r of rects) {
+    for (const x of [r.x, r.x + r.w]) {
+      let [a, b] = [0, paper.h];
+      for (const o of rects) {
+        if (!(o.x < x - e && o.x + o.w > x + e)) continue;
+        if (o.y + o.h <= r.y + e) a = Math.max(a, o.y + o.h);
+        else if (o.y >= r.y + r.h - e) b = Math.min(b, o.y);
+      }
+      add(true, x, a, b);
+    }
+    for (const y of [r.y, r.y + r.h]) {
+      let [a, b] = [0, paper.w];
+      for (const o of rects) {
+        if (!(o.y < y - e && o.y + o.h > y + e)) continue;
+        if (o.x + o.w <= r.x + e) a = Math.max(a, o.x + o.w);
+        else if (o.x >= r.x + r.w - e) b = Math.min(b, o.x);
+      }
+      add(false, y, a, b);
+    }
+  }
+  const cuts: SheetPlan['cuts'] = [];
+  for (const { at, down, spans } of lines.values()) {
+    spans.sort((s, t) => s[0] - t[0]);
+    let [a, b] = spans[0];
+    const push = () => cuts.push(down ? { x1: at, y1: a, x2: at, y2: b } : { x1: a, y1: at, x2: b, y2: at });
+    for (const [s, t] of spans.slice(1)) {
+      if (s <= b + e) b = Math.max(b, t);
+      else { push(); [a, b] = [s, t]; }
+    }
+    push();
+  }
+  return cuts;
+}
+
+/**
+ * The paper sheets for these cards (`layouts[i]`: card i's size). One size: its usual sheets (sheetPlan).
+ * Several (the print queue): each size's full sheets as usual, then what's left of every size shares sheets,
+ * the biggest passes first and the smaller ones in the space left, every pass one way round (the owner,
+ * 2026-11-22: "it should be in same direction"), when that takes no more sheets than printing them apart.
+ */
+export function pagesFor(paper: Paper, layouts: readonly Layout[]): PagePlan[] {
+  const byLayout = new Map<Layout, number[]>();
+  layouts.forEach((l, i) => byLayout.set(l, [...(byLayout.get(l) ?? []), i]));
+  const usual = (l: Layout, idx: number[]): PagePlan[] => {
+    const plan = sheetPlan(paper, l);
+    const out: PagePlan[] = [];
+    for (let k = 0; k < idx.length; k += plan.perSheet) {
+      out.push({ paper: plan.paper, items: idx.slice(k, k + plan.perSheet).map((i, j) => ({ i, ...plan.slots[j] })), cuts: plan.cuts });
+    }
+    return out;
+  };
+  const full: PagePlan[] = [];
+  const rest = new Map<Layout, number[]>();
+  for (const [l, idx] of byLayout) {
+    const per = sheetPlan(paper, l).perSheet;
+    const k = Math.floor(idx.length / per) * per;
+    full.push(...usual(l, idx.slice(0, k)));
+    if (k < idx.length) rest.set(l, idx.slice(k));
+  }
+  const apart = [...rest].flatMap(([l, idx]) => usual(l, idx));
+  if (rest.size < 2) return [...full, ...apart];
+
+  const counts = new Map([...rest].map(([l, idx]) => [l, idx.length]));
+  let best: { turn: boolean; pages: Placed[][] } | null = null;
+  for (const turn of [false, true]) {
+    const pages = packMixed(paper, counts, turn);
+    if (pages && (!best || pages.length < best.pages.length)) best = { turn, pages };
+  }
+  if (!best || best.pages.length > apart.length) return [...full, ...apart];
+
+  const p = PAPER[paper];
+  const next = new Map([...rest].map(([l, idx]) => [l, [...idx]]));
+  const mixed = best.pages.flatMap((placed): PagePlan[] => {
+    // A sheet left with passes of one size gets that size's usual layout.
+    const sizes = new Set(placed.map((o) => o.layout));
+    if (sizes.size === 1) {
+      const [l] = sizes;
+      return usual(l, next.get(l)!.splice(0, placed.length));
+    }
+    const rects = placed.map((o) => {
+      const { w, h } = CARD_SIZE[o.layout];
+      return { ...o, w: best.turn ? h : w, h: best.turn ? w : h };
+    });
+    // Centred on the sheet.
+    const [x0, x1] = [Math.min(...rects.map((r) => r.x)), Math.max(...rects.map((r) => r.x + r.w))];
+    const [y0, y1] = [Math.min(...rects.map((r) => r.y)), Math.max(...rects.map((r) => r.y + r.h))];
+    const [dx, dy] = [(p.w - (x1 - x0)) / 2 - x0, (p.h - (y1 - y0)) / 2 - y0];
+    const moved = rects.map((r) => ({ ...r, x: r.x + dx, y: r.y + dy }));
+    return [{
+      paper: { w: p.w, h: p.h },
+      items: moved.map((r) => ({ i: next.get(r.layout)!.shift()!, x: r.x, y: r.y, turn: best.turn })),
+      cuts: cutLines(moved, p),
+    }];
+  });
+  return [...full, ...mixed];
+}

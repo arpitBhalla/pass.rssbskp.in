@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { setPaper, usePaper } from '@/client/paper';
 import { errorMessage, useTRPCClient } from '@/client/trpc';
 import { type CardData, nPasses } from '@/lib/passes';
-import { PAPER, PAPERS, sheetPlan } from '@/lib/sheets';
+import { pagesFor, PAPER, PAPERS } from '@/lib/sheets';
 import { fmtSerial, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
@@ -19,8 +19,8 @@ const keyOf = (c: CardData) => `${c.type}:${c.serial}`;
  * Full-screen preview of the passes on A3, A3+ or A4 sheets, each sheet one vector SVG: the passes edge to
  * edge, with faint cut lines out to the paper's edge. Each pass gets a
  * QR code made by the server. When the print dialog closes (Print button or Ctrl/Cmd+P) the passes
- * are marked printed, with "Didn't print? Undo". The passes may come from several sheets of one size (the
- * print queue): they share the paper sheets.
+ * are marked printed, with "Didn't print? Undo". The passes may come from several sheets, of one size or of
+ * several (the print queue): they share the paper sheets (pagesFor).
  */
 export function PrintView({ cards, texts, onMark, onClose }: {
   cards: CardData[];
@@ -35,14 +35,8 @@ export function PrintView({ cards, texts, onMark, onClose }: {
   const fonts = useCardFonts();
 
   const types = useMemo(() => [...new Set(cards.map((c) => c.type))], [cards]);
-  const type = types[0] ?? 'mobile-pandal';
   const paper = usePaper();
-  const plan = useMemo(() => sheetPlan(paper, TYPE_INFO[type].layout), [paper, type]);
-  const sheets = useMemo(() => {
-    const out: CardData[][] = [];
-    for (let i = 0; i < cards.length; i += plan.perSheet) out.push(cards.slice(i, i + plan.perSheet));
-    return out;
-  }, [cards, plan.perSheet]);
+  const sheets = useMemo(() => pagesFor(paper, cards.map((c) => TYPE_INFO[c.type].layout)), [paper, cards]);
 
   // The QR codes: made on the server with the name now in the register, which must be the name printed.
   const client = useTRPCClient();
@@ -101,7 +95,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
     if (await mark.undo()) setMark({ state: 'idle' });
   };
 
-  const { w, h } = plan.paper;
+  const { w, h } = PAPER[paper];
   return createPortal(
     <div className="print-root fixed inset-0 z-40 overflow-auto bg-sand-200/95">
       <style>{`@page { size: ${w}mm ${h}mm; margin: 0; } @media print { .sheet-page { height: ${h - 1}mm !important; } }`}</style>
@@ -154,21 +148,21 @@ export function PrintView({ cards, texts, onMark, onClose }: {
               viewBox={`0 0 ${w} ${h - 1}`}
               xmlns="http://www.w3.org/2000/svg"
             >
-              {sheet.map((c, j) => (
+              {sheet.items.map(({ i: k, x, y, turn }) => (
                 <PassCard
-                  key={`${c.type}-${c.serial}`}
-                  p={c}
+                  key={keyOf(cards[k])}
+                  p={cards[k]}
                   texts={texts}
-                  code={codes.byPass.get(keyOf(c))}
-                  x={plan.slots[j].x}
-                  y={plan.slots[j].y}
-                  turn={plan.slots[j].turn}
+                  code={codes.byPass.get(keyOf(cards[k]))}
+                  x={x}
+                  y={y}
+                  turn={turn}
                   outline={false}
                 />
               ))}
               {/* Faint cut lines along every edge, out to the paper's edge to line the cutter up with. */}
               <g stroke="#000" strokeOpacity={0.3} strokeWidth={0.15}>
-                {plan.cuts.map((c) => <line key={`${c.x1} ${c.y1} ${c.x2} ${c.y2}`} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} />)}
+                {sheet.cuts.map((c) => <line key={`${c.x1} ${c.y1} ${c.x2} ${c.y2}`} x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2} />)}
               </g>
             </svg>
           ))}

@@ -7,7 +7,7 @@ import { printQueue, type QueueItem, usePrintQueue } from '@/client/printQueue';
 import { useAllPasses } from '@/client/store';
 import { useTRPC } from '@/client/trpc';
 import { type CardData, cardsLabel, nPasses, planQueue, type PrintPlan, ranges } from '@/lib/passes';
-import { PAPER, PAPERS, sheetPlan } from '@/lib/sheets';
+import { pagesFor, PAPER, PAPERS, sheetPlan } from '@/lib/sheets';
 import { type Pass, PASS_TYPES, type PassType, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PrintView } from './PrintView';
@@ -22,7 +22,7 @@ export function PrintQueueButton() {
     <>
       <button
         className="rounded-[3px] bg-white/15 px-2.5 py-1 text-[14px] font-semibold text-white hover:bg-white/25" onClick={() => setOpen(true)}
-        title="Passes waiting to print. Passes of the same size print together on one paper sheet."
+        title="Passes waiting to print, from any sheets. Printed together, passes of every size share the paper sheets."
       >
         Print queue <span className="font-condensed tabular-nums">· {items.length}</span>
       </button>
@@ -34,8 +34,9 @@ export function PrintQueueButton() {
 const same = (a: QueueItem, b: QueueItem) => a.type === b.type && a.serial === b.serial;
 
 /**
- * The print queue (printQueue.ts), in groups of passes of one size: each group prints on its own paper
- * sheets, Mobile Pandal and Non Pandal together, …. "Print full sheets" leaves the rest waiting for more.
+ * The print queue (printQueue.ts), in groups of passes of one size: each group can print on its own paper
+ * sheets, Mobile Pandal and Non Pandal together, …; "Print full sheets" leaves the rest waiting for more.
+ * With several sizes, "Print all together" prints everything at once, the sizes sharing sheets (pagesFor).
  * Each pass is checked again here: one printed meanwhile, or no longer filled in, is left out.
  */
 function PrintQueue({ onClose }: { onClose: () => void }) {
@@ -63,6 +64,15 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
       return { layout, mine, plan, perSheet: sheetPlan(paper, layout).perSheet, leftOut: mine.filter((x) => !plan.cards.some((c) => same(c, x))) };
     });
   }, [items, sheetOf, paper]);
+
+  // Every size at once: each size's full sheets as usual, what's left sharing sheets.
+  const together = useMemo(() => {
+    if (groups.length < 2) return null;
+    const plan = planQueue(items, sheetOf);
+    const sheets = pagesFor(paper, plan.cards.map((c) => TYPE_INFO[c.type].layout)).length;
+    const apart = groups.reduce((n, g) => n + Math.ceil(g.plan.cards.length / g.perSheet), 0);
+    return { plan, sheets, apart };
+  }, [groups, items, sheetOf, paper]);
 
   const [printing, setPrinting] = useState<PrintPlan | null>(null);
   const print = (cards: CardData[]) => setPrinting(planQueue(cards, sheetOf));
@@ -147,6 +157,19 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
             </section>
           );
         })}
+        {together && (
+          <section className="space-y-2 border-t border-border pt-3 text-[14px]">
+            <p className="text-muted-foreground">
+              All sizes together: <b className="text-foreground">{nPasses(together.plan.cards.length)} on {together.sheets} {sheetName}{together.sheets === 1 ? '' : 's'}</b>
+              {together.sheets < together.apart ? ` (${together.apart} printed size by size)` : ''}. The big passes first, the small ones in the
+              space left, all one way round.
+            </p>
+            {together.plan.err && <p className="text-[13.5px] text-destructive">{together.plan.err}</p>}
+            <button className={btnPrimary} disabled={!together.plan.cards.length || !!together.plan.err} onClick={() => print(together.plan.cards)}>
+              Print all {together.plan.cards.length} together
+            </button>
+          </section>
+        )}
         <div className="flex justify-end gap-2 border-t border-border pt-3">
           {items.length > 0 && <button className={btn} onClick={() => printQueue.remove(items)}>Empty the queue</button>}
           <button className={btn} onClick={onClose}>Close</button>
