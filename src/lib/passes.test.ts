@@ -11,11 +11,41 @@ let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
   return {
     id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '',
-    printed_at: null, given_at: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
+    printed_at: null, given_at: null, meta: {}, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
   };
 }
 const sheet = (from: number, to: number, extra: Partial<Pass> = {}) =>
   Array.from({ length: to - from + 1 }, (_, i) => pass(from + i, extra));
+
+describe('Ferry Sewa (Gate 3 Hospital)', () => {
+  const H = 'gate3-hospital' as const;
+  it('Give ticks it on the passes given, never unticks, and counts it as filled in', () => {
+    const ticked = pass(2, { name: 'A', meta: { ferry: true } }, H);
+    const rows = [pass(1, {}, H), ticked];
+    const plan = planFill(rows, H, '1', '3', { name: 'A' }, undefined, { ferry: true });
+    expect(plan.set).toEqual([
+      { id: rows[0].id, values: { name: 'A' }, expect: { name: '', flags: { ferry: false } }, flags: { ferry: true } },
+    ]);
+    expect(plan.same).toBe(1);
+    expect(plan.create).toEqual([{ type: H, serial: 3, values: { name: 'A' }, flags: { ferry: true } }]);
+    // Not ticked in the Give box: left as it is.
+    expect(planFill(rows, H, '2', '2', { name: 'A' }).same).toBe(1);
+    // A sheet without it: nothing to tick.
+    expect(planFill([pass(1)], 'mobile-pandal', '1', '1', { name: 'A' }, undefined, { ferry: true }).set[0]).not.toHaveProperty('flags');
+    expect(hidePasses([pass(5, { meta: { ferry: true } }, H)], H, ['empty'])).toHaveLength(1);
+    // A series with and without it doesn't collapse into one row.
+    expect(groupRuns([pass(7, { incharge: 'X' }, H), pass(8, { incharge: 'X', meta: { ferry: true } }, H)])).toHaveLength(2);
+  });
+  it('prints with the pass and is checked when marking printed; exported as a column', () => {
+    const p = pass(1, { name: 'A', dept: 'D', area: 'R', phone: '9', vehicle_no: 'HR-26DK-4417', meta: { ferry: true } }, H);
+    const plan = planPrint([p], H, '1', '1');
+    expect(plan.cards[0].meta).toEqual({ ferry: true });
+    expect(plan.set[0].expect).toMatchObject({ flags: { ferry: true }, printed: false });
+    const [head, row] = exportTable([p], H);
+    expect(row[head.indexOf('Ferry Sewa')]).toBe('Yes');
+    expect(head.indexOf('Ferry Sewa')).toBe(head.indexOf('Printed') - 1);
+  });
+});
 
 describe('give / fill a range', () => {
   it('creates missing serials and fills blanks, never overwriting', () => {
@@ -308,7 +338,7 @@ describe('report', () => {
     expect(r.groups.map((g) => [g.label, g.total])).toEqual([['DELHI', 1], ['SIRSA', 2]]);
     expect(r.groups[1].lines[0]).toMatchObject({ label: 'LANGAR', serials: 'MP 0001 · BP 0002' });
     expect(r.total.counts['sewa-vehicle']).toBe(1);
-    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,0,0,0,3,,');
+    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,0,0,0,0,3,,');
   });
 });
 

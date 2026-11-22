@@ -14,12 +14,12 @@ import {
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
 import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks } from '@/lib/people';
-import { cleanField, type Field, fieldLabel, fieldsFor, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { cleanField, type Field, fieldLabel, fieldsFor, FLAG_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { Menu, Popover } from './Menu';
 import { ProfileCard } from './Profile';
 import { RangeBar } from './RangeBar';
 import { RangePanel } from './RangePanel';
-import { Sheet, type Span } from './Sheet';
+import { type FlagFn, Sheet, type Span } from './Sheet';
 import { btn, btnPrimary, card, input, label } from './ui';
 
 const NONE: number[] = [];
@@ -189,6 +189,12 @@ export function SheetScreen({ type }: { type: PassType }) {
     void apply({ action: 'print', summary, set });
   }, [apply, info.label]);
 
+  const onFlag = useCallback<FlagFn>((passes, f, on) => {
+    const set = passes.filter((p) => !!p.meta[f] !== on && !isPrinted(p)).map((p) => ({ id: p.id, flags: { [f]: on }, expect: { flags: { [f]: !on } } }));
+    if (!set.length) return;
+    void apply({ action: 'edit', summary: `${on ? 'Ticked' : 'Unticked'} ${FLAG_LABELS[f]} · ${info.label} ${passRanges(passes)}`, set });
+  }, [apply, info.label]);
+
   const onGiven = useCallback((passes: Pass[], given: boolean) => {
     const set = passes.filter((p) => isGiven(p) !== given && (!given || isPrinted(p))).map((p) => ({ id: p.id, given, expect: { given: !given } }));
     if (!set.length) return;
@@ -315,7 +321,7 @@ export function SheetScreen({ type }: { type: PassType }) {
         {asking && <DuplicateWarning found={asking.found} verb={asking.verb} onClose={answer} />}
         <Sheet
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} blankRows={!hideEmpty} next={next} missing={missing}
-          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven}
+          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven} onFlag={onFlag}
           onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
           dupes={dupes} phones={phones} onPerson={setPerson} picks={picks} onPick={onPick}
         />

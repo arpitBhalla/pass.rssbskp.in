@@ -8,7 +8,13 @@ import {
 } from 'react';
 import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
 import { alsoHeld, detailsFor, type Duplicate, passLabel, phoneKey } from '@/lib/people';
-import { cleanField, cleanText, type Field, FIELD_LABELS, fieldLabel, fieldsFor, fmtSerial, locksWhenPrinted, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import {
+  cleanField, cleanText, type Field, FIELD_LABELS, fieldLabel, fieldsFor, type Flag, FLAG_LABELS, flagsFor, fmtSerial, locksWhenPrinted, type Pass, type PassType,
+  TYPE_INFO, type Values,
+} from '@/shared/types';
+
+/** Ticks (`on`) or unticks yes / no detail `f` (Ferry Sewa) of these passes. */
+export type FlagFn = (passes: Pass[], f: Flag, on: boolean) => void;
 
 const ROW_H = 30; // keep in step with h-[30px] below
 
@@ -23,6 +29,8 @@ const WIDTH: Partial<Record<Field, number>> = { dept: 118, area: 118, phone: 112
 const FLEX_MIN = 112;
 /** The other columns' widths. Mobile sheets fit beside the side panel on a 1440 px screen. */
 const COL = { serial: 90, added: 70, by: 92, printed: 66, given: 64 };
+/** A yes / no detail's column (Ferry Sewa). */
+const FLAG_W = 92;
 
 export interface Span {
   lo: number;
@@ -116,6 +124,8 @@ export interface SheetProps {
   onClear: (passes: Pass[], keys: readonly Field[], what: string, cut: boolean) => void;
   onPrinted: (passes: Pass[], printed: boolean) => void;
   onGiven: (passes: Pass[], given: boolean) => void;
+  /** Ticks / unticks a yes / no detail (Ferry Sewa) of these passes. */
+  onFlag: FlagFn;
   onSelect: (span: Span) => void;
   onSelectEnd: () => void;
   /** A cell got the cursor: the rows picked by Sr. No. are let go (as in Excel). */
@@ -132,10 +142,11 @@ export interface SheetProps {
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
+  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onFlag, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
+  const flags = flagsFor(type);
   const fields = fieldsFor(type);
-  const cols = 5 + fields.length;
-  const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0);
+  const cols = 5 + fields.length + flags.length;
+  const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0) + flags.length * FLAG_W;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
@@ -666,6 +677,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       return (
         <Row
           key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
+          flags={flags} onFlag={onFlag}
           dupePhone={alsoHeld(ds, 'phone') || undefined} dupeReg={alsoHeld(ds, 'vehicle_no') || undefined}
           held={phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
         />
@@ -676,14 +688,14 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
         <GroupRow
           key={v.key} passes={it.passes} i={i} open={it.open} fields={fields} mark={mark}
           selected={it.passes.every((p) => inSpan(selection, p))}
-          onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
+          onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} flags={flags} onFlag={onFlag}
         />
       );
     }
     if (it.kind === 'empty') {
-      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={inSpanSerial(selection, it.serial)} onCreate={onCreate} lookup={lookup} pickOf={pickOf} />;
+      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} flags={flags} mark={mark} selected={inSpanSerial(selection, it.serial)} onCreate={onCreate} lookup={lookup} pickOf={pickOf} />;
     }
-    return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} lookup={lookup} pickOf={pickOf} last />;
+    return <BlankRow key={v.key} i={i} serial={next} fields={fields} flags={flags} mark={mark} selected={false} onCreate={onCreate} lookup={lookup} pickOf={pickOf} last />;
   };
 
   return (
@@ -694,6 +706,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
         <colgroup>
           <col style={{ width: COL.serial }} />
           {before(fields).map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
+          {flags.map((f) => <col key={f} style={{ width: FLAG_W }} />)}
           <col style={{ width: COL.printed }} />
           <col style={{ width: COL.given }} />
           {after(fields).map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
@@ -704,6 +717,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
           <tr className="h-[30px] text-left">
             <th className={`${th} ${margin}`}>Sr. No.</th>
             {before(fields).map((k) => <th key={k} data-col={k} className={th}>{fieldLabel(type, k)}</th>)}
+            {flags.map((f) => <th key={f} data-col={f} className={`${th} text-center`} title="Ticked: printed on the pass">{FLAG_LABELS[f]}</th>)}
             <th data-col="printed" className={`${th} text-center`}>Printed</th>
             <th data-col="given" className={`${th} text-center`}>Given</th>
             {after(fields).map((k) => (
@@ -788,9 +802,9 @@ const picked = '!bg-sand-200 !text-sand-900';
  * on hover). `held`: passes on its phone, on every sheet. The Sr. No. shows a person icon that opens them all
  * (with the count from 2; for one, only while the row is pointed at or has the cursor).
  */
-const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, dupePhone, dupeReg, held, onPerson, pickOf, onPick }: {
+const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, dupePhone, dupeReg, held, onPerson, pickOf, onPick }: {
   p: Pass; i: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
-  onGiven: SheetProps['onGiven']; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
+  onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
   pickOf: PickOf; onPick: PickFn;
 }) {
   const printed = isPrinted(p);
@@ -816,6 +830,7 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
         {held > 0 && <HeldCount n={held} warn={!!(dupePhone || dupeReg)} onClick={() => onPerson(phoneKey(p.phone))} />}
       </td>
       {before(fields).map(cell)}
+      {flags.map((f) => <FlagCell key={f} f={f} passes={[p]} printed={printed} onFlag={onFlag} />)}
       <td className={`${td} text-center`}>
         <TickBox col="printed" checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
       </td>
@@ -859,9 +874,9 @@ function shortRange(lo: number, hi: number) {
 }
 
 /** A series given to one incharge, shown as "0003–17". Edits apply to every pass in it. */
-function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven }: {
+function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven, flags, onFlag }: {
   passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; mark?: Mark; selected: boolean; onToggle: () => void;
-  onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven'];
+  onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn;
 }) {
   const first = passes[0];
   const printed = isPrinted(first);
@@ -890,6 +905,7 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
         <span className="text-[14px]">{shortRange(first.serial, passes[passes.length - 1].serial)}</span>
       </td>
       {before(fields).map(cell)}
+      {flags.map((f) => <FlagCell key={f} f={f} passes={passes} printed={printed} onFlag={onFlag} />)}
       <td className={`${td} text-center`}>
         <TickBox col="printed" checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
       </td>
@@ -911,8 +927,8 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
  * bottom. Type across it (Tab between cells); the pass is added when you leave the row, with
  * everything typed in it. Enter on the last row adds it and stays there for the next one.
  */
-function BlankRow({ i, serial, fields, mark, selected, onCreate, lookup, pickOf, last = false }: {
-  i: number; serial: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onCreate: SheetProps['onCreate'];
+function BlankRow({ i, serial, fields, flags, mark, selected, onCreate, lookup, pickOf, last = false }: {
+  i: number; serial: number; fields: readonly Field[]; flags: readonly Flag[]; mark?: Mark; selected: boolean; onCreate: SheetProps['onCreate'];
   lookup: (phone: string) => ReturnType<typeof detailsFor>; pickOf: PickOf; last?: boolean;
 }) {
   const ref = useRef<HTMLTableRowElement>(null);
@@ -1004,6 +1020,7 @@ function BlankRow({ i, serial, fields, mark, selected, onCreate, lookup, pickOf,
         {last && <span aria-hidden className="mr-1">+</span>}{fmtSerial(serial)}
       </td>
       {before(fields).map(cell)}
+      {flags.map((f) => <td key={f} className={td} title={`Type a name first, then tick ${FLAG_LABELS[f]}`} />)}
       <td className={td} />
       <td className={`${td} text-[13.5px] text-muted-foreground/60`}>{last ? '' : 'Free'}</td>
       {after(fields).map(cell)}
@@ -1034,8 +1051,22 @@ function addedSpan(passes: Pass[]) {
   return a === b ? a : `${a}–${b}`;
 }
 
+/** A yes / no detail (Ferry Sewa) of a pass, or of every pass in a series. Printed on the pass, so locked once printed. */
+function FlagCell({ f, passes, printed, onFlag }: { f: Flag; passes: Pass[]; printed: boolean; onFlag: FlagFn }) {
+  const on = passes.every((p) => p.meta[f]);
+  const label = FLAG_LABELS[f];
+  return (
+    <td className={`${td} text-center`}>
+      <TickBox
+        col={f} checked={on} disabled={printed} onChange={(v) => onFlag(passes, f, v)}
+        title={printed ? `${on ? label : `Not ${label}`}: printed, so locked. Untick Printed first to change it.` : on ? `${label}: printed on the pass. Untick if not.` : `Tick if ${label}: printed on the pass`}
+      />
+    </td>
+  );
+}
+
 function TickBox({ col, checked, disabled, onChange, title }: {
-  col: 'printed' | 'given'; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; title: string;
+  col: 'printed' | 'given' | Flag; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; title: string;
 }) {
   return (
     <input

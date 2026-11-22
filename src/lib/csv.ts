@@ -1,6 +1,6 @@
 import {
-  cleanField, cleanText, type CreateOp, type Field, FIELD_LABELS, fieldLabel, fieldsFor, fmtSerial, isPassType, locksWhenPrinted, PASS_TYPES, type Pass, type PassType,
-  type SetOp, TYPE_INFO,
+  cleanField, cleanText, type CreateOp, type Field, FIELD_LABELS, fieldLabel, fieldsFor, FLAG_LABELS, flagsFor, fmtSerial, isPassType, locksWhenPrinted, PASS_TYPES,
+  type Pass, type PassType, type SetOp, SHEETS, TYPE_INFO,
 } from '@/shared/types';
 import { isGiven, isPrinted, localDay, parseSerial } from './passes';
 import { workbook } from './xlsx';
@@ -43,10 +43,11 @@ export function exportTable(rows: Pass[], type: PassType, names: Map<number, str
   // As in the sheet: the handover columns (Issued To) come after Given.
   const cols = fieldsFor(type).filter(locksWhenPrinted);
   const after = fieldsFor(type).filter((k) => !locksWhenPrinted(k));
+  const flags = flagsFor(type); // Ferry Sewa: before Printed, as in the sheet
   return [
-    ['Sr. No.', 'Pass type', ...cols.map((k) => fieldLabel(type, k)), 'Printed', 'Given', ...after.map((k) => fieldLabel(type, k)), 'Added', 'Added by'],
+    ['Sr. No.', 'Pass type', ...cols.map((k) => fieldLabel(type, k)), ...flags.map((f) => FLAG_LABELS[f]), 'Printed', 'Given', ...after.map((k) => fieldLabel(type, k)), 'Added', 'Added by'],
     ...rows.map((p) => [
-      fmtSerial(p.serial), TYPE_INFO[p.type].label, ...cols.map((k) => p[k]),
+      fmtSerial(p.serial), TYPE_INFO[p.type].label, ...cols.map((k) => p[k]), ...flags.map((f) => (p.meta[f] ? 'Yes' : '')),
       isPrinted(p) ? 'Yes' : '', isGiven(p) ? 'Yes' : '', ...after.map((k) => p[k]), localDay(p.created_at), names.get(p.created_by) ?? '',
     ]),
   ];
@@ -61,7 +62,7 @@ export function exportCSV(rows: Pass[], type: PassType, names: Map<number, strin
 
 /** All sheets as one Excel workbook, a tab per sheet. `sheets`: each sheet's passes. */
 export function exportWorkbook(sheets: Record<PassType, Pass[]>, names: Map<number, string> = new Map()): Promise<Uint8Array<ArrayBuffer>> {
-  return workbook(PASS_TYPES.map((t) => ({ name: TYPE_INFO[t].label, rows: exportTable(sheets[t], t, names) })));
+  return workbook(SHEETS.map((t) => ({ name: TYPE_INFO[t].label, rows: exportTable(sheets[t], t, names) })));
 }
 
 /** Sheets' former names, so files exported before a rename still import. */

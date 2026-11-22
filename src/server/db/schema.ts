@@ -1,5 +1,5 @@
 import type { ColumnType, Generated, Selectable } from 'kysely';
-import type { PassType } from '@/shared/types';
+import type { PassMeta, PassType } from '@/shared/types';
 
 /** Table types for Kysely. Must match migrations.ts. */
 export interface Database {
@@ -46,6 +46,8 @@ export interface PassesTable {
   issued_to: Generated<string>;
   printed_at: Date | null;
   given_at: Generated<Date | null>;
+  /** Yes / no details ticked (FLAGS), e.g. { ferry: true }. */
+  meta: Generated<PassMeta>;
   created_at: Generated<Date>;
   created_by: number;
   updated_at: Generated<Date>;
@@ -65,6 +67,8 @@ export type PassRowJson = Omit<PassRow, 'printed_at' | 'given_at' | 'created_at'
   printed_at: string | null;
   /** Missing in changes saved before Given existed. */
   given_at?: string | null;
+  /** Missing in changes saved before meta existed (2026-11-22). */
+  meta?: PassMeta;
   created_at: string;
   updated_at: string;
 };

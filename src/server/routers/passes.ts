@@ -8,6 +8,8 @@ import { authedProcedure, router } from '../trpc';
 
 const text = z.string().max(500).optional();
 const values = z.object({ name: text, dept: text, area: text, phone: text, vehicle: text, vehicle_no: text, incharge: text, issued_to: text }).strict();
+/** Yes / no details to tick or untick (FLAGS). */
+const flags = z.object({ ferry: z.boolean().optional() }).strict().optional();
 
 /** See `Resendable`. */
 const requestId = z.string().min(8).max(64).optional();
@@ -23,7 +25,8 @@ const applyInput = z.object({
     printed: z.boolean().optional(),
     given: z.boolean().optional(),
     claim: z.boolean().optional(),
-    expect: values.extend({ printed: z.boolean().optional(), given: z.boolean().optional() }),
+    flags,
+    expect: values.extend({ printed: z.boolean().optional(), given: z.boolean().optional(), flags }),
   })).max(MAX_BATCH).optional(),
   create: z.array(z.object({
     type: z.enum(PASS_TYPES),
@@ -31,6 +34,7 @@ const applyInput = z.object({
     values,
     printed: z.boolean().optional(),
     given: z.boolean().optional(),
+    flags,
   })).max(MAX_BATCH).optional(),
 });
 

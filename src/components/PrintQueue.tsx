@@ -8,7 +8,7 @@ import { useAllPasses } from '@/client/store';
 import { useTRPC } from '@/client/trpc';
 import { type CardData, cardsLabel, nPasses, planQueue, type PrintPlan, ranges } from '@/lib/passes';
 import { pagesFor, PAPER, PAPERS, sheetPlan } from '@/lib/sheets';
-import { type Pass, PASS_TYPES, type PassType, TYPE_INFO } from '@/shared/types';
+import { type Pass, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PrintView } from './PrintView';
 import { btn, btnPrimary, card } from './ui';
@@ -57,7 +57,7 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
     return (t: PassType) => by.get(t) ?? [];
   }, [all]);
   const groups = useMemo(() => {
-    const layouts = [...new Set(PASS_TYPES.filter((t) => items.some((x) => x.type === t)).map((t) => TYPE_INFO[t].layout))];
+    const layouts = [...new Set(SHEETS.filter((t) => items.some((x) => x.type === t)).map((t) => TYPE_INFO[t].layout))];
     return layouts.map((layout) => {
       const mine = items.filter((x) => TYPE_INFO[x.type].layout === layout);
       const plan = planQueue(mine, sheetOf);
@@ -123,7 +123,7 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
           return (
             <section key={layout} className="space-y-2 border-t border-border pt-3 text-[14px]">
               <ul className="space-y-1">
-                {PASS_TYPES.filter((t) => mine.some((x) => x.type === t)).map((t) => {
+                {SHEETS.filter((t) => mine.some((x) => x.type === t)).map((t) => {
                   const these = mine.filter((x) => x.type === t);
                   return (
                     <li key={t} className="flex items-baseline gap-2">

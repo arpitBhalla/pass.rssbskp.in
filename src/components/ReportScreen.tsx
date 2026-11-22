@@ -3,7 +3,7 @@ import { Fragment, useMemo, useState } from 'react';
 import { useAllPasses } from '@/client/store';
 import { isGiven } from '@/lib/passes';
 import { BY_LABEL, buildReport, type ReportBy, reportCSV } from '@/lib/report';
-import { PASS_TYPES, TYPE_INFO } from '@/shared/types';
+import { SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { btn, heading } from './ui';
 
@@ -54,7 +54,7 @@ export function ReportScreen() {
           <tr>
             <th className={cell}>{BY_LABEL[by]}</th>
             <th className={cell}>{BY_LABEL[by === 'area' ? 'dept' : 'area']}</th>
-            {PASS_TYPES.map((t) => (
+            {SHEETS.map((t) => (
               <th key={t} className={`${cell} text-right`} title={TYPE_INFO[t].label}>
                 <span className="inline-flex items-center gap-1"><PassMark type={t} size={11} />{TYPE_INFO[t].short}</span>
               </th>
@@ -71,7 +71,7 @@ export function ReportScreen() {
                 <tr key={l.label} className="break-inside-avoid align-top">
                   <td className={`${cell} font-semibold`}>{i === 0 ? g.label : ''}</td>
                   <td className={cell}>{l.label}</td>
-                  {PASS_TYPES.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{n(l.counts[t])}</td>)}
+                  {SHEETS.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{n(l.counts[t])}</td>)}
                   <td className={`${cell} text-right font-semibold tabular-nums`}>{l.total}</td>
                   <td className={`${cell} font-condensed text-[13px] tabular-nums`}>{l.serials}</td>
                   <td className={`${cell} text-xs`}>{l.incharges}</td>
@@ -81,7 +81,7 @@ export function ReportScreen() {
                 <tr className="bg-sand-50 font-semibold">
                   <td className={cell} />
                   <td className={`${cell} text-xs text-muted-foreground`}>{g.label} total</td>
-                  {PASS_TYPES.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{n(g.counts[t])}</td>)}
+                  {SHEETS.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{n(g.counts[t])}</td>)}
                   <td className={`${cell} text-right tabular-nums`}>{g.total}</td>
                   <td className={cell} colSpan={2} />
                 </tr>
@@ -90,14 +90,14 @@ export function ReportScreen() {
           ))}
           <tr className="bg-muted font-bold">
             <td className={cell} colSpan={2}>Total</td>
-            {PASS_TYPES.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{report.total.counts[t]}</td>)}
+            {SHEETS.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{report.total.counts[t]}</td>)}
             <td className={`${cell} text-right tabular-nums`}>{report.total.total}</td>
             <td className={cell} colSpan={2} />
           </tr>
         </tbody>
       </table>
       <p className="mt-2 text-xs text-muted-foreground">
-        {PASS_TYPES.map((t) => `${TYPE_INFO[t].short} ${TYPE_INFO[t].label}`).join(', ')}
+        {SHEETS.map((t) => `${TYPE_INFO[t].short} ${TYPE_INFO[t].label}`).join(', ')}
       </p>
     </div>
   );

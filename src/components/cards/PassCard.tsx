@@ -8,7 +8,7 @@ import { type Layout, type PassType, TYPE_INFO } from '@/shared/types';
 import { Motorbike, Tractor } from './art';
 import { Qr } from './Qr';
 import { LABEL_FONT, LEDGER_FONTS, LedgerVehicle } from './Ledger';
-import { RailVehicle } from './Rail';
+import { RailHospital, RailVehicle } from './Rail';
 import { TicketVehicle } from './Ticket';
 import { HELPLINE_FONTS, HelplineVehicle } from './Helpline';
 import { MODERN_FONTS, ModernVehicle } from './Modern';
@@ -61,10 +61,13 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * pass says "GATE 1 & 11 ENTRY" (was 1 & 12). Tractor Trolley prints Phone after Name, on its line; a detail of only
  * symbols (".") prints empty (forPrint). Both Gate 3 passes have the signature line and its label again, but no signature image. Gate 3 Entry's
  * heading is in the Sewa Vehicle heading's font (Atkinson 800, KindWord).
+ *
+ * v9 (2026-11-22): a new sheet, Gate 3 Hospital (RailHospital): design round 2 A Rail with the RSSB logo heading, in
+ * indigo, titled GATE 3 ENTRY – HOSPITAL; Name and Reg. No. (no Vehicle); FERRY SEWA large, white on a solid block at the foot, when ticked.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v8';
+export const TEMPLATE_VERSION = 'v9';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -646,7 +649,7 @@ type Card = (props: CardProps) => React.JSX.Element;
 const CARDS: Record<Layout, Card> = { mobile: MobileCard, bike: BikeCardLedger, vehicle: VehicleCard, gate: VehicleCard, large: HelplineVehicle };
 /** Sheets printed in a design v2 pass instead of their layout's template. */
 const BY_TYPE: Partial<Record<PassType, Card>> = {
-  'vip-gate': TicketVehicle, admin: RailVehicle, 'bav-entry': RailVehicle, 'gate3-entry': LedgerVehicle,
+  'vip-gate': TicketVehicle, admin: RailVehicle, 'bav-entry': RailVehicle, 'gate3-entry': LedgerVehicle, 'gate3-hospital': RailHospital,
   /** Design round 11 (Modern.tsx), picked 2026-11-15. */
   'sewa-vehicle': (props) => <ModernVehicle {...props} style="band" />,
   'tractor-trolley': (props) => <ModernVehicle {...props} style="plain" />,

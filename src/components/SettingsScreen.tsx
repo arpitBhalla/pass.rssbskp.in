@@ -6,7 +6,7 @@ import { toast } from '@/client/toast';
 import { errorMessage, useTRPC } from '@/client/trpc';
 import type { CardData } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
-import { PASS_TYPES, type PassType, TYPE_INFO } from '@/shared/types';
+import { type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
 import { Qr } from './cards/Qr';
 import { btn, btnDanger, input } from './ui';
@@ -200,6 +200,7 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
   'bav-entry': { name: 'Rajinder Kumar', vehicle: 'Mahindra Bolero', vehicle_no: 'DL-8CAB-3310', area: 'Delhi', dept: 'Traffic' },
   'vip-gate': { name: 'Amarjit Singh', phone: '98765-43210', vehicle: 'Toyota Fortuner', vehicle_no: 'HR-26DK-0007', area: 'Gurugram', dept: 'Reception' },
   admin: { name: 'Sukhwinder Kaur', vehicle: 'Honda City', vehicle_no: 'HR-29T-4512', area: 'Faridabad', dept: 'Administration' },
+  'gate3-hospital': { name: 'Rajinder Kumar Sharma', vehicle_no: 'HR-26DK-4417', phone: '98111-22334', area: 'Gurugram', dept: 'Medical', meta: { ferry: true } },
   /* The Free Helpline Sewa passes print only their serial. */
   'e-rickshaw': {},
   eco: {},
@@ -221,7 +222,7 @@ function Previews({ texts }: { texts: PrintTexts }) {
       <p className="mb-4 text-muted-foreground">As they print, with sample details. The sample QR codes check as NOT VALID.</p>
       {!ready ? <p className="text-muted-foreground">Loading the pass fonts…</p> : (
         <div className="flex flex-wrap items-end gap-x-6 gap-y-5">
-          {PASS_TYPES.map((t, i) => {
+          {SHEETS.map((t, i) => {
             const { w, h } = CARD_SIZE[TYPE_INFO[t].layout];
             const p: CardData = { type: t, serial: i + 1, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', ...SAMPLE[t] };
             return (

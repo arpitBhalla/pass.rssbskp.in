@@ -77,6 +77,38 @@ describe('apply', () => {
     expect(e.created_by).toBe(ramesh);
   });
 
+  it('Ferry Sewa: ticked in meta on Gate 3 Hospital only, refused if stale or printed, undone, deleted and put back', async () => {
+    const H = 'gate3-hospital' as const;
+    const made = await applyChange(db, ramesh, { action: 'give', summary: 'g', create: [{ type: H, serial: 1, values: { name: 'AMIT' }, flags: { ferry: true } }] });
+    const p = made.rows[0];
+    expect(p.meta).toEqual({ ferry: true });
+    // No such column on other sheets.
+    await expect(applyChange(db, ramesh, { action: 'give', summary: 'g', create: [{ type: 'mobile-pandal', serial: 1, values: { name: 'A' }, flags: { ferry: true } }] }))
+      .rejects.toThrow(/have no Ferry Sewa/);
+    // Untick, as the sheet does; a desk that still saw it unticked is refused.
+    const off = await applyChange(db, suresh, { action: 'edit', summary: 'off', set: [{ id: p.id, flags: { ferry: false }, expect: { flags: { ferry: true } } }] });
+    expect(off.rows[0].meta).toEqual({});
+    await expect(applyChange(db, ramesh, { action: 'edit', summary: 'off', set: [{ id: p.id, flags: { ferry: false }, expect: { flags: { ferry: true } } }] }))
+      .rejects.toThrow(/0001 was just changed/);
+    // Undo ticks it again; the sync carries it.
+    await undoChange(db, suresh, off.changeId);
+    expect((await syncSince(db, 0)).rows.find((r) => r.id === p.id)?.meta).toEqual({ ferry: true });
+    // Printed on the pass: locked once printed.
+    await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false, flags: { ferry: true } } }] });
+    await expect(applyChange(db, ramesh, { action: 'edit', summary: 'off', set: [{ id: p.id, flags: { ferry: false }, expect: { flags: { ferry: true } } }] }))
+      .rejects.toThrow(/0001 is printed/);
+    await applyChange(db, ramesh, { action: 'edit', summary: 'untick', set: [{ id: p.id, printed: false, expect: { printed: true } }] });
+    // A completely empty pass with only Ferry Sewa ticked isn't empty: Give can't claim it.
+    const [q] = (await applyChange(db, ramesh, { action: 'give', summary: 'g', create: [{ type: H, serial: 2, values: {}, flags: { ferry: true } }] })).rows;
+    await expect(applyChange(db, suresh, { action: 'give', summary: 'fill', set: [{ id: q.id, values: { name: 'RAJ' }, expect: { name: '' }, claim: true }] }))
+      .rejects.toThrow(/0002 was just changed/);
+    // Deleted and put back with it.
+    const [now] = (await syncSince(db, 0)).rows.filter((r) => r.id === p.id);
+    const del = await deletePasses(db, ramesh, { summary: 'del', items: [{ id: p.id, rev: now.rev }] });
+    const back = await undoChange(db, ramesh, del.changeId);
+    expect(back.rows[0].meta).toEqual({ ferry: true });
+  });
+
   it('locks printed passes until Printed is unticked', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
     await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });

@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { cleanFill, isBlank, isGiven, isPrinted, nextSerial, nPasses, parseSerial, type Picked, planFill, ranges } from '@/lib/passes';
-import { type Field, fieldLabel, fieldsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
+import { type Field, fieldLabel, fieldsFor, FLAG_LABELS, type Flags, flagsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { btnPrimary, heading, input, label } from './ui';
 
 const SUGGEST: Partial<Record<Field, string>> = { name: 'dl-person', incharge: 'dl-incharge', area: 'dl-area', dept: 'dl-dept' };
@@ -29,6 +29,8 @@ export function RangePanel({ type, sheet, range, setRange, picks }: {
   /* ----- give ----- */
   const fields = GIVE_ORDER.filter((k) => fieldsFor(type).includes(k));
   const [values, setValues] = useState<Values>({});
+  /** Yes / no details to tick on the passes given (Ferry Sewa); unticked ones are left as they are. */
+  const [flags, setFlags] = useState<Flags>({});
   const fill = useMemo(() => cleanFill(type, values), [type, values]);
   const hasRange = range.from.trim() !== '';
   // No range: the first completely empty pass is filled in, and its Added by becomes whoever gives it; passes
@@ -38,9 +40,9 @@ export function RangePanel({ type, sheet, range, setRange, picks }: {
   const end = nextSerial(sheet);
   const target = blank?.serial ?? end;
   const give = useMemo(() => {
-    const plan = planFill(sheet, type, hasRange ? range.from : String(target), hasRange ? range.to : '', fill, hasRange ? range.only : undefined);
+    const plan = planFill(sheet, type, hasRange ? range.from : String(target), hasRange ? range.to : '', fill, hasRange ? range.only : undefined, flags);
     return !hasRange && blank ? { ...plan, set: plan.set.map((o) => ({ ...o, claim: true })) } : plan;
-  }, [hasRange, sheet, type, range, target, blank, fill]);
+  }, [hasRange, sheet, type, range, target, blank, fill, flags]);
   const giveCount = give.serials.length;
   const hasWho = WHO.some((k) => fill[k]);
   const typedAny = Object.values(values).some((v) => v?.trim());
@@ -57,10 +59,18 @@ export function RangePanel({ type, sheet, range, setRange, picks }: {
     const who = fill.incharge || fill.name || fill.dept || fill.phone;
     const summary = hasRange ? `Gave ${info.label} ${ranges(give.serials)} to ${who}`
       : blank ? `Filled empty ${info.label} ${fmtSerial(target)} for ${who}` : `Added ${info.label} ${fmtSerial(end)} for ${who}`;
+    const ticks = flagsFor(type).filter((f) => flags[f]).map((f) => FLAG_LABELS[f]);
     const typed = values;
+    const ticked = flags;
     setValues({}); // the passes show as given at once; if the server refuses, the box gets its values back
-    const r = await apply({ action: 'give', summary, set: give.set, create: give.create, next: !hasRange && !blank });
-    if (!r) setValues((v) => (Object.values(v).some(Boolean) ? v : typed));
+    setFlags({});
+    const r = await apply({
+      action: 'give', summary: ticks.length ? `${summary} (${ticks.join(', ')})` : summary, set: give.set, create: give.create, next: !hasRange && !blank,
+    });
+    if (!r) {
+      setValues((v) => (Object.values(v).some(Boolean) ? v : typed));
+      setFlags((f) => (Object.values(f).some(Boolean) ? f : ticked));
+    }
   };
 
   const from = parseSerial(range.from);
@@ -88,6 +98,13 @@ export function RangePanel({ type, sheet, range, setRange, picks }: {
           <label key={k} className={label}>
             {fieldLabel(type, k)}
             <input className={input} list={SUGGEST[k]} value={values[k] ?? ''} onChange={(e) => change(k, e.target.value)} />
+          </label>
+        ))}
+        {flagsFor(type).map((f) => (
+          <label key={f} className="flex cursor-pointer items-center gap-2 text-[14.5px] font-medium">
+            <input type="checkbox" className="size-4 accent-primary" checked={!!flags[f]} onChange={(e) => setFlags({ ...flags, [f]: e.target.checked })} />
+            {FLAG_LABELS[f]}
+            <span className="text-[13px] font-normal text-muted-foreground">(printed on the pass)</span>
           </label>
         ))}
         {give.err && <p className="text-[13.5px] text-destructive">{give.err}</p>}

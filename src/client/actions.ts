@@ -3,6 +3,7 @@ import { useCallback, useEffect } from 'react';
 import { blankPass, ranges } from '@/lib/passes';
 import {
   type ApplyRequest, type ApplyResult, cleanField, type DeleteRequest, type DeleteResult, type Field, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values,
+  withFlags,
 } from '@/shared/types';
 import { FIRST_TEMP_ID, store, type UndoEntry } from './store';
 import { toast } from './toast';
@@ -159,6 +160,7 @@ function preview(req: ApplyRequest) {
     const q: Pass = { ...p, ...clean(op.values), updated_by: store.me, ...(op.claim && { created_by: store.me }) };
     if (op.printed !== undefined) q.printed_at = op.printed ? (p.printed_at ?? now) : null;
     if (op.given !== undefined) q.given_at = op.given ? (p.given_at ?? now) : null;
+    if (op.flags) q.meta = withFlags(p.meta, op.flags);
     rows.push(q);
   }
   const added: { id: number; type: PassType; serial: number }[] = [];
@@ -166,7 +168,7 @@ function preview(req: ApplyRequest) {
     const id = nextTemp--;
     rows.push({
       ...blankPass(c.type, c.serial), ...clean(c.values), id,
-      printed_at: c.printed ? now : null, given_at: c.given ? now : null, created_at: now, created_by: store.me, updated_by: store.me,
+      printed_at: c.printed ? now : null, given_at: c.given ? now : null, meta: withFlags({}, c.flags), created_at: now, created_by: store.me, updated_by: store.me,
     });
     added.push({ id, type: c.type, serial: c.serial });
   }

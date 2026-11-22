@@ -7,7 +7,7 @@ import { useSyncLoop } from '@/client/actions';
 import { type Status, store, useCounts, useStatus } from '@/client/store';
 import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
-import { PASS_TYPES, type PassType, TYPE_INFO, type User } from '@/shared/types';
+import { type PassType, SHEETS, TYPE_INFO, type User } from '@/shared/types';
 import { nPasses } from '@/lib/passes';
 import { PrintQueueButton } from './PrintQueue';
 
@@ -115,9 +115,9 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           {/* The sheets, as tabs of the register. The open one joins the page below. */}
           {/* Mobile, Bike and Vehicle sheets in three groups. Below 1440 px only the open tab shows its count (the others on hover). */}
           <nav ref={tabsRef} className="flex items-end overflow-x-auto px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Sheets">
-            {PASS_TYPES.map((t, i) => {
+            {SHEETS.map((t, i) => {
               const on = path === `/s/${t}`;
-              const newGroup = i > 0 && groupOf(t) !== groupOf(PASS_TYPES[i - 1]);
+              const newGroup = i > 0 && groupOf(t) !== groupOf(SHEETS[i - 1]);
               return (
                 <Fragment key={t}>
                   {newGroup && <span aria-hidden className="mx-1.5 mb-2.5 h-4 w-px shrink-0 bg-white/25 max-[1599px]:mx-1" />}

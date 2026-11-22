@@ -18,8 +18,15 @@ export const PASS_TYPES = [
   'e-rickshaw',
   'eco',
   'metro',
+  'gate3-hospital',
 ] as const;
 export type PassType = (typeof PASS_TYPES)[number];
+
+/** The sheets in the order the tabs (and lists of sheets) show them: Gate 3 Hospital after Gate 3 - VIP. */
+export const SHEETS: readonly PassType[] = [
+  'mobile-pandal', 'mobile-non-pandal', 'bike-pandal', 'bike-non-pandal', 'sewa-vehicle', 'tractor-trolley',
+  'gate3-entry', 'bav-entry', 'vip-gate', 'gate3-hospital', 'admin', 'e-rickshaw', 'eco', 'metro',
+];
 
 /** Text columns. A sheet shows its own subset, in its own order (see `fields` below). */
 export const FIELDS = ['name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to'] as const;
@@ -29,6 +36,24 @@ export const FIELD_LABELS: Record<Field, string> = {
   name: 'Name', dept: 'Dept', area: 'Area', phone: 'Phone', vehicle: 'Vehicle', vehicle_no: 'Reg. No.', incharge: 'Incharge',
   issued_to: 'Issued To',
 };
+
+/**
+ * Yes / no details of a pass, kept in its `meta` (jsonb). A sheet has the ones in its `flags`; only a
+ * ticked one is stored. Ferry Sewa (Gate 3 Hospital, the owner, 2026-11-22): printed on the pass when ticked.
+ */
+export const FLAGS = ['ferry'] as const;
+export type Flag = (typeof FLAGS)[number];
+export const FLAG_LABELS: Record<Flag, string> = { ferry: 'Ferry Sewa' };
+/** A pass's `meta`: the flags ticked. */
+export type PassMeta = Partial<Record<Flag, true>>;
+/** Flags to tick (true) or untick (false); the others are left as they are. */
+export type Flags = Partial<Record<Flag, boolean>>;
+/** `meta` with these flags ticked / unticked. */
+export function withFlags(meta: PassMeta, flags: Flags = {}): PassMeta {
+  const out: PassMeta = { ...meta };
+  for (const f of FLAGS) if (flags[f] === true) out[f] = true; else if (flags[f] === false) delete out[f];
+  return out;
+}
 
 /**
  * Filled in when a pass is handed over, which is after it's printed: these stay editable on printed
@@ -61,6 +86,8 @@ export interface PassTypeInfo {
   fields: readonly Field[];
   /** Columns named differently on this sheet (see fieldLabel). */
   labels?: Partial<Record<Field, string>>;
+  /** Yes / no details (FLAGS) this sheet has, each a tick column. */
+  flags?: readonly Flag[];
   /** Template colours: top / bottom band, the thin stripe beside it, card background and logo box; `title`: 150 × 100 mm passes' title. */
   color: { name: string; band: string; stripe: string; bg: string; logo: string; title?: string };
 }
@@ -70,6 +97,8 @@ const MOBILE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'incha
 const BIKE_FIELDS: readonly Field[] = ['name', 'dept', 'area', 'vehicle_no', 'phone', 'incharge', 'issued_to'];
 const VEHICLE_FIELDS: readonly Field[] = ['name', 'vehicle', 'vehicle_no', 'area', 'dept', 'phone', 'incharge', 'issued_to'];
 /** Free Helpline Sewa passes print only their serial: the sheet records who each pass went to (the owner, 2026-11-15). */
+/** Gate 3 Hospital: no Vehicle (the owner, 2026-11-22). */
+const HOSPITAL_FIELDS: readonly Field[] = VEHICLE_FIELDS.filter((k) => k !== 'vehicle');
 const HELPLINE_FIELDS: readonly Field[] = ['incharge', 'issued_to'];
 /** Gate 3, Gate 3 - VIP and Admin passes are given on someone's word: the Incharge column is who referred them. */
 const REFERRED = { incharge: 'Referred by' };
@@ -91,6 +120,8 @@ const TEAL = { ...GREEN, name: 'Teal', band: '#00727a', title: '#00727a' };
 // green until 2026-11-16, too like Sewa Vehicle's green; the owner), Metro in navy (no other pass's colour).
 const BROWN = { ...GREEN, name: 'Brown', band: '#7a4a1f', title: '#7a4a1f' };
 const NAVY = { ...GREEN, name: 'Navy', band: '#1d4e89', title: '#1d4e89' };
+// Gate 3 Hospital (the owner, 2026-11-22): indigo, brighter than Mobile Pandal's blue.
+const INDIGO = { ...GREEN, name: 'Indigo', band: '#4338ca', title: '#4338ca' };
 
 export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'mobile-pandal': {
@@ -119,7 +150,15 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   // The Eco pass prints FREE HELPLINE SEWA on its band (the owner, 2026-11-16); its tab says Helpline (2026-11-19).
   eco: { label: 'Helpline', short: 'EC', layout: 'large', helpline: true, title: 'FREE HELPLINE SEWA', fields: HELPLINE_FIELDS, color: BROWN },
   metro: { label: 'Metro', short: 'ME', layout: 'large', helpline: true, title: 'METRO', fields: HELPLINE_FIELDS, color: NAVY },
+  // Design round 2 A Rail with the RSSB logo (the owner, 2026-11-22).
+  'gate3-hospital': {
+    label: 'Gate 3 Hospital', short: 'GH', layout: 'gate', title: 'GATE 3 ENTRY - HOSPITAL', fields: HOSPITAL_FIELDS, labels: REFERRED,
+    flags: ['ferry'], color: INDIGO,
+  },
 };
+
+/** The yes / no details a sheet has. */
+export const flagsFor = (t: PassType): readonly Flag[] => TYPE_INFO[t].flags ?? [];
 
 /** A column's name on this sheet: Incharge is "Referred by" on Gate 3, Gate 3 - VIP and Admin. */
 export const fieldLabel = (type: PassType, k: Field) => TYPE_INFO[type].labels?.[k] ?? FIELD_LABELS[k];
@@ -192,6 +231,8 @@ export interface Pass {
   printed_at: string | null;
   /** ISO time Given was ticked (handed over), or null. */
   given_at: string | null;
+  /** Yes / no details ticked (FLAGS), e.g. { ferry: true }. */
+  meta: PassMeta;
   /** ISO time the pass entered the register (when its range was given, or it was added). */
   created_at: string;
   /** User id of the last change. */
@@ -222,7 +263,8 @@ export interface SetOp {
   given?: boolean;
   /** Filling in a completely empty pass (Give with no range): Added by becomes whoever saves it. Refused unless it is still empty. */
   claim?: boolean;
-  expect: Values & { printed?: boolean; given?: boolean };
+  flags?: Flags;
+  expect: Values & { printed?: boolean; given?: boolean; flags?: Flags };
 }
 
 /** Create a pass. Fails if that serial already exists in the sheet (unless the request is `next`). */
@@ -232,6 +274,7 @@ export interface CreateOp {
   values: Values;
   printed?: boolean;
   given?: boolean;
+  flags?: Flags;
 }
 
 export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import'] as const;

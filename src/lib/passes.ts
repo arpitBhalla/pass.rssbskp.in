@@ -1,6 +1,6 @@
 import {
-  cleanField, type CreateOp, type Field, fieldLabel, FIELDS, fieldsFor, fmtSerial, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass,
-  PASS_TYPES, type PassType, type SetOp, TYPE_INFO, type Values,
+  cleanField, type CreateOp, type Field, fieldLabel, FIELDS, fieldsFor, FLAGS, type Flags, flagsFor, fmtSerial, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass,
+  type PassMeta, PASS_TYPES, SHEETS, type PassType, type SetOp, TYPE_INFO, type Values,
 } from '@/shared/types';
 
 /** Number part of a serial: "M-0105" → 105, "0105" → 105. NaN if there is none. */
@@ -32,8 +32,11 @@ export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
 /** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
 export const blankPass = (type: PassType, serial: number): Pass => ({
   id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '',
-  printed_at: null, given_at: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
+  printed_at: null, given_at: null, meta: {}, created_at: '', created_by: 0, updated_by: 0, rev: 0,
 });
+
+/** The same yes / no details (FLAGS) ticked. */
+export const sameMeta = (a: PassMeta, b: PassMeta) => FLAGS.every((f) => !!a[f] === !!b[f]);
 
 /** Serials 1 … highest in the sheet that aren't in the register yet. `sheet` is sorted by serial. */
 export function missingSerials(sheet: Pass[]): number[] {
@@ -108,8 +111,8 @@ export const HIDE_LABEL: Record<Hide, string> = {
   printed: 'Printed', given: 'Given', filled: 'Fully filled in', partial: 'Partly filled in', empty: 'Empty rows',
 };
 
-/** Nothing filled in at all, not even Incharge. */
-export const isBlank = (type: PassType, p: Pass) => fieldsFor(type).every((k) => !p[k].trim());
+/** Nothing filled in at all, not even Incharge, and nothing ticked (Ferry Sewa). */
+export const isBlank = (type: PassType, p: Pass) => fieldsFor(type).every((k) => !p[k].trim()) && flagsFor(type).every((f) => !p.meta[f]);
 /** Something filled in, but a detail it needs to print is still empty. */
 export const isPartlyFilled = (type: PassType, p: Pass) => !isBlank(type, p) && unfilledOf(type, p).length > 0;
 /** Every detail it needs to print is filled in. */
@@ -139,7 +142,7 @@ export function groupRuns(view: Pass[]): Pass[][] {
     const run = runs[runs.length - 1];
     const prev = run?.[run.length - 1];
     const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && isGiven(prev) === isGiven(p)
-      && FIELDS.every((k) => prev[k] === p[k]);
+      && FIELDS.every((k) => prev[k] === p[k]) && sameMeta(prev.meta, p.meta);
     if (joins) run.push(p);
     else runs.push([p]);
   }
@@ -170,31 +173,40 @@ export interface FillPlan {
   err: string;
 }
 
-/** What filling `values` into serials `from`–`to` (or `only` those of them) would do. Missing serials are created. */
-export function planFill(sheet: Pass[], type: PassType, from: string, to: string, values: Values, only?: readonly number[]): FillPlan {
+/**
+ * What filling `values` into serials `from`–`to` (or `only` those of them) would do. Missing serials are created.
+ * `flags`: the ones true are ticked too (a pass already ticked stays so; nothing is unticked).
+ */
+export function planFill(sheet: Pass[], type: PassType, from: string, to: string, values: Values, only?: readonly number[], flags: Flags = {}): FillPlan {
   const plan: FillPlan = { set: [], create: [], serials: [], skipped: [], same: 0, err: '' };
   const r = serialRange(from, to, only);
   if ('err' in r) return { ...plan, err: r.err };
 
   const keys = (Object.keys(values) as Field[]).filter((k) => values[k]);
+  const ticks = flagsFor(type).filter((f) => flags[f]);
   const bySerial = new Map(sheet.map((p) => [p.serial, p]));
   for (const n of r.serials) {
     const p = bySerial.get(n);
     if (!p) {
-      plan.create.push({ type, serial: n, values: { ...values } });
+      plan.create.push({ type, serial: n, values: { ...values }, ...(ticks.length && { flags: Object.fromEntries(ticks.map((f) => [f, true])) }) });
       plan.serials.push(n);
       continue;
     }
     const clash = keys.find((k) => p[k] && p[k] !== values[k]);
     const changed = keys.filter((k) => p[k] !== values[k]);
+    const toTick = ticks.filter((f) => !p.meta[f]);
     if (clash) plan.skipped.push({ serial: n, why: `${fieldLabel(type, clash)} is ${p[clash]}` });
-    else if (!changed.length) plan.same++;
+    else if (!changed.length && !toTick.length) plan.same++;
     else if (isPrinted(p)) plan.skipped.push({ serial: n, why: 'printed' });
     else {
       plan.set.push({
         id: p.id,
         values: Object.fromEntries(changed.map((k) => [k, values[k]])),
-        expect: Object.fromEntries(changed.map((k) => [k, p[k]])),
+        expect: {
+          ...Object.fromEntries(changed.map((k) => [k, p[k]])),
+          ...(toTick.length && { flags: Object.fromEntries(toTick.map((f) => [f, false])) }),
+        },
+        ...(toTick.length && { flags: Object.fromEntries(toTick.map((f) => [f, true])) }),
       });
       plan.serials.push(n);
     }
@@ -331,7 +343,10 @@ export function planClear(passes: Pass[], keys: readonly Field[]): ClearPlan {
 export const MAX_PRINT = 900;
 
 /** What a printed card shows. */
-export type CardData = Pick<Pass, 'type' | 'serial' | 'name' | 'dept' | 'area' | 'phone' | 'vehicle' | 'vehicle_no'>;
+export type CardData = Pick<Pass, 'type' | 'serial' | 'name' | 'dept' | 'area' | 'phone' | 'vehicle' | 'vehicle_no'> & {
+  /** Ticks printed on the pass (Ferry Sewa). */
+  meta?: PassMeta;
+};
 
 /**
  * What a pass prints: a detail of only dots, dashes or other symbols (no letter or digit) was typed to leave
@@ -406,14 +421,15 @@ function addToPlan(plan: PrintPlan, sheet: readonly Pass[], type: PassType, seri
     plan.cards.push(p);
     // If anything on the card changed after the preview, nothing is marked and the user is told.
     const seen = { name: p.name, dept: p.dept, area: p.area, phone: p.phone, vehicle: p.vehicle, vehicle_no: p.vehicle_no };
-    plan.set.push({ id: p.id, printed: true, expect: { ...seen, printed: false } });
+    const ticks = flagsFor(type).length ? { flags: Object.fromEntries(flagsFor(type).map((f) => [f, !!p.meta[f]])) } : {};
+    plan.set.push({ id: p.id, printed: true, expect: { ...seen, ...ticks, printed: false } });
   }
   return true;
 }
 
 /** "Mobile Pandal 0001–40, Mobile Non Pandal 0005": the cards, sheet by sheet. */
 export const cardsLabel = (cards: readonly CardData[]) =>
-  PASS_TYPES.flatMap((t) => {
+  SHEETS.flatMap((t) => {
     const serials = cards.filter((c) => c.type === t).map((c) => c.serial);
     return serials.length ? [`${TYPE_INFO[t].label} ${ranges(serials)}`] : [];
   }).join(', ');

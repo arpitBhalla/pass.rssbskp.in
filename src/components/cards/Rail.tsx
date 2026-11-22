@@ -32,12 +32,15 @@ const LABEL_AT: Partial<Record<Field, [dx: number, length: number]>> = {
   name: [-0.139, 6.037], vehicle: [-0.013, 7.896], vehicle_no: [-0.14, 9.126], area: [-0.021, 4.934], dept: [-0.139, 5.632],
 };
 
+/** How long Pill draws `t`, `h` tall with `cap` letters. */
+const pillWidth = (t: string, h: number, cap: number) => (t.trim() ? widthOf(upper(t), C800, cap, cap * 0.08) + h * 1.1 : 0);
+
 /** A solid rounded pill with white text, `h` tall, centred on `cy`, ending at `x`. */
 function Pill({ t, x, cy, h, cap, color }: { t: string; x: number; cy: number; h: number; cap: number; color: string }) {
   if (!t.trim()) return null;
   const text = upper(t);
   const track = cap * 0.08;
-  const w = widthOf(text, C800, cap, track) + h * 1.1;
+  const w = pillWidth(t, h, cap);
   const x0 = x - w;
   return (
     <g>
@@ -160,6 +163,85 @@ export function RailVehicle({ p, texts, code }: CardProps) {
       {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall, Gate 1 & 11's 11.5, just under its Area / Dept. line (8.4 before; the owner, 2026-11-18). */}
       <RegPlate v={p.vehicle_no} x0={VW / 2 - 34} x1={VW / 2 + 34} top={Y(80)} bottom={Y(94)} />
       <SignOff href={texts.signature} x0={114} x1={144} y={Y(88.6)} h={bav ? 11.5 : 16} line={c} />
+    </>
+  );
+}
+
+/** The Gate 3 sign of Gate 3 Hospital passes, `size` mm square at (x, y): a "3" on a white disc, on a tile of the pass colour (design round 2). */
+function GateTile({ x, y, size, color }: { x: number; y: number; size: number; color: string }) {
+  const pad = size * 0.1;
+  return (
+    <g>
+      <rect x={x} y={y} width={size} height={size} rx={mm(size * 0.12)} fill={color} />
+      <g transform={`translate(${x + pad} ${y + pad}) scale(${(size - 2 * pad) / 24})`}>
+        <circle cx={12} cy={12} r={11.5} fill={WHITE} />
+        <text x={12} y={18.3} fontSize={17.5} textAnchor="middle" style={{ fontFamily: LEGIBLE.family, fontWeight: 800 }} fill={color}>3</text>
+      </g>
+    </g>
+  );
+}
+
+/**
+ * FERRY SEWA, large in white on a solid block of the pass colour with a white inner rule, from x0 to x1 and
+ * top to bottom: seen at a glance at the gate (the owner, 2026-11-22: "more visual"; was a small outlined pill).
+ */
+function FerryBlock({ x0, x1, top, bottom, color }: { x0: number; x1: number; top: number; bottom: number; color: string }) {
+  const t = 'FERRY SEWA';
+  const inset = 1.1;
+  const track = 0.5;
+  const max = x1 - x0 - 8;
+  const cap = Math.min((bottom - top) * 0.5, (8 * (max - track * (t.length - 1))) / widthOf(t, C900, 8));
+  return (
+    <g>
+      <rect x={x0} y={mm(top)} width={mm(x1 - x0)} height={mm(bottom - top)} rx={2.2} fill={color} />
+      <rect x={x0 + inset} y={mm(top + inset)} width={mm(x1 - x0 - 2 * inset)} height={mm(bottom - top - 2 * inset)} rx={1.4}
+        fill="none" stroke={WHITE} strokeWidth={0.35} />
+      <T t={t} f={C900} cap={cap} x={(x0 + x1) / 2} y={(top + bottom) / 2 + cap / 2} align="middle" track={track} fill={WHITE} />
+    </g>
+  );
+}
+
+/** Gate 3 Hospital: Name, and the Reg. No. on a row of its own (no Vehicle; the owner, 2026-11-22). */
+const HOSPITAL_ROWS: Row[] = [['name'], ['vehicle_no']];
+
+/**
+ * Gate 3 Hospital (the owner, 2026-11-22): design round 2 A "Rail" as picked, with the RSSB logo and heading of the
+ * other passes (OrgHead), in indigo. The Gate 3 sign beside VEHICLE PASS and the title; VEHICLE PASS joined to the tag by a rail; FERRY SEWA large in a solid
+ * block at the foot, between the serial and the signature, when ticked (FerryBlock); the signature line and its label only, no signature image, as on the
+ * other Gate 3 passes (2026-11-21). 151 × 103 mm, drawn on 150 × GH like the other gate passes.
+ */
+export function RailHospital({ p, texts, code }: CardProps) {
+  const c = TYPE_INFO[p.type].color.band;
+  const [w, h] = [VW, GH];
+  const Y = stretchY(5, 96.5, GH);
+  const kind = kindOf(p.type);
+  const head = 'VEHICLE PASS';
+  const headCap = 2.2;
+  const headTrack = 0.45;
+  /** Where VEHICLE PASS ends, the middle of its letters, and how long the tag is. */
+  const headEnd = 25.6 + widthOf(head, S700, headCap, headTrack);
+  const headMid = Y(29.4) - headCap / 2;
+  const tagW = pillWidth(texts.tag, 4.6, 2.3);
+  return (
+    <>
+      <rect width={w} height={h} fill={WHITE} />
+      <rect width={w} height={4.5} fill={c} />
+      <rect y={h - 3.5} width={w} height={3.5} fill={c} />
+      <OrgHead x={6} y={7} max={129 - 4 - (6 + ORG_LOGO.w + 3.2)} />
+      {code && <Qr text={code} x={129} y={Y(8.5)} size={15} pad={0} />}
+      <GateTile x={6} y={Y(42.4) - 16} size={16} color={c} />
+      <T t={head} f={S700} cap={headCap} x={25.6} y={Y(29.4)} track={headTrack} fill={GREY} />
+      {/* VEHICLE PASS and the tag at the ends of a rail in the pass colour, so the space between them reads as one line
+          (the owner, 2026-11-22: "reduce this gap", "think out of box"). */}
+      <rect x={mm(headEnd + 2.4)} y={mm(headMid - 0.2)} width={mm(144 - tagW - 2.4 - headEnd - 2.4)} height={0.4} fill={c} />
+      <circle cx={mm(headEnd + 2.4)} cy={mm(headMid)} r={0.75} fill={c} />
+      <Pill t={texts.tag} x={144} cy={headMid} h={4.6} cap={2.3} color={c} />
+      <T t={kind} f={C900} cap={10.5} x={25.3} y={Y(42.4)} max={118.7} fill={c} />
+      <Fields p={p} rows={HOSPITAL_ROWS} ys={[57.5, 70].map(Y)} x0={6} x1={144} lw={13} cap={5.6} color={c} />
+      <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
+      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
+      <SignOff href="" x0={114} x1={144} y={Y(88.6)} h={0} line={c} />
+      {p.meta?.ferry && <FerryBlock x0={38} x1={106} top={Y(77.5)} bottom={Y(93.4)} color={c} />}
     </>
   );
 }

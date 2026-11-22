@@ -207,4 +207,14 @@ export const migrations: Record<string, Migration> = {
         WHERE p.id = v.id`.execute(db);
     },
   },
+  // Gate 3 Hospital (the owner, 2026-11-22): a sheet added at the end (a pass's QR code holds its sheet's
+  // position in the list), and `meta`, a pass's yes / no details (FLAGS: Ferry Sewa), only the ticked ones.
+  '0011_hospital_meta': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'gate3-hospital';
+        ALTER TABLE passes ADD COLUMN meta jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(meta) = 'object' AND length(meta::text) <= 500);
+      `).execute(db);
+    },
+  },
 };

@@ -1,4 +1,4 @@
-import { PASS_TYPES, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
+import { PASS_TYPES, SHEETS, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
 import { toCSV } from './csv';
 import { ranges } from './passes';
 
@@ -39,7 +39,7 @@ function line(label: string, ps: Pass[]): ReportLine {
     label,
     counts,
     total: ps.length,
-    serials: PASS_TYPES.filter((t) => byType.has(t)).map((t) => `${TYPE_INFO[t].short} ${ranges(byType.get(t)!)}`).join(' · '),
+    serials: SHEETS.filter((t) => byType.has(t)).map((t) => `${TYPE_INFO[t].short} ${ranges(byType.get(t)!)}`).join(' · '),
     incharges: [...new Set(ps.map((p) => p.incharge).filter(Boolean))].join(', '),
   };
 }
@@ -87,8 +87,8 @@ export function buildReport(passes: Pass[], by: ReportBy): Report {
 
 /** The report as a CSV file: one row per sub-group, a total row after each group, and a grand total. */
 export function reportCSV(r: Report): string {
-  const n = (l: ReportLine) => [...PASS_TYPES.map((t) => String(l.counts[t])), String(l.total)];
-  const rows = [[BY_LABEL[r.by], BY_LABEL[other(r.by)], ...PASS_TYPES.map((t) => TYPE_INFO[t].label), 'Total', 'Serial nos.', 'Incharges']];
+  const n = (l: ReportLine) => [...SHEETS.map((t) => String(l.counts[t])), String(l.total)];
+  const rows = [[BY_LABEL[r.by], BY_LABEL[other(r.by)], ...SHEETS.map((t) => TYPE_INFO[t].label), 'Total', 'Serial nos.', 'Incharges']];
   for (const g of r.groups) {
     for (const l of g.lines) rows.push([g.label, l.label, ...n(l), l.serials, l.incharges]);
     rows.push([g.label, 'Total', ...n(g), '', '']);

@@ -3,21 +3,22 @@ import { TRPCError } from '@trpc/server';
 import { type Kysely, type Transaction, sql } from 'kysely';
 import {
   type ApplyRequest, type ApplyResult, type Change, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, cleanField,
-  type DeleteRequest, type DeleteResult, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass, type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values,
+  type DeleteRequest, type DeleteResult, FLAG_LABELS, FLAGS, type Flags, flagsFor, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass, type PassMeta,
+  type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values, withFlags,
 } from '@/shared/types';
 import type { ChangeBefore, Database, PassRow, PassRowJson } from './db/schema';
 
 const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message });
 const conflict = (message: string) => new TRPCError({ code: 'CONFLICT', message });
 
-const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to', 'printed_at', 'given_at', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
+const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to', 'printed_at', 'given_at', 'meta', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
 
 export function toPass(r: Pick<PassRow, (typeof PASS_COLUMNS)[number]>): Pass {
   return {
     id: r.id, type: r.type, serial: r.serial, name: r.name, dept: r.dept, area: r.area, phone: r.phone,
-    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, issued_to: r.issued_to, printed_at: iso(r.printed_at), given_at: iso(r.given_at), created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
+    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, issued_to: r.issued_to, printed_at: iso(r.printed_at), given_at: iso(r.given_at), meta: r.meta ?? {}, created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
   };
 }
 
@@ -83,12 +84,17 @@ async function userName(trx: Kysely<Database>, id: number) {
   return (await trx.selectFrom('users').select('name').where('id', '=', id).executeTakeFirst())?.name ?? 'someone';
 }
 
-/** Refuses values for columns the sheet doesn't have (e.g. Reg. No. on a Mobile pass). */
-function checkFields(type: PassType, values: Values = {}) {
+/** Refuses values for columns the sheet doesn't have (e.g. Reg. No. on a Mobile pass), and ticks it has no column for. */
+function checkFields(type: PassType, values: Values = {}, flags: Flags = {}) {
   const allowed = fieldsFor(type);
   const extra = (Object.keys(values) as Field[]).find((k) => values[k] && !allowed.includes(k));
   if (extra) throw bad(`${TYPE_INFO[type].label} passes have no ${FIELD_LABELS[extra]}.`);
+  const flag = FLAGS.find((f) => flags[f] && !flagsFor(type).includes(f));
+  if (flag) throw bad(`${TYPE_INFO[type].label} passes have no ${FLAG_LABELS[flag]}.`);
 }
+
+/** Whether flag `f` is ticked on this pass. */
+const ticked = (meta: PassMeta | null | undefined, f: string) => !!meta?.[f as keyof PassMeta];
 
 /**
  * Saves one user action (give, edit, paste, print, import): all of it, or nothing.
@@ -103,7 +109,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
   if (new Set(set.map((o) => o.id)).size !== set.length) throw bad('The same pass appears twice.');
   if (new Set(create.map((o) => `${o.type}|${o.serial}`)).size !== create.length) throw bad('The same serial appears twice.');
   for (const c of create) {
-    checkFields(c.type, c.values);
+    checkFields(c.type, c.values, c.flags);
   }
 
   try {
@@ -127,19 +133,22 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const row = byId.get(op.id);
         if (!row) throw conflict('Some of these passes were removed meanwhile. The sheet has been refreshed.');
         const isStale = Object.entries(op.expect).some(([k, v]) =>
-          k === 'printed' ? (row.printed_at !== null) !== v : k === 'given' ? (row.given_at !== null) !== v : row[k as Field] !== v,
+          k === 'printed' ? (row.printed_at !== null) !== v : k === 'given' ? (row.given_at !== null) !== v
+            : k === 'flags' ? Object.entries(v as Flags).some(([f, on]) => ticked(row.meta, f) !== on) : row[k as Field] !== v,
         );
         // Taking a completely empty pass: someone may have started filling it in meanwhile.
-        const filled = row.printed_at !== null || row.given_at !== null || FIELDS.some((k) => row[k] !== '');
+        const filled = row.printed_at !== null || row.given_at !== null || FIELDS.some((k) => row[k] !== '') || Object.keys(row.meta ?? {}).length > 0;
         if (isStale || (op.claim && filled)) { stale.push(row); continue; }
         const values = op.values ?? {};
         // A printed pass can't change until Printed is unticked (in a separate step), except who it was issued to.
-        const differs = (Object.keys(values) as Field[]).some((k) => locksWhenPrinted(k) && row[k] !== values[k]);
+        const meta = withFlags(row.meta ?? {}, op.flags);
+        const differs = (Object.keys(values) as Field[]).some((k) => locksWhenPrinted(k) && row[k] !== values[k])
+          || FLAGS.some((f) => ticked(row.meta, f) !== ticked(meta, f)); // a tick prints on the pass
         if (row.printed_at !== null && differs) { locked.push(row); continue; }
         // A pass is printed first, then handed over: Given needs Printed (unticking either is always allowed).
         if (op.given && row.given_at === null && !(op.printed ?? row.printed_at !== null)) { unprinted.push(row); continue; }
-        checkFields(row.type, values);
-        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null, claim: !!op.claim };
+        checkFields(row.type, values, op.flags);
+        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null, claim: !!op.claim, meta };
         for (const k of FIELDS) merged[k] = values[k] ?? row[k];
         updates.push(merged);
       }
@@ -163,10 +172,10 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
               issued_to = v.issued_to,
               printed_at = CASE WHEN v.printed IS NULL THEN p.printed_at WHEN v.printed THEN coalesce(p.printed_at, now()) ELSE NULL END,
               given_at = CASE WHEN v.given IS NULL THEN p.given_at WHEN v.given THEN coalesce(p.given_at, now()) ELSE NULL END,
-              created_by = CASE WHEN v.claim THEN ${userId} ELSE p.created_by END,
+              created_by = CASE WHEN v.claim THEN ${userId} ELSE p.created_by END, meta = v.meta,
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean, claim boolean)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean, claim boolean, meta jsonb)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -190,16 +199,16 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         }
       }
 
-      const createRows = create.map((c) => ({ type: c.type, serial: c.serial, printed: c.printed ?? false, given: c.given ?? false, ...c.values }));
+      const createRows = create.map((c) => ({ type: c.type, serial: c.serial, printed: c.printed ?? false, given: c.given ?? false, meta: withFlags({}, c.flags), ...c.values }));
       const created = create.length
         ? (await sql<PassRow>`
-            INSERT INTO passes (type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, created_by, updated_by, rev)
+            INSERT INTO passes (type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, meta, created_by, updated_by, rev)
             SELECT v.type::pass_type, v.serial,
                    coalesce(v.name, ''), coalesce(v.dept, ''), coalesce(v.area, ''), coalesce(v.phone, ''),
                    coalesce(v.vehicle, ''), coalesce(v.vehicle_no, ''), coalesce(v.incharge, ''), coalesce(v.issued_to, ''),
-                   CASE WHEN v.printed THEN now() END, CASE WHEN v.given THEN now() END, ${userId}, ${userId}, ${rev}
+                   CASE WHEN v.printed THEN now() END, CASE WHEN v.given THEN now() END, coalesce(v.meta, '{}'), ${userId}, ${userId}, ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(createRows)}::jsonb)
-              AS v(type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean)
+              AS v(type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean, meta jsonb)
             ON CONFLICT (type, serial) DO NOTHING
             RETURNING *`.execute(trx)).rows
         : [];
@@ -297,9 +306,10 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
               name = v.name, dept = v.dept, area = v.area, phone = v.phone, vehicle = coalesce(v.vehicle, ''), vehicle_no = v.vehicle_no,
               incharge = v.incharge, issued_to = coalesce(v.issued_to, ''), -- empty in changes saved before Issued To existed
               printed_at = v.printed_at, given_at = v.given_at, created_by = coalesce(v.created_by, p.created_by),
+              meta = coalesce(v.meta, p.meta), -- kept in changes saved before meta existed
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(beforeRows)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz, created_by int)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz, created_by int, meta jsonb)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -379,13 +389,13 @@ async function putBack(trx: Transaction<Database>, userId: number, rev: number, 
     throw conflict(`Can't undo: ${TYPE_INFO[taken[0].type].label} ${serialList(taken.map((t) => t.serial))} ${taken.length === 1 ? 'was' : 'were'} added again since.`);
   }
   const back = (await sql<PassRow>`
-    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, created_at, created_by, updated_by, rev)
+    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, meta, created_at, created_by, updated_by, rev)
     OVERRIDING SYSTEM VALUE
     SELECT v.id, v.type::pass_type, v.serial, v.name, v.dept, v.area, v.phone, v.vehicle, v.vehicle_no, v.incharge, coalesce(v.issued_to, ''),
-           v.printed_at, v.given_at, v.created_at, v.created_by, ${userId}, ${rev}
+           v.printed_at, v.given_at, coalesce(v.meta, '{}'), v.created_at, v.created_by, ${userId}, ${rev}
     FROM jsonb_to_recordset(${json}::jsonb)
       AS v(id int, type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text,
-           printed_at timestamptz, given_at timestamptz, created_at timestamptz, created_by int)
+           printed_at timestamptz, given_at timestamptz, meta jsonb, created_at timestamptz, created_by int)
     RETURNING *`.execute(trx)).rows;
   await trx.deleteFrom('deleted_passes').where('id', 'in', rows.map((r) => r.id)).execute();
   return back;
