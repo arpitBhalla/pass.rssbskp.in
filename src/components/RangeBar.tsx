@@ -7,7 +7,7 @@ import { usePaper } from '@/client/paper';
 import { printQueue } from '@/client/printQueue';
 import { toast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
-import { nPasses, parseSerial, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
+import { nPasses, parseSerial, type Picked, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
 import { PAPER, sheetPlan } from '@/lib/sheets';
 import { fmtSerial, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
 import { useMe } from './AppShell';
@@ -25,7 +25,7 @@ const Divider = () => <span aria-hidden className="mx-1 h-5 w-px bg-foreground/1
 export function RangeBar({ type, sheet, range, onClear }: {
   type: PassType;
   sheet: Pass[];
-  range: { from: string; to: string };
+  range: Picked;
   onClear: () => void;
 }) {
   const info = TYPE_INFO[type];
@@ -33,7 +33,7 @@ export function RangeBar({ type, sheet, range, onClear }: {
   const hasRange = range.from.trim() !== '';
 
   /* ----- print ----- */
-  const print = useMemo(() => (hasRange ? planPrint(sheet, type, range.from, range.to) : null), [hasRange, sheet, type, range]);
+  const print = useMemo(() => (hasRange ? planPrint(sheet, type, range.from, range.to, range.only) : null), [hasRange, sheet, type, range]);
   const [printing, setPrinting] = useState<NonNullable<typeof print> | null>(null);
   const trpc = useTRPC();
   const settings = useQuery(trpc.settings.get.queryOptions());
@@ -70,14 +70,14 @@ export function RangeBar({ type, sheet, range, onClear }: {
   };
 
   /** Unticks Printed (to print them again), like unticking it in the sheet; Undo reverses it. */
-  const unprint = useMemo(() => (hasRange ? planUnprint(sheet, range.from, range.to) : null), [hasRange, sheet, range]);
+  const unprint = useMemo(() => (hasRange ? planUnprint(sheet, range.from, range.to, range.only) : null), [hasRange, sheet, range]);
   const markUnprinted = async () => {
     if (!unprint?.set.length) return;
     await apply({ action: 'print', summary: `Marked ${info.label} ${ranges(unprint.serials)} unprinted`, set: unprint.set });
   };
 
   /* ----- given ----- */
-  const given = useMemo(() => (hasRange ? planGiven(sheet, range.from, range.to) : null), [hasRange, sheet, range]);
+  const given = useMemo(() => (hasRange ? planGiven(sheet, range.from, range.to, range.only) : null), [hasRange, sheet, range]);
   const setGiven = async (tick: boolean) => {
     const set = tick ? given?.tick : given?.untick;
     if (!given || !set?.length) return;
@@ -86,8 +86,8 @@ export function RangeBar({ type, sheet, range, onClear }: {
   };
 
   /* ----- delete ----- */
-  const del = useMemo(() => (hasRange ? planDelete(sheet, range.from, range.to) : null), [hasRange, sheet, range]);
-  const rangeKey = `${type}:${range.from}–${range.to}`;
+  const del = useMemo(() => (hasRange ? planDelete(sheet, range.from, range.to, range.only) : null), [hasRange, sheet, range]);
+  const rangeKey = `${type}:${range.from}–${range.to}:${range.only?.join() ?? ''}`;
   const [confirming, setConfirming] = useState(''); // the range whose Delete is being confirmed
   const doDelete = async () => {
     if (!del?.items.length) return;
@@ -122,10 +122,10 @@ export function RangeBar({ type, sheet, range, onClear }: {
       {hasRange ? (
         <>
           <span className="flex items-baseline gap-2">
-            <b className="font-condensed text-[17px] font-bold tabular-nums">
-              {Number.isNaN(lo) ? range.from : lo === hi ? fmtSerial(lo) : `${fmtSerial(Math.min(lo, hi))}–${fmtSerial(Math.max(lo, hi))}`}
+            <b className="max-w-[22rem] truncate font-condensed text-[17px] font-bold tabular-nums" title={range.only ? ranges([...range.only]) : undefined}>
+              {range.only ? ranges([...range.only]) : Number.isNaN(lo) ? range.from : lo === hi ? fmtSerial(lo) : `${fmtSerial(Math.min(lo, hi))}–${fmtSerial(Math.max(lo, hi))}`}
             </b>
-            {!rangeErr && <span className="text-[13.5px] text-sand-900">{nPasses(Math.abs(hi - lo) + 1)}</span>}
+            {!rangeErr && <span className="text-[13.5px] text-sand-900">{nPasses(range.only ? range.only.length : Math.abs(hi - lo) + 1)}{range.only ? ' shown' : ''}</span>}
           </span>
           <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={onClear} title="Clear the selection">Clear</button>
         </>

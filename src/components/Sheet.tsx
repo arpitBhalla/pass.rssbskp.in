@@ -27,8 +27,11 @@ const COL = { serial: 90, added: 70, by: 92, printed: 66, given: 64 };
 export interface Span {
   lo: number;
   hi: number;
+  /** While a search or Show hides rows between lo and hi: the serials picked, only the rows on screen. */
+  only?: ReadonlySet<number>;
 }
-const inSpan = (s: Span | null, p: Pass) => !!s && p.serial >= s.lo && p.serial <= s.hi;
+const inSpanSerial = (s: Span | null, serial: number) => !!s && serial >= s.lo && serial <= s.hi && (!s.only || s.only.has(serial));
+const inSpan = (s: Span | null, p: Pass) => inSpanSerial(s, p.serial);
 
 /**
  * One on-screen row: a pass, a collapsed series given to one incharge, an unfilled serial (not in
@@ -209,9 +212,15 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const ps = it ? itemPasses(type, it) : [];
     return ps.length ? { lo: ps[0].serial, hi: ps[ps.length - 1].serial } : null;
   };
+  /** lo–hi as picked on screen: when rows between are hidden (searching, Show), only the rows shown. */
+  const shown = (lo: number, hi: number): Span => {
+    const on = new Set<number>();
+    for (const it of items) for (const n of it.kind === 'new' ? [it.serial] : itemPasses(type, it).map((p) => p.serial)) if (n >= lo && n <= hi) on.add(n);
+    return on.size < hi - lo + 1 ? { lo, hi, only: on } : { lo, hi };
+  };
   const extendTo = (span: Span) => {
     const a = anchor.current ?? span;
-    onSelect({ lo: Math.min(a.lo, span.lo), hi: Math.max(a.hi, span.hi) });
+    onSelect(shown(Math.min(a.lo, span.lo), Math.max(a.hi, span.hi)));
   };
   /* ----- cells, like Excel: drag or Shift+click for a block, Ctrl+C copies it, the corner square fills ----- */
   const [block, setBlock] = useState<{ a: Cell; b: Cell } | null>(null);
@@ -450,7 +459,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && scrollRef.current?.contains(focused)) focused.blur();
     if (e.shiftKey && anchor.current) extendTo(span);
-    else { anchor.current = span; onSelect(span); }
+    else { anchor.current = span; onSelect(shown(span.lo, span.hi)); }
     dragging.current = true;
   };
   // Dragging out of the first cell turns it into a block: no text selection inside that box.
@@ -672,7 +681,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       );
     }
     if (it.kind === 'empty') {
-      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={selection !== null && it.serial >= selection.lo && it.serial <= selection.hi} onCreate={onCreate} lookup={lookup} pickOf={pickOf} />;
+      return <BlankRow key={v.key} i={i} serial={it.serial} fields={fields} mark={mark} selected={inSpanSerial(selection, it.serial)} onCreate={onCreate} lookup={lookup} pickOf={pickOf} />;
     }
     return <BlankRow key={v.key} i={i} serial={next} fields={fields} mark={mark} selected={false} onCreate={onCreate} lookup={lookup} pickOf={pickOf} last />;
   };

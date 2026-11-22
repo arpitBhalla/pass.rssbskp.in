@@ -1,7 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
-import { cleanFill, isBlank, isGiven, isPrinted, nextSerial, nPasses, parseSerial, planFill, ranges } from '@/lib/passes';
+import { cleanFill, isBlank, isGiven, isPrinted, nextSerial, nPasses, parseSerial, type Picked, planFill, ranges } from '@/lib/passes';
 import { type Field, fieldLabel, fieldsFor, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { btnPrimary, heading, input, label } from './ui';
 
@@ -18,8 +18,8 @@ const WHO: Field[] = ['incharge', 'name', 'dept', 'phone'];
 export function RangePanel({ type, sheet, range, setRange, picks }: {
   type: PassType;
   sheet: Pass[];
-  range: { from: string; to: string };
-  setRange: (r: { from: string; to: string }) => void;
+  range: Picked;
+  setRange: (r: Picked) => void;
   /** The Name suggestions (`namePicks`): picking one fills in the person's phone, dept and area too. */
   picks: ReadonlyMap<string, Values>;
 }) {
@@ -38,7 +38,7 @@ export function RangePanel({ type, sheet, range, setRange, picks }: {
   const end = nextSerial(sheet);
   const target = blank?.serial ?? end;
   const give = useMemo(() => {
-    const plan = planFill(sheet, type, hasRange ? range.from : String(target), hasRange ? range.to : '', fill);
+    const plan = planFill(sheet, type, hasRange ? range.from : String(target), hasRange ? range.to : '', fill, hasRange ? range.only : undefined);
     return !hasRange && blank ? { ...plan, set: plan.set.map((o) => ({ ...o, claim: true })) } : plan;
   }, [hasRange, sheet, type, range, target, blank, fill]);
   const giveCount = give.serials.length;
@@ -65,18 +65,19 @@ export function RangePanel({ type, sheet, range, setRange, picks }: {
 
   const from = parseSerial(range.from);
   const to = Number.isNaN(parseSerial(range.to)) ? from : parseSerial(range.to);
-  const span = Number.isNaN(from) ? 0 : Math.abs(to - from) + 1;
+  const span = range.only ? range.only.length : Number.isNaN(from) ? 0 : Math.abs(to - from) + 1;
 
   return (
     <aside className="w-[310px] shrink-0 space-y-4 overflow-y-auto border-l border-border bg-panel px-4 py-3 print:hidden">
       <section className="space-y-2">
         <h2 className={heading}>Passes</h2>
         <div className="grid grid-cols-2 gap-2">
-          <label className={label}>From<input className={`${input} font-condensed !text-[16px] tabular-nums`} inputMode="numeric" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} placeholder="0001" /></label>
-          <label className={label}>To<input className={`${input} font-condensed !text-[16px] tabular-nums`} inputMode="numeric" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} placeholder="0050" /></label>
+          <label className={label}>From<input className={`${input} font-condensed !text-[16px] tabular-nums`} inputMode="numeric" value={range.from} onChange={(e) => setRange({ from: e.target.value, to: range.to })} placeholder="0001" /></label>
+          <label className={label}>To<input className={`${input} font-condensed !text-[16px] tabular-nums`} inputMode="numeric" value={range.to} onChange={(e) => setRange({ from: range.from, to: e.target.value })} placeholder="0050" /></label>
         </div>
         <p className="text-[13.5px] leading-snug text-muted-foreground">
-          {span ? <b className="font-semibold text-foreground">{nPasses(span)}. </b> : ''}Or select rows in the sheet: click a Sr. No., then Shift+click or drag.
+          {span ? <b className="font-semibold text-foreground">{nPasses(span)}{range.only ? ' shown in the sheet' : ''}. </b> : ''}
+          {range.only ? 'Only the rows picked; the hidden ones between are left alone.' : 'Or select rows in the sheet: click a Sr. No., then Shift+click or drag.'}
         </p>
       </section>
 

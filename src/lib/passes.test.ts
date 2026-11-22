@@ -74,6 +74,19 @@ describe('hiding rows', () => {
   });
 });
 
+describe('rows picked while searching', () => {
+  it('acts on only the rows picked, not the hidden ones between them', () => {
+    const s = [pass(1, { printed_at: 't' }), pass(2, { printed_at: 't' }), pass(3, { printed_at: 't' }), pass(4), pass(5)];
+    const only = [1, 3, 5];
+    expect(planGiven(s, '1', '5', only).tickSerials).toEqual([1, 3]);
+    expect(planUnprint(s, '1', '5', only).serials).toEqual([1, 3]);
+    expect(planDelete(s, '1', '5', only).serials).toEqual([5]);
+    expect(planFill(s, 'mobile-pandal', '1', '7', { incharge: 'R' }, [4, 7]).serials).toEqual([4, 7]);
+    const full = { name: 'A', dept: 'D', area: 'X', phone: '9812345678' };
+    expect(planPrint([pass(1, full), pass(2, full), pass(3, full)], 'mobile-pandal', '1', '3', [1, 3]).cards.map((c) => c.serial)).toEqual([1, 3]);
+  });
+});
+
 describe('what a pass prints', () => {
   it('prints a detail of only symbols (typed to leave it blank) empty; it still counts as filled in', () => {
     const p = pass(1, { name: 'A. SINGH', dept: '.', area: '-', phone: ' / ', vehicle: '', vehicle_no: 'HR-26AB-1234' }, 'tractor-trolley');

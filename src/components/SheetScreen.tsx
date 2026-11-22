@@ -10,7 +10,7 @@ import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
 import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
 import {
-  blankPass, filterPasses, type Filters, hasFilters, type Hide, HIDE_LABEL, hidePasses, HIDES, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
+  blankPass, filterPasses, type Filters, type Picked, hasFilters, type Hide, HIDE_LABEL, hidePasses, HIDES, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
 import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks } from '@/lib/people';
@@ -70,13 +70,13 @@ export function SheetScreen({ type }: { type: PassType }) {
 
   /* ----- selection → range in the side panel ----- */
   const [selection, setSelection] = useState<Span | null>(null);
-  const [range, setRange] = useState({ from: '', to: '' });
+  const [range, setRange] = useState<Picked>({ from: '', to: '' });
   const selRef = useRef(selection);
   useEffect(() => { selRef.current = selection; });
   const clearRange = useCallback(() => { setRange({ from: '', to: '' }); setSelection(null); }, []);
   const onSelectEnd = useCallback(() => {
     const s = selRef.current;
-    if (s) setRange({ from: fmtSerial(s.lo), to: fmtSerial(s.hi) });
+    if (s) setRange({ from: fmtSerial(s.lo), to: fmtSerial(s.hi), ...(s.only && { only: [...s.only].sort((a, b) => a - b) }) });
   }, []);
 
   /* ----- a pass that repeats someone's: say so, and save it only if told to ----- */

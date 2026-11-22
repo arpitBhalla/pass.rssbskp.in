@@ -170,20 +170,15 @@ export interface FillPlan {
   err: string;
 }
 
-/** What filling `values` into serials `from`–`to` would do. Missing serials are created. */
-export function planFill(sheet: Pass[], type: PassType, from: string, to: string, values: Values): FillPlan {
+/** What filling `values` into serials `from`–`to` (or `only` those of them) would do. Missing serials are created. */
+export function planFill(sheet: Pass[], type: PassType, from: string, to: string, values: Values, only?: readonly number[]): FillPlan {
   const plan: FillPlan = { set: [], create: [], serials: [], skipped: [], same: 0, err: '' };
-  const f = parseSerial(from);
-  const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
-  if (Number.isNaN(f)) return { ...plan, err: 'Enter the From and To serial numbers.' };
-  const lo = Math.min(f, t);
-  const hi = Math.max(f, t);
-  if (lo < 1 || hi > MAX_SERIAL) return { ...plan, err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
-  if (hi - lo + 1 > MAX_BATCH) return { ...plan, err: `Please do at most ${MAX_BATCH} passes at a time.` };
+  const r = serialRange(from, to, only);
+  if ('err' in r) return { ...plan, err: r.err };
 
   const keys = (Object.keys(values) as Field[]).filter((k) => values[k]);
   const bySerial = new Map(sheet.map((p) => [p.serial, p]));
-  for (let n = lo; n <= hi; n++) {
+  for (const n of r.serials) {
     const p = bySerial.get(n);
     if (!p) {
       plan.create.push({ type, serial: n, values: { ...values } });
@@ -369,15 +364,11 @@ export const unfilledOf = (type: PassType, p: Pass | undefined): Field[] =>
  * The passes from–to that aren't printed yet and are filled in: nothing empty is printed (the owner,
  * 2026-11-18). The helpline sheets have no details, so their serials not in the register print too.
  */
-export function planPrint(sheet: Pass[], type: PassType, from: string, to: string): PrintPlan {
+export function planPrint(sheet: Pass[], type: PassType, from: string, to: string, only?: readonly number[]): PrintPlan {
   const plan = emptyPlan();
-  const f = parseSerial(from);
-  const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
-  if (Number.isNaN(f)) return { ...plan, err: 'Enter the From and To serial numbers.' };
-  const lo = Math.min(f, t);
-  const hi = Math.max(f, t);
-  if (lo < 1 || hi > MAX_SERIAL) return { ...plan, err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
-  addToPlan(plan, sheet, type, Array.from({ length: hi - lo + 1 }, (_, i) => lo + i));
+  const r = serialRange(from, to, only, Infinity); // at most MAX_PRINT are printed (addToPlan)
+  if ('err' in r) return { ...plan, err: r.err };
+  addToPlan(plan, sheet, type, r.serials);
   return plan;
 }
 
@@ -430,19 +421,29 @@ export const cardsLabel = (cards: readonly CardData[]) =>
 /* ---------------- Given and Delete for a range ---------------- */
 
 /** The serials from–to (either order), or why not. */
-function serialRange(from: string, to: string): { lo: number; hi: number } | { err: string } {
+/** Passes picked: From–To, or `only` some of them (rows picked in the sheet while others between were hidden). */
+export interface Picked { from: string; to: string; only?: readonly number[] }
+
+/**
+ * The serials from–to, in order; with `only` (rows picked in the sheet while a search or Show hid some
+ * between them), just those of them.
+ */
+function serialRange(from: string, to: string, only?: readonly number[], limit = MAX_BATCH): { serials: number[] } | { err: string } {
   const f = parseSerial(from);
   const t = Number.isNaN(parseSerial(to)) ? f : parseSerial(to);
   if (Number.isNaN(f)) return { err: 'Enter the From and To serial numbers.' };
   const [lo, hi] = [Math.min(f, t), Math.max(f, t)];
   if (lo < 1 || hi > MAX_SERIAL) return { err: `Serial numbers go from 1 to ${MAX_SERIAL}.` };
-  if (hi - lo + 1 > MAX_BATCH) return { err: `Please do at most ${MAX_BATCH} passes at a time.` };
-  return { lo, hi };
+  const n = only ? only.length : hi - lo + 1;
+  if (n > limit) return { err: `Please do at most ${MAX_BATCH} passes at a time.` };
+  const serials = only ? [...only].filter((s) => s >= lo && s <= hi).sort((a, b) => a - b) : Array.from({ length: n }, (_, i) => lo + i);
+  return { serials };
 }
 
-/** The passes in the register between from and to (serials not in it are left out). */
-function passesIn(sheet: Pass[], lo: number, hi: number): Pass[] {
-  return sheet.filter((p) => p.serial >= lo && p.serial <= hi);
+/** The passes in the register with these serials (serials not in it are left out). */
+function passesIn(sheet: Pass[], serials: readonly number[]): Pass[] {
+  const want = new Set(serials);
+  return sheet.filter((p) => want.has(p.serial));
 }
 
 export interface GivenPlan {
@@ -457,11 +458,11 @@ export interface GivenPlan {
 }
 
 /** Ticking or unticking Given for the passes from–to. */
-export function planGiven(sheet: Pass[], from: string, to: string): GivenPlan {
+export function planGiven(sheet: Pass[], from: string, to: string, only?: readonly number[]): GivenPlan {
   const plan: GivenPlan = { tick: [], untick: [], tickSerials: [], untickSerials: [], notPrinted: [], err: '' };
-  const r = serialRange(from, to);
+  const r = serialRange(from, to, only);
   if ('err' in r) return { ...plan, err: r.err };
-  for (const p of passesIn(sheet, r.lo, r.hi)) {
+  for (const p of passesIn(sheet, r.serials)) {
     const given = isGiven(p);
     if (!given && !isPrinted(p)) { plan.notPrinted.push(p.serial); continue; } // printed first, then given
     (given ? plan.untick : plan.tick).push({ id: p.id, given: !given, expect: { given } });
@@ -478,11 +479,11 @@ export interface UnprintPlan {
 }
 
 /** The passes from–to that are printed, to untick Printed (to print them again). Given stays as it is, as in the sheet. */
-export function planUnprint(sheet: Pass[], from: string, to: string): UnprintPlan {
+export function planUnprint(sheet: Pass[], from: string, to: string, only?: readonly number[]): UnprintPlan {
   const plan: UnprintPlan = { set: [], serials: [], err: '' };
-  const r = serialRange(from, to);
+  const r = serialRange(from, to, only);
   if ('err' in r) return { ...plan, err: r.err };
-  for (const p of passesIn(sheet, r.lo, r.hi)) {
+  for (const p of passesIn(sheet, r.serials)) {
     if (!isPrinted(p)) continue;
     plan.set.push({ id: p.id, printed: false, expect: { printed: true } });
     plan.serials.push(p.serial);
@@ -499,11 +500,11 @@ export interface DeletePlan {
 }
 
 /** The passes from–to that can be deleted: those in the register and not printed. */
-export function planDelete(sheet: Pass[], from: string, to: string): DeletePlan {
+export function planDelete(sheet: Pass[], from: string, to: string, only?: readonly number[]): DeletePlan {
   const plan: DeletePlan = { items: [], serials: [], printed: [], err: '' };
-  const r = serialRange(from, to);
+  const r = serialRange(from, to, only);
   if ('err' in r) return { ...plan, err: r.err };
-  for (const p of passesIn(sheet, r.lo, r.hi)) {
+  for (const p of passesIn(sheet, r.serials)) {
     if (isPrinted(p)) plan.printed.push(p.serial);
     else { plan.items.push({ id: p.id, rev: p.rev }); plan.serials.push(p.serial); }
   }
