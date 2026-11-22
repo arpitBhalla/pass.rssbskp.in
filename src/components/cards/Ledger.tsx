@@ -5,7 +5,7 @@ import type { CardData } from '@/lib/passes';
 import { type Field, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
-import { ORG_LOGO, OrgHead } from './Modern';
+import { KindWord, kindCap, ORG_LOGO, OrgHead } from './Modern';
 import { GH, stretchY, VW } from './vehicleBox';
 
 /**
@@ -83,11 +83,12 @@ function Label({ t, x, y, cap, align, max }: { t: string; x: number; y: number; 
  */
 function Kind({ t, x0, x1, top, bottom, cap, color }: { t: string; x0: number; x1: number; top: number; bottom: number; cap: number; color: string }) {
   const max = x1 - x0 - cap * 0.5;
-  const f = pick(t, [B800, BS800, BC800], cap, max);
+  // The font of the Sewa Vehicle heading: Atkinson 800, a little letter space (KindWord; the owner, 2026-11-22; was Barlow 800).
+  const c = kindCap([t], cap, max);
   return (
     <g>
       <rect x={x0} y={mm(top)} width={mm(x1 - x0)} height={mm(bottom - top)} fill={color} />
-      <T t={t} f={f} cap={cap} x={(x0 + x1) / 2} y={(top + bottom) / 2 + cap / 2} align="middle" max={max} fill={WHITE} />
+      <KindWord t={t} cap={c} x={(x0 + x1) / 2} y={(top + bottom) / 2 + c / 2} max={max} fill={WHITE} />
     </g>
   );
 }
@@ -117,6 +118,17 @@ function Serial({ no, x, y, cap, caption, captionY }: { no: string; x: number; y
     <g>
       <Label t="SR. NO." x={x} y={captionY} cap={caption} align="middle" />
       <T t={no} f={MONO} cap={cap} x={x} y={y} align="middle" />
+    </g>
+  );
+}
+
+/** The signature image over its line, "AUTH. SIGNATORY" under it. `y`: the line. */
+function SignOff({ href, x0, x1, y, h, cap, captionY }: { href: string; x0: number; x1: number; y: number; h: number; cap: number; captionY: number }) {
+  return (
+    <g>
+      {href && <image href={href} x={x0} y={mm(y - h - 0.3)} width={mm(x1 - x0)} height={h} preserveAspectRatio="xMidYMax meet" />}
+      <Rule x0={x0} x1={x1} y={y} w={0.2} />
+      <Label t="AUTH. SIGNATORY" x={(x0 + x1) / 2} y={captionY} cap={cap} align="middle" max={x1 - x0} />
     </g>
   );
 }
@@ -211,7 +223,8 @@ export function LedgerVehicle({ p, texts, code }: CardProps) {
       <Serial no={serialText(p.serial, 3)} x={stub} y={Y(44.4)} cap={7.5} caption={2.4} captionY={Y(34.6)} />
       {/* The 3 a little higher (Y(53) before 2026-11-18) to make room for the signature. */}
       <GateSign cx={stub} y={Y(51.5)} size={17} />
-      {/* No signature or "Auth. Signatory" on Gate 3 Entry (the owner, 2026-11-19). */}
+      {/* The signature 15 tall on a 26 line (the owner, 2026-11-18); taken off on 2026-11-19, back on 2026-11-22. */}
+      <SignOff href={texts.signature} x0={stub - 13} x1={stub + 13} y={Y(86)} h={15} cap={1.9} captionY={Y(89.8)} />
     </>
   );
 }

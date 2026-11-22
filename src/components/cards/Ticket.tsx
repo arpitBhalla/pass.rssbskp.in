@@ -49,6 +49,17 @@ function TagPill({ t, x, cy, cap, color, line }: { t: string; x: number; cy: num
   );
 }
 
+/** The signature image over a black rule (`y`), "Authorised Signatory" under it. */
+function SignOff({ href, x0, x1, y, h, cap }: { href: string; x0: number; x1: number; y: number; h: number; cap: number }) {
+  return (
+    <g>
+      {href && <image href={href} x={x0} y={y - h - 0.2} width={x1 - x0} height={h} preserveAspectRatio="xMidYMax meet" />}
+      <rect x={x0} y={y - 0.09} width={x1 - x0} height={0.18} fill="#000" />
+      <T t="AUTHORISED SIGNATORY" f={A6} cap={cap} x={(x0 + x1) / 2} y={y + cap + 1.1} align="middle" track={caps(cap)} fill={GREY} max={x1 - x0} />
+    </g>
+  );
+}
+
 /** Name and Phone only, as on Gate 3 Entry (the owner, 2026-11-15; Phone, not Vehicle, 2026-11-22); the Reg. No. prints in its plate (RegPlate). */
 const PLATE_ROWS: Row[] = [['name'], ['phone']];
 
@@ -116,7 +127,8 @@ export function TicketVehicle({ p, texts, code }: CardProps) {
       <T t="SR. NO." f={A7} cap={1.6} x={mid} y={Y(38.24)} align="middle" track={caps(1.6)} fill={GREY} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={10.6} scale={1.257} x={mid} y={Y(52)} align="middle" max={25} />
       <TagPill t={tagText(texts.tag)} x={mid} cy={Y(58.6)} cap={1.8} color={color} line={line} />
-      {/* No signature or "Authorised Signatory" on Gate 3 - VIP (the owner, 2026-11-19). */}
+      {/* The signature 18 tall on a 30 line (the owner, 2026-11-18); taken off on 2026-11-19, back on 2026-11-22. */}
+      <SignOff href={texts.signature} x0={mid - 15} x1={mid + 15} y={Y(88)} h={18} cap={1.2} />
     </>
   );
 }
