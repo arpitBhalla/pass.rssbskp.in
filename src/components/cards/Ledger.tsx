@@ -223,8 +223,8 @@ export function LedgerVehicle({ p, texts, code }: CardProps) {
       <Serial no={serialText(p.serial, 3)} x={stub} y={Y(44.4)} cap={7.5} caption={2.4} captionY={Y(34.6)} />
       {/* The 3 a little higher (Y(53) before 2026-11-18) to make room for the signature. */}
       <GateSign cx={stub} y={Y(51.5)} size={17} />
-      {/* The signature 15 tall on a 26 line (the owner, 2026-11-18); taken off on 2026-11-19, back on 2026-11-22. */}
-      <SignOff href={texts.signature} x0={stub - 13} x1={stub + 13} y={Y(86)} h={15} cap={1.9} captionY={Y(89.8)} />
+      {/* The line and AUTH. SIGNATORY only, signed by hand: no signature image (the owner, 2026-11-22). */}
+      <SignOff href="" x0={stub - 13} x1={stub + 13} y={Y(86)} h={15} cap={1.9} captionY={Y(89.8)} />
     </>
   );
 }

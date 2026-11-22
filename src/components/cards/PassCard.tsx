@@ -58,7 +58,7 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * bottom band's own colour (Non Pandal's tab was a deeper grey than its band).
  *
  * v8 (2026-11-22): Gate 3 Entry and Gate 3 - VIP print Phone where they printed Vehicle; the BAV Parking
- * pass says "GATE 1 & 11 ENTRY" (was 1 & 12). Both Gate 3 passes have the signature again. Gate 3 Entry's
+ * pass says "GATE 1 & 11 ENTRY" (was 1 & 12). Both Gate 3 passes have the signature line and its label again, but no signature image. Gate 3 Entry's
  * heading is in the Sewa Vehicle heading's font (Atkinson 800, KindWord).
  */
 
