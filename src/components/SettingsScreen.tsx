@@ -195,7 +195,7 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
   'bike-pandal': { name: 'Harpreet Singh', dept: 'Security', area: 'Sirsa', vehicle_no: 'HR-26AB-1234' },
   'bike-non-pandal': { name: 'Rajinder Kumar', dept: 'Traffic', area: 'Delhi', vehicle_no: 'DL-3SCK-7788' },
   'sewa-vehicle': { name: 'Harpreet Singh', vehicle: 'Maruti Swift', vehicle_no: 'HR-26AB-1234', area: 'Sirsa', dept: 'Security' },
-  'tractor-trolley': { name: 'Baldev Singh', vehicle: 'Mahindra 575 DI', vehicle_no: 'PB-10X-4455', area: 'Ludhiana', dept: 'Construction' },
+  'tractor-trolley': { name: 'Baldev Singh', phone: '98765-12345', vehicle: 'Mahindra 575 DI', vehicle_no: 'PB-10X-4455', area: 'Ludhiana', dept: 'Construction' },
   'gate3-entry': { name: 'Gurmeet Kaur', phone: '98123-45678', vehicle: 'Toyota Innova', vehicle_no: 'HR-55AL-9021', area: 'Gurugram', dept: 'Langar' },
   'bav-entry': { name: 'Rajinder Kumar', vehicle: 'Mahindra Bolero', vehicle_no: 'DL-8CAB-3310', area: 'Delhi', dept: 'Traffic' },
   'vip-gate': { name: 'Amarjit Singh', phone: '98765-43210', vehicle: 'Toyota Fortuner', vehicle_no: 'HR-26DK-0007', area: 'Gurugram', dept: 'Reception' },

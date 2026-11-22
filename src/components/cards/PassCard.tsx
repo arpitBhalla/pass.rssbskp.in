@@ -2,7 +2,7 @@
 import { memo, type SVGProps, useEffect, useState } from 'react';
 import { type Font, inkWidth, layLine, loadFonts, type Placed, placeText, scaleFor } from '@/client/measure';
 import { condensed, heavy, humanist } from '@/fonts';
-import type { CardData } from '@/lib/passes';
+import { type CardData, forPrint } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
 import { type Layout, type PassType, TYPE_INFO } from '@/shared/types';
 import { Motorbike, Tractor } from './art';
@@ -58,7 +58,8 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * bottom band's own colour (Non Pandal's tab was a deeper grey than its band).
  *
  * v8 (2026-11-22): Gate 3 Entry and Gate 3 - VIP print Phone where they printed Vehicle; the BAV Parking
- * pass says "GATE 1 & 11 ENTRY" (was 1 & 12). Both Gate 3 passes have the signature line and its label again, but no signature image. Gate 3 Entry's
+ * pass says "GATE 1 & 11 ENTRY" (was 1 & 12). Tractor Trolley prints Phone after Name, on its line; a detail of only
+ * symbols (".") prints empty (forPrint). Both Gate 3 passes have the signature line and its label again, but no signature image. Gate 3 Entry's
  * heading is in the Sewa Vehicle heading's font (Atkinson 800, KindWord).
  */
 
@@ -666,9 +667,10 @@ export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, t
   /** Vehicle, gate and large passes are drawn VW wide (vehicleBox.ts) and printed CARD_SIZE[layout].w wide. */
   const k = layout === 'mobile' || layout === 'bike' ? 1 : w / VW;
   const transform = turn ? `translate(${x + h} ${y}) rotate(90)` : x || y ? `translate(${x} ${y})` : undefined;
+  const shown = forPrint(p); // a detail typed as "." prints empty
   return (
     <g transform={transform}>
-      {k === 1 ? <Card p={p} texts={texts} code={code} /> : <g transform={`scale(${k})`}><Card p={p} texts={texts} code={code} /></g>}
+      {k === 1 ? <Card p={shown} texts={texts} code={code} /> : <g transform={`scale(${k})`}><Card p={shown} texts={texts} code={code} /></g>}
       {outline && <rect width={w} height={h} fill="none" stroke="#c8c8c8" strokeWidth={0.1} />}
     </g>
   );

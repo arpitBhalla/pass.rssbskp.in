@@ -98,21 +98,24 @@ type Row = (keyof CardData & Field)[];
 const ROWS: Row[] = [['name'], ['vehicle'], ['area', 'dept']];
 /** Area and Dept. half each (Dept. had 40 %, so a long one, CONSTRUCTION, printed smaller; the owner, 2026-11-15). */
 const SPLIT = [[1], [1], [0.5, 0.5]];
-const LABEL: Partial<Record<Field, string>> = { name: 'Name', dept: 'Dept.', area: 'Area', vehicle: 'Vehicle', vehicle_no: 'Reg. no.' };
+/** Tractor Trolley: Phone after Name, on its line (the owner, 2026-11-22). */
+const TRACTOR_ROWS: Row[] = [['name', 'phone'], ['vehicle'], ['area', 'dept']];
+const TRACTOR_SPLIT = [[0.6, 0.4], [1], [0.5, 0.5]];
+const LABEL: Partial<Record<Field, string>> = { name: 'Name', phone: 'Phone', dept: 'Dept.', area: 'Area', vehicle: 'Vehicle', vehicle_no: 'Reg. no.' };
 
 /** A label, then a line to write on (or the printed value on it), one row after another. `ys`: each row's line. */
-function Fields({ p, x0, x1, ys, lw, label, value, gutter }: {
-  p: CardData; x0: number; x1: number; ys: number[]; lw: number; label: number; value: number; gutter: number;
+function Fields({ p, x0, x1, ys, lw, label, value, gutter, rows = ROWS, split = SPLIT }: {
+  p: CardData; x0: number; x1: number; ys: number[]; lw: number; label: number; value: number; gutter: number; rows?: Row[]; split?: number[][];
 }) {
   const base = Math.max(0.5, value * 0.26);
   return (
     <g>
-      {ROWS.map((row, i) => {
+      {rows.map((row, i) => {
         const y = ys[i];
         const room = x1 - x0 - gutter * (row.length - 1);
         return row.map((k, j) => {
-          const x = x0 + SPLIT[i].slice(0, j).reduce((a, b) => a + b * room + gutter, 0);
-          const cw = SPLIT[i][j] * room;
+          const x = x0 + split[i].slice(0, j).reduce((a, b) => a + b * room + gutter, 0);
+          const cw = split[i][j] * room;
           return (
             <g key={k}>
               <T t={LABEL[k] ?? k} f={REG} cap={label} x={x} y={y - base} max={lw - 0.8} />
@@ -190,7 +193,8 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
           <rect x={x0} y={mm(kbase + gap)} width={mm(x1 - x0)} height={rule} fill={ink} />
         </g>
       ) : <BandKind t={kind} x0={x0} x1={x1} top={Y(29.4)} bottom={Y(48.4)} cap={11} color={ink} />}
-      <Fields p={p} x0={x0} x1={x1} ys={[56.4, 65.4, 74.4].map(Y)} lw={14.5} label={2.2} value={4} gutter={7} />
+      <Fields p={p} x0={x0} x1={x1} ys={[56.4, 65.4, 74.4].map(Y)} lw={14.5} label={2.2} value={4} gutter={7}
+        {...(plain && { rows: TRACTOR_ROWS, split: TRACTOR_SPLIT })} />
       {/* The plate centred on the pass, 80 wide and taller (68 before 2026-11-16), no "Reg. no." in it (the owner, 2026-11-16); the signature 26 wide to make room. */}
       <RegPlate v={p.vehicle_no} x0={plate.x0} x1={plate.x1} top={plate.top} bottom={plate.bottom} label={0} />
       {/* The serial larger, its middle level with the plate's (the owner, 2026-11-16), "Sr. no." over it, level with the plate's top; digits narrowed to 92 % to fit before the plate. */}

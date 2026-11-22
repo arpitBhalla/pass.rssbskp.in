@@ -3,7 +3,7 @@ import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '
 import { exportCSV, exportTable, planImport } from './csv';
 import {
   blankPass, cleanFill, filterPasses, groupRuns, hidePasses, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
-  cardsLabel, planPrint, planQueue, ranges, unfilledOf,
+  cardsLabel, forPrint, planPrint, planQueue, ranges, unfilledOf,
 } from './passes';
 import { buildReport, reportCSV } from './report';
 
@@ -71,6 +71,15 @@ describe('hiding rows', () => {
   });
   it('never calls a helpline pass partly filled in (it has no details)', () => {
     expect(hidePasses([pass(1, { incharge: 'R' }, 'eco')], 'eco', ['partial']).length).toBe(1);
+  });
+});
+
+describe('what a pass prints', () => {
+  it('prints a detail of only symbols (typed to leave it blank) empty; it still counts as filled in', () => {
+    const p = pass(1, { name: 'A. SINGH', dept: '.', area: '-', phone: ' / ', vehicle: '', vehicle_no: 'HR-26AB-1234' }, 'tractor-trolley');
+    expect(forPrint(p)).toMatchObject({ name: 'A. SINGH', dept: '', area: '', phone: '', vehicle: '', vehicle_no: 'HR-26AB-1234' });
+    expect(unfilledOf('tractor-trolley', p)).toEqual(['vehicle']);
+    expect(forPrint(pass(2, { name: 'हरप्रीत', dept: '9' })).name).toBe('हरप्रीत');
   });
 });
 

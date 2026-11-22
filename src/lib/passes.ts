@@ -338,6 +338,15 @@ export const MAX_PRINT = 900;
 /** What a printed card shows. */
 export type CardData = Pick<Pass, 'type' | 'serial' | 'name' | 'dept' | 'area' | 'phone' | 'vehicle' | 'vehicle_no'>;
 
+/**
+ * What a pass prints: a detail of only dots, dashes or other symbols (no letter or digit) was typed to leave
+ * it blank, so it counts as filled in (the pass prints) and prints empty (the owner, 2026-11-22).
+ */
+export function forPrint<T extends CardData>(p: T): T {
+  const blank = (v: string) => (/[\p{L}\p{N}]/u.test(v) ? v : '');
+  return { ...p, name: blank(p.name), dept: blank(p.dept), area: blank(p.area), phone: blank(p.phone), vehicle: blank(p.vehicle), vehicle_no: blank(p.vehicle_no) };
+}
+
 export interface PrintPlan {
   cards: CardData[];
   /** Saving these marks the cards printed (on a helpline sheet, serials not in the register yet are added). */
