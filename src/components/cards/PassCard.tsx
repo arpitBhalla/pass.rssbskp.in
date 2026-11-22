@@ -56,10 +56,13 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * The owner picked BikeCardLedger (design round 16): the Bike pass now prints with the Reg. No. in a
  * number plate and every label small above its value. The month tab on Mobile and Bike passes is the
  * bottom band's own colour (Non Pandal's tab was a deeper grey than its band).
+ *
+ * v8 (2026-11-22): Gate 3 Entry and Gate 3 - VIP print Phone where they printed Vehicle; the BAV Parking
+ * pass says "GATE 1 & 11 ENTRY" (was 1 & 12).
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v7';
+export const TEMPLATE_VERSION = 'v8';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {

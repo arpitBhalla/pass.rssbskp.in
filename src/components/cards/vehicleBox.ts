@@ -3,7 +3,7 @@ import type { Layout } from '@/shared/types';
 
 /**
  * The 150 × 100 mm vehicle passes changed size on 2026-11-15 (the owner's choice): Sewa Vehicle and
- * Tractor Trolley to half an A4 sheet, 204 × 145 mm; the gate passes (Gate 3 Entry, Gate 1 & 12, VIP,
+ * Tractor Trolley to half an A4 sheet, 204 × 145 mm; the gate passes (Gate 3 Entry, Gate 1 & 11, VIP,
  * Admin) to 151 × 103, 6 to an A3. Their drawings keep their 150 mm width and take the new shape
  * (150 × VH, 150 × GH), then print w / 150 times as big. Type, logos and codes keep their size on the
  * drawing; the height it gains goes into the gaps between them (stretchY).

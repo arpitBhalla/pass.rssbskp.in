@@ -49,8 +49,8 @@ function TagPill({ t, x, cy, cap, color, line }: { t: string; x: number; cy: num
   );
 }
 
-/** Name and Vehicle only, as on Gate 3 Entry (the owner, 2026-11-15); the Reg. No. prints in its plate (RegPlate). */
-const PLATE_ROWS: Row[] = [['name'], ['vehicle']];
+/** Name and Phone only, as on Gate 3 Entry (the owner, 2026-11-15; Phone, not Vehicle, 2026-11-22); the Reg. No. prints in its plate (RegPlate). */
+const PLATE_ROWS: Row[] = [['name'], ['phone']];
 
 const LABEL: Partial<Record<Field, string>> = {
   name: 'NAME', dept: 'DEPT.', area: 'AREA', phone: 'PHONE', vehicle: 'VEHICLE', vehicle_no: 'REG. NO.',
@@ -107,7 +107,7 @@ export function TicketVehicle({ p, texts, code }: CardProps) {
       <T t="VEHICLE PASS" f={A7} cap={2} x={7} y={Y(29.6)} track={caps(2)} fill={GREY} />
       {/* GATE 3 ENTRY in Atkinson 800, a little extra letter space, as large as fits before the stub (the owner, 2026-11-16; was Roboto Condensed). */}
       <KindWord t={kindOf(p.type)} cap={kindCap([kindOf(p.type)], 10.34, 99)} x={7} y={Y(44.2)} max={99} align="start" fill={color} />
-      {/* Name and Vehicle (no Area or Dept.); the Reg. No. large in a plate centred under them. */}
+      {/* Name and Phone (no Area or Dept.); the Reg. No. large in a plate centred under them. */}
       <Fields p={p} rows={PLATE_ROWS} x0={7} x1={104} ys={[59, 72].map(Y)} label={1.9} value={4.4} gutter={6}
         split={[[1], [1]]} />
       <RegPlate v={p.vehicle_no} x0={55.5 - 38} x1={55.5 + 38} top={Y(80)} bottom={Y(93.6)} />

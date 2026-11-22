@@ -14,7 +14,7 @@ export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
    */
   vehicle: { w: 204, h: 145 },
   /**
-   * Gate 3 Entry, Gate 1 & 12, VIP and Admin: the largest of the Bike pass's shape that fits 6 to an A3
+   * Gate 3 Entry, Gate 1 & 11, VIP and Admin: the largest of the Bike pass's shape that fits 6 to an A3
    * (4 upright, 2 turned beside them; the owner, 2026-11-15; 145 × 99, 8 to an A3, before that).
    */
   gate: { w: 151, h: 103 },

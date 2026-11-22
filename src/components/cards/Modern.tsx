@@ -129,7 +129,7 @@ function Fields({ p, x0, x1, ys, lw, label, value, gutter }: {
 /**
  * The Reg. no. as large as it fits, in a white number plate with a black border, "Reg. no." small in its
  * top left corner (`label`: its cap height; 0 for none, the number centred in the plate); empty on a blank pass, to write in. (the owner, 2026-11-15: "improve reg no, increase size")
- * Sewa Vehicle, Tractor Trolley, VIP and Gate 1 & 12 Entry passes.
+ * Sewa Vehicle, Tractor Trolley, VIP and Gate 1 & 11 Entry passes.
  */
 export function RegPlate({ v, x0, x1, top, bottom, label = 1.8 }: { v: string; x0: number; x1: number; top: number; bottom: number; label?: number }) {
   const t = upper(v);

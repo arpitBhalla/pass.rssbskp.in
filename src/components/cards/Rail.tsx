@@ -9,7 +9,7 @@ import { KindWord, kindCap, ORG_LOGO, OrgHead, RegPlate } from './Modern';
 import { GH, stretchY, VW } from './vehicleBox';
 
 /**
- * Design v2 "Rail" (round 6 A, Rozha masthead), the Admin and Gate 1 & 12 Entry (BAV Parking) passes: thin colour bars at the top and bottom
+ * Design v2 "Rail" (round 6 A, Rozha masthead), the Admin and Gate 1 & 11 Entry (BAV Parking) passes: thin colour bars at the top and bottom
  * edge (same colour on both, so passes printed edge to edge cut cleanly), the kind word in colour type,
  * the tag as a small solid pill. As picked (selected.html, 2026-11-14): the serial in Big Shoulders.
  */
@@ -58,7 +58,7 @@ function SignOff({ href, x0, x1, y, h, line }: { href: string; x0: number; x1: n
   );
 }
 
-/** Gate 1 & 12 Entry: Vehicle on a row of its own, the Reg. No. in its plate (RegPlate). */
+/** Gate 1 & 11 Entry: Vehicle on a row of its own, the Reg. No. in its plate (RegPlate). */
 const PLATE_ROWS: Row[] = [['name'], ['vehicle'], ['area', 'dept']];
 /** Admin: Name and Vehicle, no Area or Dept. (the owner, 2026-11-15); the Reg. No. in its plate too. */
 const ADMIN_ROWS: Row[] = [['name'], ['vehicle']];
@@ -95,7 +95,7 @@ function Fields({ p, rows, ys, x0, x1, lw, cap, color }: {
 }
 
 /**
- * The parking sign of Gate 1 & 12 Entry passes, `size` mm square at (x, y): a white "P" on a white-edged
+ * The parking sign of Gate 1 & 11 Entry passes, `size` mm square at (x, y): a white "P" on a white-edged
  * tile of the pass colour, drawn in a 24-unit box as in the preview.
  */
 function ParkingTile({ x, y, size, color }: { x: number; y: number; size: number; color: string }) {
@@ -111,8 +111,8 @@ function ParkingTile({ x, y, size, color }: { x: number; y: number; size: number
   );
 }
 
-/** Gate 1 & 12 Entry passes print two lines of one size and colour where other passes print the kind word. */
-const BAV_LINES = ['GATE 1 & 12 ENTRY', 'BAV PARKING'];
+/** Gate 1 & 11 Entry passes print two lines of one size and colour where other passes print the kind word. */
+const BAV_LINES = ['GATE 1 & 11 ENTRY', 'BAV PARKING'];
 
 /** The two lines' cap height: up to `cap`, each line fitting `max`. */
 const twoLinesCap = (cap: number, max: number) => Math.min(cap, ...BAV_LINES.map((l) => cap * (max / widthOf(l, C900, cap))));
@@ -123,7 +123,7 @@ function TwoLines({ x, y, c, max, color }: { x: number; y: number; c: number; ma
 }
 
 /**
- * 151 × 103 mm, drawn on 150 × GH (vehicleBox.ts; laid out on 150 × 100, the y's through Y). Gate 1 & 12
+ * 151 × 103 mm, drawn on 150 × GH (vehicleBox.ts; laid out on 150 × 100, the y's through Y). Gate 1 & 11
  * Entry: the parking sign and two lines instead of "VEHICLE PASS" over the kind word. Admin: "VEHICLE PASS"
  * larger, from the left margin like the logo and fields; the kind word taller but narrower (80 %), centred on the pass, as on
  * Sewa Vehicle (the owner, 2026-11-15).
@@ -133,7 +133,7 @@ export function RailVehicle({ p, texts, code }: CardProps) {
   const [w, h] = [VW, GH];
   const Y = stretchY(5, 96.5, GH);
   const bav = p.type === 'bav-entry';
-  /** Gate 1 & 12 Entry: the two lines' cap height, and the parking sign as tall as they are (cap top of the first to the baseline of the second). */
+  /** Gate 1 & 11 Entry: the two lines' cap height, and the parking sign as tall as they are (cap top of the first to the baseline of the second). */
   const bc = bav ? twoLinesCap(6.2, 118) : 0;
   const kindWord = p.type === 'admin' ? 'ADMINISTRATION' : kindOf(p.type);
   return (
@@ -157,7 +157,7 @@ export function RailVehicle({ p, texts, code }: CardProps) {
         cap={bav ? 4.2 : 5.6} color={c} />
       <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
-      {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall, Gate 1 & 12's 11.5, just under its Area / Dept. line (8.4 before; the owner, 2026-11-18). */}
+      {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall, Gate 1 & 11's 11.5, just under its Area / Dept. line (8.4 before; the owner, 2026-11-18). */}
       <RegPlate v={p.vehicle_no} x0={VW / 2 - 34} x1={VW / 2 + 34} top={Y(80)} bottom={Y(94)} />
       <SignOff href={texts.signature} x0={114} x1={144} y={Y(88.6)} h={bav ? 11.5 : 16} line={c} />
     </>

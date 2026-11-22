@@ -40,7 +40,7 @@ export const locksWhenPrinted = (k: Field) => !HANDOVER_FIELDS.includes(k);
 
 /**
  * Which printed template a sheet uses (the RSSB SKP pass templates), and so its size (CARD_SIZE).
- * 'gate': Gate 3 Entry, Gate 1 & 12 (BAV), Gate 3 - VIP and Admin, vehicle passes printed smaller since
+ * 'gate': Gate 3 Entry, Gate 1 & 11 (BAV), Gate 3 - VIP and Admin, vehicle passes printed smaller since
  * 2026-11-15, 6 to an A3 (the owner's choice); Sewa Vehicle and Tractor Trolley stay 'vehicle'.
  * 'large': Tractor Trolley and the Free Helpline Sewa passes (E-Rickshaw, Eco, Metro): 232 × 158, 4 to an A3+,
  * 2 to an A3 (the owner, 2026-11-17).

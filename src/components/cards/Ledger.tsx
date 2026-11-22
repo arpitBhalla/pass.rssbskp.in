@@ -12,7 +12,7 @@ import { GH, stretchY, VW } from './vehicleBox';
  * Design v2 "Ledger · colour bar" (round 3 of ../passes-design-v2), the Gate 3 Entry pass, as the user
  * picked it on 2026-11-14. Black does the work: everything small is black capitals over a ruled table
  * of fields, and the kind word is white on a solid bar of the pass colour. The QR, serial, gate sign and
- * signature sit on a stub behind a dotted tear line. Gate 3 Entry passes print Name, Vehicle and Reg. No.;
+ * signature sit on a stub behind a dotted tear line. Gate 3 Entry passes print Name, Phone and Reg. No.;
  * the Reg. No. large in a number plate under the table (the owner, 2026-11-15: "improve reg no, increase size").
  */
 
@@ -143,9 +143,9 @@ function RegPlate({ v, x0, x, x1, top, bottom, label }: { v: string; x0: number;
 }
 
 type Row = (keyof CardData & Field)[];
-const LABEL: Partial<Record<Field, string>> = { name: 'NAME', vehicle: 'VEHICLE', vehicle_no: 'REG. NO.' };
-/** Gate 3 Entry passes ask for Name, Vehicle and Reg. No. only: Name and Vehicle in the table, Reg. No. in its plate. */
-const ROWS: Row[] = [['name'], ['vehicle']];
+const LABEL: Partial<Record<Field, string>> = { name: 'NAME', phone: 'PHONE', vehicle: 'VEHICLE', vehicle_no: 'REG. NO.' };
+/** Gate 3 Entry passes print Name, Phone and Reg. No.: Name and Phone in the table (Phone, not Vehicle: the owner, 2026-11-22), Reg. No. in its plate. */
+const ROWS: Row[] = [['name'], ['phone']];
 const SPLIT = [[1], [1]];
 
 function Value({ k, v, x, y, cap, max }: { k: Field; v: string; x: number; y: number; cap: number; max: number }) {

@@ -10,7 +10,7 @@ export const legible = localFont({ src: './AtkinsonHyperlegibleNext-latin.woff2'
 /** Archivo Black: the heavy "SKP-2026" tag. */
 export const heavy = localFont({ src: './ArchivoBlack-latin.woff2', weight: '400', display: 'block' });
 
-/* Design v2 passes (Gate 3 - VIP, Admin and Gate 1 & 12 Entry): see components/cards/v2kit.tsx. */
+/* Design v2 passes (Gate 3 - VIP, Admin and Gate 1 & 11 Entry): see components/cards/v2kit.tsx. */
 /** Rozha One: "RSSB SIKANDERPUR (MC)" and the RS/SB monogram. */
 export const rozha = localFont({ src: './RozhaOne-400.woff2', weight: '400', display: 'block' });
 /** Archivo SemiCondensed (static cuts at width 87.5): the Ticket's labels and values. */
