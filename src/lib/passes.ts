@@ -99,6 +99,34 @@ export function filterPasses(sheet: Pass[], f: Filters, dupes?: ReadonlyMap<numb
   );
 }
 
+/* ---------------- hiding rows ---------------- */
+
+/** Kinds of rows a desk can hide in every sheet (remembered in the browser: client/hide.ts). */
+export type Hide = 'printed' | 'given' | 'filled' | 'partial' | 'empty';
+export const HIDES: readonly Hide[] = ['printed', 'given', 'filled', 'partial', 'empty'];
+export const HIDE_LABEL: Record<Hide, string> = {
+  printed: 'Printed', given: 'Given', filled: 'Fully filled in', partial: 'Partly filled in', empty: 'Empty rows',
+};
+
+/** Nothing filled in at all, not even Incharge. */
+export const isBlank = (type: PassType, p: Pass) => fieldsFor(type).every((k) => !p[k].trim());
+/** Something filled in, but a detail it needs to print is still empty. */
+export const isPartlyFilled = (type: PassType, p: Pass) => !isBlank(type, p) && unfilledOf(type, p).length > 0;
+/** Every detail it needs to print is filled in. */
+export const isFullyFilled = (type: PassType, p: Pass) => !isBlank(type, p) && unfilledOf(type, p).length === 0;
+
+/** The passes left after hiding these kinds. (The empty rows not in the register are left out by the sheet.) */
+export function hidePasses(view: Pass[], type: PassType, hide: readonly Hide[]): Pass[] {
+  if (!hide.length) return view;
+  return view.filter((p) => !(
+    (hide.includes('printed') && isPrinted(p)) ||
+    (hide.includes('given') && isGiven(p)) ||
+    (hide.includes('filled') && isFullyFilled(type, p)) ||
+    (hide.includes('partial') && isPartlyFilled(type, p)) ||
+    (hide.includes('empty') && isBlank(type, p))
+  ));
+}
+
 /* ---------------- collapsing a series given to someone ---------------- */
 
 /**

@@ -22,6 +22,7 @@ const applyInput = z.object({
     values: values.optional(),
     printed: z.boolean().optional(),
     given: z.boolean().optional(),
+    claim: z.boolean().optional(),
     expect: values.extend({ printed: z.boolean().optional(), given: z.boolean().optional() }),
   })).max(MAX_BATCH).optional(),
   create: z.array(z.object({

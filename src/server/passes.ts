@@ -129,7 +129,9 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const isStale = Object.entries(op.expect).some(([k, v]) =>
           k === 'printed' ? (row.printed_at !== null) !== v : k === 'given' ? (row.given_at !== null) !== v : row[k as Field] !== v,
         );
-        if (isStale) { stale.push(row); continue; }
+        // Taking a completely empty pass: someone may have started filling it in meanwhile.
+        const filled = row.printed_at !== null || row.given_at !== null || FIELDS.some((k) => row[k] !== '');
+        if (isStale || (op.claim && filled)) { stale.push(row); continue; }
         const values = op.values ?? {};
         // A printed pass can't change until Printed is unticked (in a separate step), except who it was issued to.
         const differs = (Object.keys(values) as Field[]).some((k) => locksWhenPrinted(k) && row[k] !== values[k]);
@@ -137,7 +139,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         // A pass is printed first, then handed over: Given needs Printed (unticking either is always allowed).
         if (op.given && row.given_at === null && !(op.printed ?? row.printed_at !== null)) { unprinted.push(row); continue; }
         checkFields(row.type, values);
-        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null };
+        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null, claim: !!op.claim };
         for (const k of FIELDS) merged[k] = values[k] ?? row[k];
         updates.push(merged);
       }
@@ -161,9 +163,10 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
               issued_to = v.issued_to,
               printed_at = CASE WHEN v.printed IS NULL THEN p.printed_at WHEN v.printed THEN coalesce(p.printed_at, now()) ELSE NULL END,
               given_at = CASE WHEN v.given IS NULL THEN p.given_at WHEN v.given THEN coalesce(p.given_at, now()) ELSE NULL END,
+              created_by = CASE WHEN v.claim THEN ${userId} ELSE p.created_by END,
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean, claim boolean)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -293,9 +296,10 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
             UPDATE passes AS p SET
               name = v.name, dept = v.dept, area = v.area, phone = v.phone, vehicle = coalesce(v.vehicle, ''), vehicle_no = v.vehicle_no,
               incharge = v.incharge, issued_to = coalesce(v.issued_to, ''), -- empty in changes saved before Issued To existed
-              printed_at = v.printed_at, given_at = v.given_at, updated_at = now(), updated_by = ${userId}, rev = ${rev}
+              printed_at = v.printed_at, given_at = v.given_at, created_by = coalesce(v.created_by, p.created_by),
+              updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(beforeRows)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz, created_by int)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];

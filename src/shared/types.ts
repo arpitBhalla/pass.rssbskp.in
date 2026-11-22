@@ -220,6 +220,8 @@ export interface SetOp {
   values?: Values;
   printed?: boolean;
   given?: boolean;
+  /** Filling in a completely empty pass (Give with no range): Added by becomes whoever saves it. Refused unless it is still empty. */
+  claim?: boolean;
   expect: Values & { printed?: boolean; given?: boolean };
 }
 

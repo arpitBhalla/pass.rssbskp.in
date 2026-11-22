@@ -156,7 +156,7 @@ function preview(req: ApplyRequest) {
   for (const op of req.set ?? []) {
     const p = store.get(op.id);
     if (!p) continue;
-    const q: Pass = { ...p, ...clean(op.values), updated_by: store.me };
+    const q: Pass = { ...p, ...clean(op.values), updated_by: store.me, ...(op.claim && { created_by: store.me }) };
     if (op.printed !== undefined) q.printed_at = op.printed ? (p.printed_at ?? now) : null;
     if (op.given !== undefined) q.given_at = op.given ? (p.given_at ?? now) : null;
     rows.push(q);

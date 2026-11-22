@@ -62,6 +62,21 @@ describe('apply', () => {
     ).rejects.toThrow(/0001 was just changed by SURESH/);
   });
 
+  it('Give into a completely empty pass makes the giver its Added by (undo puts it back); refused once filled in', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
+    await applyChange(db, ramesh, { action: 'edit', summary: 'clear', set: [{ id: p.id, values: { incharge: '', area: '' }, expect: { incharge: 'GURPREET', area: 'SIRSA' } }] });
+    const fill = (who: string) => ({ action: 'give' as const, summary: 'fill', set: [{ id: p.id, values: { name: who }, expect: { name: '' }, claim: true }] });
+    const r = await applyChange(db, suresh, fill('AMIT'));
+    expect(r.rows[0]).toMatchObject({ name: 'AMIT', created_by: suresh, updated_by: suresh });
+    // Another desk saw it empty too: it isn't any more.
+    await expect(applyChange(db, ramesh, { ...fill('RAJ'), set: [{ ...fill('RAJ').set[0], expect: {} }] })).rejects.toThrow(/0001 was just changed/);
+    await undoChange(db, suresh, r.changeId);
+    expect(await db.selectFrom('passes').select(['name', 'created_by']).where('id', '=', p.id).executeTakeFirstOrThrow()).toEqual({ name: '', created_by: ramesh });
+    // An ordinary edit leaves Added by alone.
+    const [e] = (await applyChange(db, suresh, { action: 'edit', summary: 'name', set: [{ id: p.id, values: { name: 'AMIT' }, expect: { name: '' } }] })).rows;
+    expect(e.created_by).toBe(ramesh);
+  });
+
   it('locks printed passes until Printed is unticked', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
     await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });

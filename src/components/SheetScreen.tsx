@@ -2,6 +2,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
+import { setHide, useHide } from '@/client/hide';
 import { useUserNames } from '@/client/users';
 import { store, useAllPasses, useSheet, useStatus } from '@/client/store';
 import { toast } from '@/client/toast';
@@ -9,7 +10,7 @@ import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
 import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
 import {
-  blankPass, filterPasses, type Filters, hasFilters, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
+  blankPass, filterPasses, type Filters, hasFilters, type Hide, HIDE_LABEL, hidePasses, HIDES, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
 import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks } from '@/lib/people';
@@ -54,11 +55,13 @@ export function SheetScreen({ type }: { type: PassType }) {
   const [filters, setFilters] = useState<Filters>(() => ({ ...NO_FILTERS, q: params.get('q') ?? '' }));
   useEffect(() => { if (params.get('q')) window.history.replaceState(null, '', window.location.pathname); }, [params]);
   const deferred = useDeferredValue(filters); // typing in search stays smooth on big sheets
-  const view = useMemo(() => filterPasses(sheet, deferred, dupes), [sheet, deferred, dupes]);
+  const hide = useHide(); // kinds of rows hidden on this desk, in every sheet
+  const view = useMemo(() => hidePasses(filterPasses(sheet, deferred, dupes), type, hide), [sheet, deferred, dupes, type, hide]);
   // Unfilled serials show as empty rows, except while searching or showing given / printed / duplicate passes.
   const showBlank = !deferred.q.trim() && !deferred.from && !deferred.to && !['given', 'printed', 'dupes'].includes(deferred.show);
   const allMissing = useMemo(() => missingSerials(sheet), [sheet]);
-  const missing = showBlank ? allMissing : NONE;
+  const hideEmpty = hide.includes('empty');
+  const missing = showBlank && !hideEmpty ? allMissing : NONE;
   const canAdd = showBlank;
   const next = nextSerial(sheet);
 
@@ -274,9 +277,10 @@ export function SheetScreen({ type }: { type: PassType }) {
             {(Object.keys(SHOW_LABEL) as Show[]).map((s) => <option key={s} value={s}>{SHOW_LABEL[s]}</option>)}
           </select>
           <DateFilter from={filters.from} to={filters.to} onChange={(from, to) => setFilters((f) => ({ ...f, from, to }))} />
+          <HideFilter hide={hide} />
           {hasFilters(filters) && <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => setFilters(NO_FILTERS)}>Clear</button>}
           <span className="pl-1.5 text-[14px] text-muted-foreground tabular-nums" aria-live="polite">
-            {hasFilters(deferred)
+            {hasFilters(deferred) || view.length !== sheet.length
               ? <><b className="font-semibold text-foreground">{view.length}</b> of {sheet.length} shown</>
               : <><b className="font-semibold text-foreground">{sheet.length}</b> {sheet.length === 1 ? 'pass' : 'passes'}, <b className="font-semibold text-foreground">{given}</b> given</>}
           </span>
@@ -310,7 +314,7 @@ export function SheetScreen({ type }: { type: PassType }) {
         {pendingPaste && <PasteWarning type={type} replaced={pendingPaste.replaced} onClose={closePaste} />}
         {asking && <DuplicateWarning found={asking.found} verb={asking.verb} onClose={answer} />}
         <Sheet
-          type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} next={next} missing={missing}
+          type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} blankRows={!hideEmpty} next={next} missing={missing}
           onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven}
           onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
           dupes={dupes} phones={phones} onPerson={setPerson} picks={picks} onPick={onPick}
@@ -350,6 +354,27 @@ function DateFilter({ from, to, onChange }: { from: string; to: string; onChange
         <label className={label}>To<input type="date" className={`${input} !w-[9.5rem]`} value={to} onChange={(e) => onChange(from, e.target.value)} /></label>
       </div>
       {(from || to) && <button className="mt-2.5 text-[13.5px] font-semibold text-primary hover:underline" onClick={() => onChange('', '')}>Any date</button>}
+    </Popover>
+  );
+}
+
+/** Which rows to show, all ticked to start: untick a kind to hide it. Remembered in this browser, for every sheet. */
+function HideFilter({ hide }: { hide: readonly Hide[] }) {
+  const flip = (h: Hide) => setHide(hide.includes(h) ? hide.filter((x) => x !== h) : [...hide, h]);
+  return (
+    <Popover
+      label={hide.length ? `Show (${HIDES.length - hide.length} of ${HIDES.length})` : 'Show'} active={hide.length > 0}
+      title="Untick to hide those rows in every sheet (remembered in this browser)"
+    >
+      <div className="flex flex-col gap-1.5">
+        {HIDES.map((h) => (
+          <label key={h} className="flex cursor-pointer items-center gap-2 text-[14px]">
+            <input type="checkbox" className="size-4 accent-primary" checked={!hide.includes(h)} onChange={() => flip(h)} />
+            {HIDE_LABEL[h]}
+          </label>
+        ))}
+      </div>
+      {hide.length > 0 && <button className="mt-2.5 text-[13.5px] font-semibold text-primary hover:underline" onClick={() => setHide([])}>Show all</button>}
     </Popover>
   );
 }

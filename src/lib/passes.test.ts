@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '@/shared/types';
 import { exportCSV, exportTable, planImport } from './csv';
 import {
-  blankPass, cleanFill, filterPasses, groupRuns, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
+  blankPass, cleanFill, filterPasses, groupRuns, hidePasses, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
   cardsLabel, planPrint, planQueue, ranges, unfilledOf,
 } from './passes';
 import { buildReport, reportCSV } from './report';
@@ -47,6 +47,30 @@ describe('give / fill a range', () => {
     expect(cleanFill('mobile-pandal', { vehicle_no: 'HR26', name: 'A' })).toEqual({ name: 'A' });
     expect(cleanFill('sewa-vehicle', { vehicle_no: 'HR26' })).toEqual({ vehicle_no: 'HR26' });
     expect(cleanFill('bike-pandal', { vehicle_no: 'HR26', vehicle: 'SPLENDOR' })).toEqual({ vehicle_no: 'HR26' });
+  });
+});
+
+describe('hiding rows', () => {
+  const full = { name: 'A', dept: 'D', area: 'X', phone: '9812345678' };
+  const s = [
+    pass(1, { ...full, printed_at: 't', given_at: 't' }),
+    pass(2, { ...full, printed_at: 't' }),
+    pass(3, full),
+    pass(4, { incharge: 'RAMESH' }), // partly filled in: details still empty
+    pass(5),                         // nothing filled in
+  ];
+  const left = (hide: Parameters<typeof hidePasses>[2]) => hidePasses(s, 'mobile-pandal', hide).map((p) => p.serial);
+  it('hides each kind, and any mix of them', () => {
+    expect(left([])).toEqual([1, 2, 3, 4, 5]);
+    expect(left(['printed'])).toEqual([3, 4, 5]);
+    expect(left(['given'])).toEqual([2, 3, 4, 5]);
+    expect(left(['filled'])).toEqual([4, 5]);
+    expect(left(['partial'])).toEqual([1, 2, 3, 5]);
+    expect(left(['empty'])).toEqual([1, 2, 3, 4]);
+    expect(left(['printed', 'partial', 'empty'])).toEqual([3]);
+  });
+  it('never calls a helpline pass partly filled in (it has no details)', () => {
+    expect(hidePasses([pass(1, { incharge: 'R' }, 'eco')], 'eco', ['partial']).length).toBe(1);
   });
 });
 

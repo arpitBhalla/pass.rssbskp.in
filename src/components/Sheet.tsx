@@ -99,6 +99,8 @@ export interface SheetProps {
   selection: Span | null;
   /** Show the blank row for adding the next serial (off while searching / filtering). */
   canAdd: boolean;
+  /** The blank rows under the "+" row (off while empty rows are hidden). */
+  blankRows: boolean;
   next: number;
   /** Serials not in the register yet, shown as empty rows to type or paste into ([] while searching). */
   missing: number[];
@@ -127,7 +129,7 @@ export interface SheetProps {
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
+  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
   const fields = fieldsFor(type);
   const cols = 5 + fields.length;
   const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0);
@@ -151,10 +153,10 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     emptiesBefore(Infinity);
     if (canAdd) {
       out.push({ kind: 'new', key: 'new', serial: next });
-      for (let s = next + 1; s < next + BLANK_ROWS; s++) out.push({ kind: 'empty', key: `e${s}`, serial: s });
+      if (blankRows) for (let s = next + 1; s < next + BLANK_ROWS; s++) out.push({ kind: 'empty', key: `e${s}`, serial: s });
     }
     return out;
-  }, [view, opened, canAdd, missing, next]);
+  }, [view, opened, canAdd, blankRows, missing, next]);
   /** Every row's passes, an entry per row (the "+" row's pass-to-be too), for a paste or fill from row `i`. */
   const pasteRows = () => items.map((it) => (it.kind === 'new' ? [blankPass(type, it.serial)] : itemPasses(type, it)));
 
