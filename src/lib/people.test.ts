@@ -132,5 +132,6 @@ group('the People list', () => {
     expect(ps.filter((p) => hasValue(p, 'incharge', 'aman')).map((p) => p.name)).toEqual(['A']);
     expect(ps.filter((p) => hasValue(p, 'area', 'sirsa') && hasValue(p, 'incharge', 'raj kumar')).map((p) => p.name)).toEqual(['A']);
     expect(ps.filter((p) => hasValue(p, 'area', ''))).toHaveLength(3);
+    expect(filterChoices(ps, 'dept')).toEqual([]);
   });
 });

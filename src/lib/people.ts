@@ -181,12 +181,12 @@ export function listPeople(phones: ReadonlyMap<string, Pass[]>, dupes: ReadonlyM
   return out.sort((a, b) => (!a.name ? 1 : 0) - (!b.name ? 1 : 0) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.key.localeCompare(b.key));
 }
 
-/** The People page's other filters (the owner, 2026-11-24: "filter by in charge or area"). */
-export type PeopleBy = 'incharge' | 'area';
+/** The People page's other filters (the owner, 2026-11-24: "filter by in charge or area", "also add department dropdown"). */
+export type PeopleBy = 'incharge' | 'area' | 'dept';
 const valueOf = (v: string) => v.trim().replace(/\s+/g, ' ');
 
 /**
- * The incharges (or areas) on everyone's passes, to pick from: "Sirsa" and "SIRSA " are one, written as spelled most often,
+ * The incharges (areas, depts) on everyone's passes, to pick from: "Sirsa" and "SIRSA " are one, written as spelled most often,
  * A–Z, each with how many people have a pass with it. `key`: what hasValue takes.
  */
 export function filterChoices(people: readonly Person[], k: PeopleBy): { key: string; label: string; people: number }[] {
@@ -209,7 +209,7 @@ export function filterChoices(people: readonly Person[], k: PeopleBy): { key: st
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
 }
 
-/** Someone with a pass whose Incharge (or Area) is this one (a filterChoices key); '' is anyone. */
+/** Someone with a pass whose Incharge (Area, Dept) is this one (a filterChoices key); '' is anyone. */
 export const hasValue = (p: Person, k: PeopleBy, key: string) => !key || p.passes.some((x) => valueOf(x[k]).toLowerCase() === key);
 
 /** Search: a number (3+ digits) finds a phone; otherwise any spelling of the name, or a Reg. No. (`hr26cd` finds HR-26CD-1001). */

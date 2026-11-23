@@ -2,13 +2,16 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useAllPasses, useStatus } from '@/client/store';
-import { byPhone, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, phoneKey } from '@/lib/people';
+import { byPhone, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, type PeopleBy, phoneKey } from '@/lib/people';
 import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
 import { ProfileCard } from './Profile';
 import { input } from './ui';
 
 const LIMIT = 300; // rows drawn at once: search to find the rest
 const MAX_CHIPS = 6;
+/** The dropdown filters: what each picks by, its name and its "anyone" choice. */
+const BY: readonly [PeopleBy, string, string][] = [['incharge', 'Incharge', 'All incharges'], ['area', 'Area', 'All areas'], ['dept', 'Dept', 'All depts']];
+const NONE: Record<PeopleBy, string> = { incharge: '', area: '', dept: '' };
 
 /**
  * Everyone in the register: a person is a phone number (see people.ts), with every pass they hold on
@@ -25,16 +28,14 @@ export function PeopleScreen() {
   const [q, setQ] = useState('');
   const query = useDeferredValue(q);
   const [onlyBroken, setOnlyBroken] = useState(false);
-  /** Only those with a pass under this Incharge, or in this Area (the owner, 2026-11-24); '' is anyone. */
-  const [incharge, setIncharge] = useState('');
-  const [area, setArea] = useState('');
-  const incharges = useMemo(() => filterChoices(people, 'incharge'), [people]);
-  const areas = useMemo(() => filterChoices(people, 'area'), [people]);
+  /** Only those with a pass under this Incharge, in this Area or Dept (the owner, 2026-11-24); '' is anyone. */
+  const [picked, setPicked] = useState<Record<PeopleBy, string>>(NONE);
+  const choices = useMemo(() => Object.fromEntries(BY.map(([k]) => [k, filterChoices(people, k)])) as Record<PeopleBy, ReturnType<typeof filterChoices>>, [people]);
   const shown = useMemo(
-    () => people.filter((p) => (!onlyBroken || p.broken > 0) && hasValue(p, 'incharge', incharge) && hasValue(p, 'area', area) && matchesPerson(p, query)),
-    [people, onlyBroken, incharge, area, query],
+    () => people.filter((p) => (!onlyBroken || p.broken > 0) && BY.every(([k]) => hasValue(p, k, picked[k])) && matchesPerson(p, query)),
+    [people, onlyBroken, picked, query],
   );
-  const filtered = !!(query || onlyBroken || incharge || area);
+  const filtered = !!(query || onlyBroken || BY.some(([k]) => picked[k]));
   const several = people.filter((p) => p.passes.length > 1).length;
   const broken = people.filter((p) => p.broken > 0).length;
 
@@ -55,16 +56,14 @@ export function PeopleScreen() {
           type="search" className={`${input} !w-72`} placeholder="Name, phone or Reg. No." aria-label="Search people"
           value={q} onChange={(e) => setQ(e.target.value)}
         />
-        <select className={`${input} !w-auto max-w-56`} aria-label="Incharge" value={incharge} onChange={(e) => setIncharge(e.target.value)}>
-          <option value="">All incharges</option>
-          {incharges.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.people})</option>)}
-        </select>
-        <select className={`${input} !w-auto max-w-56`} aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>
-          <option value="">All areas</option>
-          {areas.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.people})</option>)}
-        </select>
+        {BY.map(([k, label, all]) => (
+          <select key={k} className={`${input} !w-auto max-w-56`} aria-label={label} value={picked[k]} onChange={(e) => setPicked((f) => ({ ...f, [k]: e.target.value }))}>
+            <option value="">{all}</option>
+            {choices[k].map((c) => <option key={c.key} value={c.key}>{c.label} ({c.people})</option>)}
+          </select>
+        ))}
         {filtered && (
-          <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => { setQ(''); setOnlyBroken(false); setIncharge(''); setArea(''); }}>
+          <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => { setQ(''); setOnlyBroken(false); setPicked(NONE); }}>
             Clear
           </button>
         )}
