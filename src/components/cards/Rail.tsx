@@ -61,8 +61,8 @@ function SignOff({ href, x0, x1, y, h, line }: { href: string; x0: number; x1: n
   );
 }
 
-/** Gate 1 & 11 Entry: Vehicle on a row of its own, the Reg. No. in its plate (RegPlate). */
-const PLATE_ROWS: Row[] = [['name'], ['vehicle'], ['area', 'dept']];
+/** Gate 1 & 11 Entry: Name, then Area and Dept. (no Vehicle since 2026-11-23, the owner); the Reg. No. in its plate (RegPlate). */
+const PLATE_ROWS: Row[] = [['name'], ['area', 'dept']];
 /** Admin: Name and Vehicle, no Area or Dept. (the owner, 2026-11-15); the Reg. No. in its plate too. */
 const ADMIN_ROWS: Row[] = [['name'], ['vehicle']];
 
@@ -70,9 +70,12 @@ const LABEL: Partial<Record<Field, string>> = {
   name: 'Name', dept: 'Dept.', area: 'Area', phone: 'Phone', vehicle: 'Vehicle', vehicle_no: 'Reg. No.',
 };
 
-/** Rows of fields (label at the left, value on a colour line); a row of two splits the width with 6 mm between. `ys`: each row's line. */
-function Fields({ p, rows, ys, x0, x1, lw, cap, color }: {
-  p: CardProps['p']; rows: Row[]; ys: number[]; x0: number; x1: number; lw: number; cap: number; color: string;
+/**
+ * Rows of fields (label at the left, value on a colour line); a row of two splits the width with 6 mm between. `ys`: each row's line.
+ * `above`: each label small over its value instead, the value and its line taking the whole width (Gate 1 & 11, the owner, 2026-11-23).
+ */
+function Fields({ p, rows, ys, x0, x1, lw, cap, color, above = false }: {
+  p: CardProps['p']; rows: Row[]; ys: number[]; x0: number; x1: number; lw: number; cap: number; color: string; above?: boolean;
 }) {
   const gap = 6;
   return (
@@ -81,14 +84,16 @@ function Fields({ p, rows, ys, x0, x1, lw, cap, color }: {
         const w = (x1 - x0 - gap * (row.length - 1)) / row.length;
         return row.map((k, j) => {
           const x = x0 + j * (w + gap);
-          const r0 = x + lw;
+          const r0 = above ? x : x + lw;
           const y = ys[i];
+          /** The value's baseline; with `above`, the label's sits 1.3 mm over the value's capitals. */
+          const vy = y - Math.max(0.8, cap * 0.24);
           return (
             <g key={k}>
-              <Caption t={LABEL[k] ?? k} at={[mm(x + (LABEL_AT[k]?.[0] ?? 0)), y - 0.45, 2.625, LABEL_AT[k]?.[1] ?? 6]} />
+              <Caption t={LABEL[k] ?? k} at={[mm(x + (LABEL_AT[k]?.[0] ?? 0)), above ? mm(vy - cap - 1.3) : y - 0.45, 2.625, LABEL_AT[k]?.[1] ?? 6]} />
               <rect x={r0} y={y} width={mm(x + w - r0)} height={0.2} fill={color} />
-              <T t={upper(p[k])} f={k === 'phone' || k === 'vehicle_no' ? LEGIBLE : C700} cap={cap} x={r0 + 0.9}
-                y={y - Math.max(0.8, cap * 0.24)} max={x + w - r0 - 1.4} />
+              <T t={upper(p[k])} f={k === 'phone' || k === 'vehicle_no' ? LEGIBLE : C700} cap={cap} x={above ? r0 : r0 + 0.9}
+                y={vy} max={x + w - r0 - 1.4} />
             </g>
           );
         });
@@ -156,8 +161,9 @@ export function RailVehicle({ p, texts, code }: CardProps) {
         : <KindWord t={kindWord} cap={kindCap([kindWord], 12, 138)} x={VW / 2} y={Y(45)} max={138} fill={c} />}
       {/* lw 11 (was 16): the values start closer to their labels (owner, 2026-11-15: "reduce gap"). */}
       {/* Admin: two rows, so the values larger (5.6, was 4.2; the owner, 2026-11-15). */}
-      <Fields p={p} rows={bav ? PLATE_ROWS : ADMIN_ROWS} ys={(bav ? [54.5, 65, 75.5] : [57.5, 70]).map(Y)} x0={6} x1={144} lw={11}
-        cap={bav ? 4.2 : 5.6} color={c} />
+      {/* Gate 1 & 11: each label over its value, two rows, so the values larger (6, was 4.2; the owner, 2026-11-23). */}
+      <Fields p={p} rows={bav ? PLATE_ROWS : ADMIN_ROWS} ys={(bav ? [59, 73.5] : [57.5, 70]).map(Y)} x0={6} x1={144} lw={11}
+        cap={bav ? 6 : 5.6} color={c} above={bav} />
       <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
       {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall, Gate 1 & 11's 11.5, just under its Area / Dept. line (8.4 before; the owner, 2026-11-18). */}
