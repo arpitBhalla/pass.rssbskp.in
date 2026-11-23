@@ -181,6 +181,37 @@ export function listPeople(phones: ReadonlyMap<string, Pass[]>, dupes: ReadonlyM
   return out.sort((a, b) => (!a.name ? 1 : 0) - (!b.name ? 1 : 0) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.key.localeCompare(b.key));
 }
 
+/** The People page's other filters (the owner, 2026-11-24: "filter by in charge or area"). */
+export type PeopleBy = 'incharge' | 'area';
+const valueOf = (v: string) => v.trim().replace(/\s+/g, ' ');
+
+/**
+ * The incharges (or areas) on everyone's passes, to pick from: "Sirsa" and "SIRSA " are one, written as spelled most often,
+ * A–Z, each with how many people have a pass with it. `key`: what hasValue takes.
+ */
+export function filterChoices(people: readonly Person[], k: PeopleBy): { key: string; label: string; people: number }[] {
+  const spellings = new Map<string, Map<string, number>>();
+  const count = new Map<string, number>();
+  for (const p of people) {
+    const keys = new Set<string>();
+    for (const x of p.passes) {
+      const v = valueOf(x[k]);
+      if (!v) continue;
+      const key = v.toLowerCase();
+      keys.add(key);
+      const s = spellings.get(key) ?? new Map<string, number>();
+      spellings.set(key, s.set(v, (s.get(v) ?? 0) + 1));
+    }
+    for (const key of keys) count.set(key, (count.get(key) ?? 0) + 1);
+  }
+  return [...count]
+    .map(([key, n]) => ({ key, label: [...spellings.get(key)!].sort((a, b) => b[1] - a[1])[0][0], people: n }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+}
+
+/** Someone with a pass whose Incharge (or Area) is this one (a filterChoices key); '' is anyone. */
+export const hasValue = (p: Person, k: PeopleBy, key: string) => !key || p.passes.some((x) => valueOf(x[k]).toLowerCase() === key);
+
 /** Search: a number (3+ digits) finds a phone; otherwise any spelling of the name, or a Reg. No. (`hr26cd` finds HR-26CD-1001). */
 export function matchesPerson(p: Person, query: string): boolean {
   const q = query.trim().toLowerCase();

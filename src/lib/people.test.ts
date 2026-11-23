@@ -1,7 +1,9 @@
 import { describe as group, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
 import { blankPass } from './passes';
-import { alsoHeld, byPhone, describe, detailsFor, duplicatesOf, findDuplicates, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey } from './people';
+import {
+  alsoHeld, byPhone, describe, detailsFor, duplicatesOf, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey,
+} from './people';
 
 let nextId = 1;
 const pass = (type: PassType, serial: number, extra: Partial<Pass> = {}): Pass =>
@@ -114,5 +116,21 @@ group('the People list', () => {
     expect(find('hr26cd')).toEqual(['Navneet Gumber']);
     expect(find('90000')).toEqual(['Amrit Kaur', '90000 00002']);
     expect(find('')).toHaveLength(3);
+  });
+  it('filters by Incharge or Area: any of their passes, however it is written', () => {
+    const list = [
+      pass('mobile-pandal', 1, { name: 'A', phone: '9000000011', incharge: 'Raj Kumar', area: 'Sirsa' }),
+      pass('bike-pandal', 1, { name: 'A', phone: '9000000011', incharge: 'Aman', area: 'SIRSA ' }),
+      pass('mobile-pandal', 2, { name: 'B', phone: '9000000012', incharge: 'raj  kumar', area: 'Delhi' }),
+      pass('mobile-pandal', 3, { name: 'C', phone: '9000000013', incharge: 'Raj Kumar' }),
+    ];
+    const ps = listPeople(byPhone(list), findDuplicates(list));
+    expect(filterChoices(ps, 'incharge')).toEqual([
+      { key: 'aman', label: 'Aman', people: 1 }, { key: 'raj kumar', label: 'Raj Kumar', people: 3 },
+    ]);
+    expect(filterChoices(ps, 'area').map((c) => [c.label, c.people])).toEqual([['Delhi', 1], ['Sirsa', 1]]);
+    expect(ps.filter((p) => hasValue(p, 'incharge', 'aman')).map((p) => p.name)).toEqual(['A']);
+    expect(ps.filter((p) => hasValue(p, 'area', 'sirsa') && hasValue(p, 'incharge', 'raj kumar')).map((p) => p.name)).toEqual(['A']);
+    expect(ps.filter((p) => hasValue(p, 'area', ''))).toHaveLength(3);
   });
 });

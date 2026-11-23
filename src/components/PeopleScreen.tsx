@@ -2,7 +2,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { useAllPasses, useStatus } from '@/client/store';
-import { byPhone, findDuplicates, listPeople, matchesPerson, phoneKey } from '@/lib/people';
+import { byPhone, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, phoneKey } from '@/lib/people';
 import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
 import { ProfileCard } from './Profile';
 import { input } from './ui';
@@ -25,7 +25,16 @@ export function PeopleScreen() {
   const [q, setQ] = useState('');
   const query = useDeferredValue(q);
   const [onlyBroken, setOnlyBroken] = useState(false);
-  const shown = useMemo(() => people.filter((p) => (!onlyBroken || p.broken > 0) && matchesPerson(p, query)), [people, onlyBroken, query]);
+  /** Only those with a pass under this Incharge, or in this Area (the owner, 2026-11-24); '' is anyone. */
+  const [incharge, setIncharge] = useState('');
+  const [area, setArea] = useState('');
+  const incharges = useMemo(() => filterChoices(people, 'incharge'), [people]);
+  const areas = useMemo(() => filterChoices(people, 'area'), [people]);
+  const shown = useMemo(
+    () => people.filter((p) => (!onlyBroken || p.broken > 0) && hasValue(p, 'incharge', incharge) && hasValue(p, 'area', area) && matchesPerson(p, query)),
+    [people, onlyBroken, incharge, area, query],
+  );
+  const filtered = !!(query || onlyBroken || incharge || area);
   const several = people.filter((p) => p.passes.length > 1).length;
   const broken = people.filter((p) => p.broken > 0).length;
 
@@ -46,6 +55,19 @@ export function PeopleScreen() {
           type="search" className={`${input} !w-72`} placeholder="Name, phone or Reg. No." aria-label="Search people"
           value={q} onChange={(e) => setQ(e.target.value)}
         />
+        <select className={`${input} !w-auto max-w-56`} aria-label="Incharge" value={incharge} onChange={(e) => setIncharge(e.target.value)}>
+          <option value="">All incharges</option>
+          {incharges.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.people})</option>)}
+        </select>
+        <select className={`${input} !w-auto max-w-56`} aria-label="Area" value={area} onChange={(e) => setArea(e.target.value)}>
+          <option value="">All areas</option>
+          {areas.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.people})</option>)}
+        </select>
+        {filtered && (
+          <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => { setQ(''); setOnlyBroken(false); setIncharge(''); setArea(''); }}>
+            Clear
+          </button>
+        )}
         <label className="flex items-center gap-1.5 text-[14px]">
           <input type="checkbox" className="size-4 accent-primary" checked={onlyBroken} onChange={(e) => setOnlyBroken(e.target.checked)} />
           Only those breaking a rule
@@ -55,7 +77,7 @@ export function PeopleScreen() {
             <>
               <b className="font-semibold text-foreground">{people.length}</b> people, <b className="font-semibold text-foreground">{several}</b> with more than one pass
               {broken > 0 && <>, <b className="font-semibold text-red-700">{broken}</b> breaking a rule</>}
-              {(query || onlyBroken) && <>; {shown.length} shown</>}
+              {filtered && <>; {shown.length} shown</>}
             </>
           )}
         </span>
