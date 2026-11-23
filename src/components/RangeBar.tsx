@@ -1,10 +1,10 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { usePaper } from '@/client/paper';
-import { printQueue } from '@/client/printQueue';
+import { printQueue, usePrintQueue } from '@/client/printQueue';
 import { toast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { nPasses, parseSerial, type Picked, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
@@ -60,14 +60,41 @@ export function RangeBar({ type, sheet, range, onClear }: {
     await apply({ action: 'print', summary: `Marked ${info.label} ${ranges(print.cards.map((c) => c.serial))} printed`, set: print.set, create: print.create });
   };
 
+  /* ----- print queue ----- */
+  // The picked passes already waiting in the queue, and those ready to print that aren't yet.
+  const queue = usePrintQueue();
+  const queued = useMemo(() => {
+    if (!hasRange) return [];
+    const lo = parseSerial(range.from);
+    const hi = Number.isNaN(parseSerial(range.to)) ? lo : parseSerial(range.to);
+    const only = range.only && new Set(range.only);
+    return queue.filter((x) => x.type === type && x.serial >= Math.min(lo, hi) && x.serial <= Math.max(lo, hi) && (!only || only.has(x.serial)));
+  }, [queue, hasRange, range, type]);
+  const toQueue = useMemo(() => {
+    const have = new Set(queued.map((x) => x.serial));
+    return nCards && print ? print.cards.filter((c) => !have.has(c.serial)) : [];
+  }, [queued, nCards, print]);
   /** Keeps them for the print queue (top right), to print with passes of the same size from other sheets. */
-  const addToQueue = () => {
-    if (!print || !nCards) return;
-    const added = printQueue.add(print.cards);
-    toast(added
-      ? `Added ${nPasses(added)} to the print queue (top right): ${printQueue.get().length} waiting.`
-      : 'These are in the print queue already.');
-  };
+  const addToQueue = useCallback(() => {
+    const added = printQueue.add(toQueue.map((c) => ({ type: c.type, serial: c.serial })));
+    if (added) toast(`Added ${nPasses(added)} to the print queue (top right): ${printQueue.get().length} waiting. Alt+Q again takes them out.`);
+  }, [toQueue]);
+  const removeFromQueue = useCallback(() => {
+    printQueue.remove(queued);
+    toast(`Took ${nPasses(queued.length)} out of the print queue: ${printQueue.get().length} waiting.`);
+  }, [queued]);
+  // Alt+Q (Option+Q on a Mac): adds the picked passes to the queue, or takes them out if they're all in it already.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.code !== 'KeyQ') return;
+      e.preventDefault();
+      if (toQueue.length) addToQueue();
+      else if (queued.length) removeFromQueue();
+      else if (hasRange) toast('Nothing to add to the print queue: none of these is filled in and unprinted.', 'error');
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [toQueue, queued, hasRange, addToQueue, removeFromQueue]);
 
   /** Unticks Printed (to print them again), like unticking it in the sheet; Undo reverses it. */
   const unprint = useMemo(() => (hasRange ? planUnprint(sheet, range.from, range.to, range.only) : null), [hasRange, sheet, range]);
@@ -145,15 +172,26 @@ export function RangeBar({ type, sheet, range, onClear }: {
               >
                 Preview &amp; print
               </button>
-              <button
-                className={btn} disabled={!nCards} onClick={addToQueue}
-                title="Keep them in the print queue (top right): passes of the same size from other sheets print on the same paper sheet, so a sheet fills sooner."
-              >
-                {nCards ? `Add ${nCards} to queue` : 'Add to queue'}
-              </button>
-              <button className={btn} disabled={!nCards} onClick={() => void markPrinted()} title="Tick Printed without printing (printed some other way). Undo reverses it.">
-                {nCards ? `Mark ${nCards} printed` : 'Mark printed'}
-              </button>
+              {/* Add to the queue, or take out once they're all in it (Alt+Q either way). Away from Mark printed (the owner, 2026-11-23). */}
+              {toQueue.length || !queued.length ? (
+                <button
+                  className={btn} disabled={!toQueue.length} onClick={addToQueue}
+                  title="Keep them in the print queue (top right), to print with passes from other sheets on the same paper sheets. Shortcut: Alt+Q (Option+Q on a Mac)."
+                >
+                  {toQueue.length ? `Add ${toQueue.length} to queue` : 'Add to queue'}
+                  <kbd className="ml-1.5 font-sans text-[11.5px] font-normal text-muted-foreground">⌥Q</kbd>
+                </button>
+              ) : (
+                <button className={btn} onClick={removeFromQueue} title="Take them out of the print queue. Shortcut: Alt+Q (Option+Q on a Mac).">
+                  Remove {queued.length} from queue
+                  <kbd className="ml-1.5 font-sans text-[11.5px] font-normal text-muted-foreground">⌥Q</kbd>
+                </button>
+              )}
+              {toQueue.length > 0 && queued.length > 0 && (
+                <button className="text-[13.5px] text-primary hover:underline" onClick={removeFromQueue} title={`Take the ${queued.length} already queued out of the print queue`}>
+                  {queued.length} queued: remove
+                </button>
+              )}
               {print && !nCards && !print.unfilled.length && print.printed.length > 0 && (
                 <span className={note} title="Mark them unprinted to print them again.">all printed</span>
               )}
@@ -164,6 +202,12 @@ export function RangeBar({ type, sheet, range, onClear }: {
               )}
               {nCards > 0 && !settings.isLoading && missing.length > 0 && <MissingSetup missing={missing as string[]} />}
             </>
+          )}
+          <Divider />
+          {!print?.err && (
+            <button className={btn} disabled={!nCards} onClick={() => void markPrinted()} title="Tick Printed without printing (printed some other way). Undo reverses it.">
+              {nCards ? `Mark ${nCards} printed` : 'Mark printed'}
+            </button>
           )}
           <button
             className={btn} disabled={!unprint?.set.length} onClick={() => void markUnprinted()}

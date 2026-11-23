@@ -347,3 +347,16 @@ export function pagesFor(paper: Paper, layouts: readonly Layout[]): PagePlan[] {
   });
   return [...full, ...mixed];
 }
+
+/**
+ * How many more passes of size `add` fit on the sheets that `layouts` already take (pagesFor) without another
+ * sheet: up to a sheet's worth of them. 0 for no passes yet, or when even one more would need another sheet.
+ */
+export function roomFor(paper: Paper, layouts: readonly Layout[], add: Layout): number {
+  if (!layouts.length) return 0;
+  const sheets = pagesFor(paper, layouts).length;
+  const max = sheetPlan(paper, add).perSheet;
+  let k = 0;
+  while (k < max && pagesFor(paper, [...layouts, ...Array<Layout>(k + 1).fill(add)]).length === sheets) k++;
+  return k;
+}

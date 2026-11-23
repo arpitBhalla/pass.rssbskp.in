@@ -126,6 +126,8 @@ export interface SheetProps {
   onGiven: (passes: Pass[], given: boolean) => void;
   /** Ticks / unticks a yes / no detail (Ferry Sewa) of these passes. */
   onFlag: FlagFn;
+  /** Serials of this sheet waiting in the print queue: their rows are marked. */
+  queued: ReadonlySet<number>;
   onSelect: (span: Span) => void;
   onSelectEnd: () => void;
   /** A cell got the cursor: the rows picked by Sr. No. are let go (as in Excel). */
@@ -142,7 +144,7 @@ export interface SheetProps {
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onFlag, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
+  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onFlag, queued, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
   const flags = flagsFor(type);
   const fields = fieldsFor(type);
   const cols = 5 + fields.length + flags.length;
@@ -677,7 +679,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       return (
         <Row
           key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
-          flags={flags} onFlag={onFlag}
+          flags={flags} onFlag={onFlag} queued={queued.has(it.p.serial)}
           dupePhone={alsoHeld(ds, 'phone') || undefined} dupeReg={alsoHeld(ds, 'vehicle_no') || undefined}
           held={phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
         />
@@ -689,6 +691,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
           key={v.key} passes={it.passes} i={i} open={it.open} fields={fields} mark={mark}
           selected={it.passes.every((p) => inSpan(selection, p))}
           onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} flags={flags} onFlag={onFlag}
+          queued={it.passes.every((p) => queued.has(p.serial))}
         />
       );
     }
@@ -788,6 +791,9 @@ const NotSaved = () => (
     className="ml-1.5 hidden size-[9px] rounded-full bg-amber-500 align-[1px] ring-2 ring-amber-200 group-data-[unsaved]/app:inline-block" />
 );
 const margin = 'border-r-[3px] border-double !border-r-primary/75';
+/** A row waiting in the print queue: tinted blue, with a blue bar at its left edge (the owner, 2026-11-23). */
+const inQueue = '[&>td]:bg-sky-50';
+const QueuedMark = () => <span role="img" aria-label="in the print queue" className="absolute inset-y-0 left-0 w-[4px] bg-sky-600" />;
 const serialCls = 'font-condensed text-[16px] font-semibold tabular-nums tracking-[0.02em]';
 const rowCls = (selected: boolean, extra = '') =>
   `${selected ? '[&>td]:bg-sand-100' : `hover:[&>td]:bg-muted/60 ${focusRow}`} ${extra}`;
@@ -802,9 +808,9 @@ const picked = '!bg-sand-200 !text-sand-900';
  * on hover). `held`: passes on its phone, on every sheet. The Sr. No. shows a person icon that opens them all
  * (with the count from 2; for one, only while the row is pointed at or has the cursor).
  */
-const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, dupePhone, dupeReg, held, onPerson, pickOf, onPick }: {
+const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, queued, dupePhone, dupeReg, held, onPerson, pickOf, onPick }: {
   p: Pass; i: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
-  onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
+  onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; queued: boolean; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
   pickOf: PickOf; onPick: PickFn;
 }) {
   const printed = isPrinted(p);
@@ -824,9 +830,9 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
     );
   };
   return (
-    <tr data-i={i} className={rowCls(selected)}>
-      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} relative cursor-pointer select-none ${selected ? picked : ''}`} title="Click to select. Shift+click or drag for more.">
-        {fmtSerial(p.serial)}{isUnsaved(p) && <NotSaved />}
+    <tr data-i={i} className={rowCls(selected, queued ? inQueue : '')}>
+      <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} relative cursor-pointer select-none ${selected ? picked : ''}`} title={queued ? 'In the print queue. Click to select. Shift+click or drag for more.' : 'Click to select. Shift+click or drag for more.'}>
+        {queued && <QueuedMark />}{fmtSerial(p.serial)}{isUnsaved(p) && <NotSaved />}
         {held > 0 && <HeldCount n={held} warn={!!(dupePhone || dupeReg)} onClick={() => onPerson(phoneKey(p.phone))} />}
       </td>
       {before(fields).map(cell)}
@@ -874,9 +880,9 @@ function shortRange(lo: number, hi: number) {
 }
 
 /** A series given to one incharge, shown as "0003–17". Edits apply to every pass in it. */
-function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven, flags, onFlag }: {
+function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven, flags, onFlag, queued }: {
   passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; mark?: Mark; selected: boolean; onToggle: () => void;
-  onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn;
+  onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; queued: boolean;
 }) {
   const first = passes[0];
   const printed = isPrinted(first);
@@ -891,9 +897,9 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
     );
   };
   return (
-    <tr data-i={i} className={rowCls(selected, '[&>td]:bg-sand-50')}>
+    <tr data-i={i} className={rowCls(selected, queued ? inQueue : '[&>td]:bg-sand-50')}>
       <td
-        data-pick className={`${td} ${margin} ${serialCls} ${rowHead} !pr-1 !pl-0 cursor-pointer select-none ${selected ? picked : ''}`}
+        data-pick className={`${td} ${margin} ${serialCls} ${rowHead} relative !pr-1 !pl-0 cursor-pointer select-none ${selected ? picked : ''}`}
         title={`${fmtSerial(first.serial)}–${fmtSerial(passes[passes.length - 1].serial)}: ${passes.length} passes. Click to select them.`}
       >
         <button
@@ -902,7 +908,7 @@ function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, o
         >
           {open ? '▾' : '▸'}
         </button>
-        <span className="text-[14px]">{shortRange(first.serial, passes[passes.length - 1].serial)}</span>
+        {queued && <QueuedMark />}<span className="text-[14px]">{shortRange(first.serial, passes[passes.length - 1].serial)}</span>
       </td>
       {before(fields).map(cell)}
       {flags.map((f) => <FlagCell key={f} f={f} passes={passes} printed={printed} onFlag={onFlag} />)}

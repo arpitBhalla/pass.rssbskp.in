@@ -375,6 +375,10 @@ const DETAILS: readonly Field[] = ['name', 'dept', 'area', 'phone', 'vehicle', '
 export const unfilledOf = (type: PassType, p: Pass | undefined): Field[] =>
   fieldsFor(type).filter((k) => DETAILS.includes(k) && !p?.[k].trim());
 
+/** The passes of a sheet that would print now: in the register, not printed, every detail filled in. Lowest serials first. */
+export const readyToPrint = (sheet: readonly Pass[], type: PassType): Pass[] =>
+  sheet.filter((p) => !isPrinted(p) && !unfilledOf(type, p).length).sort((a, b) => a.serial - b.serial);
+
 /**
  * The passes from–to that aren't printed yet and are filled in: nothing empty is printed (the owner,
  * 2026-11-18). The helpline sheets have no details, so their serials not in the register print too.

@@ -3,6 +3,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { setHide, useHide } from '@/client/hide';
+import { usePrintQueue } from '@/client/printQueue';
 import { useUserNames } from '@/client/users';
 import { store, useAllPasses, useSheet, useStatus } from '@/client/store';
 import { toast } from '@/client/toast';
@@ -56,6 +57,9 @@ export function SheetScreen({ type }: { type: PassType }) {
   useEffect(() => { if (params.get('q')) window.history.replaceState(null, '', window.location.pathname); }, [params]);
   const deferred = useDeferredValue(filters); // typing in search stays smooth on big sheets
   const hide = useHide(); // kinds of rows hidden on this desk, in every sheet
+  const queue = usePrintQueue();
+  /** This sheet's serials waiting in the print queue: their rows are tinted. */
+  const queued = useMemo(() => new Set(queue.filter((x) => x.type === type).map((x) => x.serial)), [queue, type]);
   const view = useMemo(() => hidePasses(filterPasses(sheet, deferred, dupes), type, hide), [sheet, deferred, dupes, type, hide]);
   // Unfilled serials show as empty rows, except while searching or showing given / printed / duplicate passes.
   const showBlank = !deferred.q.trim() && !deferred.from && !deferred.to && !['given', 'printed', 'dupes'].includes(deferred.show);
@@ -321,7 +325,7 @@ export function SheetScreen({ type }: { type: PassType }) {
         {asking && <DuplicateWarning found={asking.found} verb={asking.verb} onClose={answer} />}
         <Sheet
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} blankRows={!hideEmpty} next={next} missing={missing}
-          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven} onFlag={onFlag}
+          onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven} onFlag={onFlag} queued={queued}
           onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
           dupes={dupes} phones={phones} onPerson={setPerson} picks={picks} onPick={onPick}
         />

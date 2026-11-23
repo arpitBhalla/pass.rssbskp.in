@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_SIZE, marginOf, pagesFor, PAPERS, sheetPlan } from './sheets';
+import type { Layout } from '@/shared/types';
+import { CARD_SIZE, marginOf, pagesFor, PAPERS, roomFor, sheetPlan } from './sheets';
 
 const LAYOUTS = ['mobile', 'bike', 'vehicle', 'gate', 'large'] as const;
 
@@ -160,5 +161,21 @@ describe('pagesFor (the print queue: passes of several sizes)', () => {
         }
       }
     }
+  });
+});
+
+describe('roomFor (filling the last sheet of the print queue)', () => {
+  const many = (l: Layout, n: number) => Array<Layout>(n).fill(l);
+  it('counts the passes of a size that fit without another sheet', () => {
+    // 1 Sewa Vehicle + 50 Mobile take 2 A3 sheets, the second with 2 Mobile on it: 70 more Mobile fit.
+    const q = [...many('vehicle', 1), ...many('mobile', 50)];
+    const n = roomFor('a3', q, 'mobile');
+    expect(n).toBe(70);
+    expect(pagesFor('a3', [...q, ...many('mobile', n)])).toHaveLength(2);
+    expect(pagesFor('a3', [...q, ...many('mobile', n + 1)])).toHaveLength(3);
+  });
+  it('is 0 when the sheets are full, and for an empty queue', () => {
+    expect(roomFor('a3', many('mobile', 72), 'mobile')).toBe(0);
+    expect(roomFor('a3', [], 'mobile')).toBe(0);
   });
 });

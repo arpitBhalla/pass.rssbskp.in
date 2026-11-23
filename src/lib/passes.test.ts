@@ -3,7 +3,7 @@ import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '
 import { exportCSV, exportTable, planImport } from './csv';
 import {
   blankPass, cleanFill, filterPasses, groupRuns, hidePasses, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
-  cardsLabel, forPrint, planPrint, planQueue, ranges, unfilledOf,
+  cardsLabel, forPrint, planPrint, planQueue, ranges, readyToPrint, unfilledOf,
 } from './passes';
 import { buildReport, reportCSV } from './report';
 
@@ -411,5 +411,13 @@ describe('Given and Delete for a range', () => {
     const s = [pass(1, { incharge: 'MOHAN' }), pass(2, { given_at: 'x' })];
     expect(filterPasses(s, { ...NO_FILTERS, show: 'given' }).map((p) => p.serial)).toEqual([2]);
     expect(filterPasses(s, { ...NO_FILTERS, show: 'free' }).map((p) => p.serial)).toEqual([1]);
+  });
+});
+
+describe('readyToPrint', () => {
+  it('lists the passes that would print now, lowest serials first', () => {
+    const full = { name: 'A', dept: 'D', area: 'R', phone: '9' };
+    const rows = [pass(3, full), pass(1, full), pass(2, { name: 'B' }), pass(4, { ...full, printed_at: '2026-11-20T00:00:00Z' })];
+    expect(readyToPrint(rows, 'mobile-pandal').map((p) => p.serial)).toEqual([1, 3]);
   });
 });

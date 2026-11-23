@@ -6,9 +6,9 @@ import { setPaper, usePaper } from '@/client/paper';
 import { printQueue, type QueueItem, usePrintQueue } from '@/client/printQueue';
 import { useAllPasses } from '@/client/store';
 import { useTRPC } from '@/client/trpc';
-import { type CardData, cardsLabel, nPasses, planQueue, type PrintPlan, ranges } from '@/lib/passes';
-import { pagesFor, PAPER, PAPERS, sheetPlan } from '@/lib/sheets';
-import { type Pass, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
+import { type CardData, cardsLabel, nPasses, planQueue, type PrintPlan, ranges, readyToPrint } from '@/lib/passes';
+import { CARD_SIZE, pagesFor, PAPER, PAPERS, roomFor, sheetPlan } from '@/lib/sheets';
+import { type Layout, type Pass, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PrintView } from './PrintView';
 import { btn, btnPrimary, card } from './ui';
@@ -32,6 +32,8 @@ export function PrintQueueButton() {
 }
 
 const same = (a: QueueItem, b: QueueItem) => a.type === b.type && a.serial === b.serial;
+const keyOf = (x: QueueItem) => `${x.type}:${x.serial}`;
+const area = (l: Layout) => CARD_SIZE[l].w * CARD_SIZE[l].h;
 
 /**
  * The print queue (printQueue.ts), in groups of passes of one size: each group can print on its own paper
@@ -73,6 +75,37 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
     const apart = groups.reduce((n, g) => n + Math.ceil(g.plan.cards.length / g.perSheet), 0);
     return { plan, sheets, apart };
   }, [groups, items, sheetOf, paper]);
+
+  /**
+   * Everything printed at once (Print all together, or Print all with one size): how full its last sheet is, the
+   * passes ready to print elsewhere in the register that would fit on it without another sheet (the owner,
+   * 2026-11-23: "suggest what else I can add to fill the empty gap"), and, with several sizes, whether leaving
+   * that sheet's passes for next time saves a sheet.
+   */
+  const last = useMemo(() => {
+    const plan = planQueue(items, sheetOf);
+    if (!plan.cards.length || plan.err) return null;
+    const layouts = plan.cards.map((c) => TYPE_INFO[c.type].layout);
+    const pages = pagesFor(paper, layouts);
+    const end = pages[pages.length - 1];
+    const used = end.items.reduce((a, it) => a + area(layouts[it.i]), 0) / (PAPER[paper].w * PAPER[paper].h);
+    const queued = new Set(items.map(keyOf));
+    const room = new Map<Layout, number>();
+    const offers = SHEETS.flatMap((t) => {
+      const ready = readyToPrint(sheetOf(t), t).filter((p) => !queued.has(keyOf(p)));
+      if (!ready.length) return [];
+      const l = TYPE_INFO[t].layout;
+      if (!room.has(l)) room.set(l, roomFor(paper, layouts, l));
+      const n = Math.min(room.get(l)!, ready.length);
+      return n ? [{ type: t, add: ready.slice(0, n).map((p) => ({ type: t, serial: p.serial })), ready: ready.length }] : [];
+    });
+    const onEnd = new Set(end.items.map((it) => it.i));
+    const keep = plan.cards.filter((_, i) => !onEnd.has(i));
+    const leave = plan.cards.filter((_, i) => onEnd.has(i));
+    const wait = groups.length > 1 && pages.length > 1 && used < 0.5
+      && pagesFor(paper, keep.map((c) => TYPE_INFO[c.type].layout)).length < pages.length ? { keep, leave } : null;
+    return { sheets: pages.length, used, n: end.items.length, offers, wait };
+  }, [items, sheetOf, paper, groups.length]);
 
   const [printing, setPrinting] = useState<PrintPlan | null>(null);
   const print = (cards: CardData[]) => setPrinting(planQueue(cards, sheetOf));
@@ -168,6 +201,35 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
             <button className={btnPrimary} disabled={!together.plan.cards.length || !!together.plan.err} onClick={() => print(together.plan.cards)}>
               Print all {together.plan.cards.length} together
             </button>
+          </section>
+        )}
+        {last && (
+          <section className="space-y-2 border-t border-border pt-3 text-[14px]">
+            <p className="text-muted-foreground">
+              {groups.length > 1 ? 'Printed all together' : `Printed all ${together?.plan.cards.length ?? groups[0].plan.cards.length}`}, the last {sheetName} is{' '}
+              <b className="text-foreground">{Math.round(last.used * 100)}% used</b> ({nPasses(last.n)}).
+              {last.offers.length > 0 ? ' Fill it with passes ready to print (filled in, not printed), without another sheet:' : ' Nothing else ready to print fits on it.'}
+            </p>
+            {last.offers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {last.offers.map((o) => (
+                  <button key={o.type} className={`${btn} !h-auto gap-1.5 !px-2.5 !py-1 text-[13.5px]`} onClick={() => printQueue.add(o.add)}
+                    title={`${TYPE_INFO[o.type].label}: ${o.ready} ready to print, the lowest serials first. One size fills the space: adding one changes what the others can add.`}>
+                    <PassMark type={o.type} />
+                    + {o.add.length} {TYPE_INFO[o.type].label}
+                    <span className="font-normal text-muted-foreground tabular-nums">{ranges(o.add.map((x) => x.serial))}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {last.wait && (
+              <p className="rounded-[3px] bg-sand-100 px-2 py-1.5 text-sand-900">
+                Or leave its {nPasses(last.wait.leave.length)} ({cardsLabel(last.wait.leave)}) in the queue for next time:{' '}
+                <button className="font-semibold text-primary hover:underline" onClick={() => print(last.wait!.keep)}>
+                  print {nPasses(last.wait.keep.length)} on {last.sheets - 1} {sheetName}{last.sheets - 1 === 1 ? '' : 's'}
+                </button>
+              </p>
+            )}
           </section>
         )}
         <div className="flex justify-end gap-2 border-t border-border pt-3">
