@@ -211,7 +211,7 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
 /** More samples of a sheet, each with other yes / no details ticked, so every way a pass prints shows. */
 const EXTRA: Partial<Record<PassType, Partial<CardData>[]>> = {
   'bav-entry': [{ ...SAMPLE['bav-entry'], name: 'Sunita Rani', vehicle_no: 'HR-29AB-1187', area: 'Faridabad', dept: 'Naamdaan', meta: { rtb3: true } }],
-  'gate3-hospital': [{ ...SAMPLE['gate3-hospital'], meta: {} }],
+  'gate3-hospital': [{ ...SAMPLE['gate3-hospital'], name: '' }, { ...SAMPLE['gate3-hospital'], meta: {} }],
 };
 
 const SAMPLE_CODE = Array.from({ length: 44 }, (_, i) => (i === 0 ? 4 : (i * 7 + 3) % 10)).join('');

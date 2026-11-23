@@ -115,7 +115,7 @@ describe('gate check (database)', () => {
     expect((await checkPass(db, gate, blank.code)).verdict).toBe('check');
   });
 
-  it('signs a Ferry Sewa pass (Gate 3 Hospital) with no name, as it prints none: a name changed later is no alarm', async () => {
+  it('signs a Ferry Sewa pass (Gate 3 Hospital) with its name, as it prints it: a name changed later is checked', async () => {
     const add = (serial: number, ferry: boolean) => db.insertInto('passes').values({
       type: 'gate3-hospital', serial, name: 'School Bus', vehicle_no: 'HR-46E-6977', meta: ferry ? { ferry: true } : {},
       printed_at: new Date(), given_at: new Date(), created_by: ramesh, updated_by: ramesh, rev: 1,
@@ -123,9 +123,10 @@ describe('gate check (database)', () => {
     await add(1, true);
     await add(2, false);
     const [ferry, plain] = await passCodes(db, ramesh, 'gate3-hospital', [1, 2]);
-    expect(ferry.name).toBe('SCHOOL BUS'); // still the register's name, which the desk checks
-    await db.updateTable('passes').set({ name: 'Van' }).where('type', '=', 'gate3-hospital').execute();
+    expect(ferry.name).toBe('SCHOOL BUS');
     expect((await checkPass(db, gate, ferry.code)).verdict).toBe('valid');
+    await db.updateTable('passes').set({ name: 'Van' }).where('type', '=', 'gate3-hospital').execute();
+    expect((await checkPass(db, gate, ferry.code)).verdict).toBe('check');
     expect((await checkPass(db, gate, plain.code)).verdict).toBe('check');
   });
 

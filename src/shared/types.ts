@@ -173,9 +173,6 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
 export const layoutOf = (p: { type: PassType; meta?: PassMeta | null }): Layout =>
   p.type === 'gate3-hospital' && p.meta?.ferry ? 'vehicle' : TYPE_INFO[p.type].layout;
 
-/** False for a pass that prints no Name: Gate 3 Hospital with Ferry Sewa (the owner, 2026-11-23). Its QR code is signed with no name. */
-export const printsName = (t: PassType, meta: PassMeta | undefined) => !(t === 'gate3-hospital' && meta?.ferry);
-
 /** The yes / no details a sheet has. */
 export const flagsFor = (t: PassType): readonly Flag[] => TYPE_INFO[t].flags ?? [];
 

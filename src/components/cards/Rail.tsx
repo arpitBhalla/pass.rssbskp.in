@@ -290,7 +290,7 @@ const HOSPITAL_ROWS: Row[] = [['name'], ['vehicle_no']];
 /**
  * Gate 3 Hospital (the owner, 2026-11-22): design round 2 A "Rail" as picked, with the RSSB logo and heading of the
  * other passes (OrgHead), in indigo. The Gate 3 sign beside VEHICLE PASS and the title; VEHICLE PASS joined to the tag by a rail. With Ferry Sewa
- * ticked: no Name; FERRY SEWA on a band under the title (FerryBand), the serial, Reg. No. plate and signature in a row at the foot. The signature line and its label only, no signature image, as on the
+ * ticked: FERRY SEWA on a band under the title (FerryBand), the Name under it only if there is one, the serial, Reg. No. plate and signature in a row at the foot. The signature line and its label only, no signature image, as on the
  * other Gate 3 passes (2026-11-21). 151 × 103 mm; with Ferry Sewa 204 × 145 since 2026-11-23 (layoutOf), drawn 150 wide in the pass's shape.
  */
 export function RailHospital({ p, texts, code }: CardProps) {
@@ -298,9 +298,17 @@ export function RailHospital({ p, texts, code }: CardProps) {
   const [w, h] = [VW, drawHeight(layoutOf(p))];
   const Y = stretchY(5, 96.5, h);
   const ferry = !!p.meta?.ferry;
-  /** Ferry Sewa: FERRY SEWA's band under the title, as SEWA VEHICLE's on Sewa Vehicle; the foot (FerryFoot) as far from it as from the bottom edge. */
-  const band = { top: Y(42.4) + 6.5, bottom: Y(42.4) + 6.5 + 1.9 * FERRY_CAP };
+  /**
+   * Ferry Sewa: FERRY SEWA's band under the title, as SEWA VEHICLE's on Sewa Vehicle; the foot (FerryFoot) as far from it as from the
+   * bottom edge. The Name under the band when there is one, and none when it is blank (the owner, 2026-11-23: "there's name for ferry
+   * sewa as well, if not do not show the field"): in the middle with no label or line ("name can be in center, no need of label"), in
+   * the foot's type; the band a little higher and the foot a little shorter to make room.
+   */
+  const named = ferry && !!p.name.trim();
+  const band = { top: Y(42.4) + (named ? 3.5 : 6.5), bottom: Y(42.4) + (named ? 3.5 : 6.5) + 1.9 * FERRY_CAP };
+  const nameY = band.bottom + 10.5;
   const gap = (h - band.bottom - 20) / 2;
+  const foot = named ? { top: nameY + 4.5, bottom: h - 4 } : { top: band.bottom + gap, bottom: band.bottom + gap + 20 };
   /**
    * As on Gate 1 & 11 (the owner, 2026-11-23: "this can't be improved?"): the Gate 3 sign as tall as the two lines ENTRY GATE NO. 3 /
    * HOSPITAL beside it (cap top of the first to the baseline of the second), the tag at the right level with the first line; was
@@ -322,10 +330,11 @@ export function RailHospital({ p, texts, code }: CardProps) {
       <Pill t={texts.tag} x={144} cy={Y(42.4) - tile + hc / 2} h={4.6} cap={2.3} color={c} />
       <TwoLines lines={HOSPITAL_LINES} x={x0 + tile + 4} y={Y(42.4)} c={hc} max={144 - (x0 + tile + 4)} color={c} />
       {ferry ? (
-        /* Ferry Sewa (the owner, 2026-11-23): no Name; FERRY SEWA's band under the title ("move ferry sewa text to above sno, reg,
+        /* Ferry Sewa (the owner, 2026-11-23): the Name only if there is one; FERRY SEWA's band under the title ("move ferry sewa text to above sno, reg,
            sign"), then one row as on Sewa Vehicle: the Sr. No. large, the Reg. No. in its plate in the middle and the signature. */
         <>
-          <FerryFoot p={p} top={band.bottom + gap} bottom={band.bottom + gap + 20} line={c} />
+          {named && <T t={upper(p.name)} f={HEAVY} cap={6} x={VW / 2} y={nameY} align="middle" max={138} />}
+          <FerryFoot p={p} top={foot.top} bottom={foot.bottom} line={c} />
           <FerryBand top={band.top} bottom={band.bottom} color={c} />
         </>
       ) : (

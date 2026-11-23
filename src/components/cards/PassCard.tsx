@@ -70,7 +70,7 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * RTB 3 for BAV PARKING and no P sign, in ocean blue (RTB3_BAND) with no bars top and bottom, NAAMDAAN white on a band of it above the
  * Name, in place of Area and Dept.
  *
- * v11 (2026-11-23): Gate 3 Hospital with Ferry Sewa: no Name (its QR code signed with none); FERRY SEWA as large on paper as SEWA
+ * v11 (2026-11-23): Gate 3 Hospital with Ferry Sewa: the Name under the band only if there is one; FERRY SEWA as large on paper as SEWA
  * VEHICLE, white on a band (as SEWA VEHICLE's) under the title; at the foot, as on Sewa Vehicle, the Sr. No. large, the Reg. No. in its
  * plate and the signature in one row. Gate 3 Hospital passes with Ferry Sewa are 204 × 145 mm, the rest 151 × 103 as before, titled ENTRY GATE NO. 3 /
  * HOSPITAL in two lines beside the Gate 3 sign, as Gate 1 & 11's (no VEHICLE PASS rail), and no colour bars at the top and bottom edges;
