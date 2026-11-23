@@ -1,18 +1,22 @@
 import 'server-only';
 import { type Kysely, sql } from 'kysely';
-import { type PassType, TYPE_INFO } from '@/shared/types';
+import { type PassType, printsName, TYPE_INFO } from '@/shared/types';
 import type { Database } from './db/schema';
 import { checkCode, currentKeys, hashOfName, keysFor, makeCode, printedName } from './qr';
 
-/** The QR code of each pass being printed, signed with the name now in the register. */
+/**
+ * The QR code of each pass being printed, signed with the name now in the register (`name`, which the desk checks
+ * is the one it prints), or with no name for a pass that prints none (printsName), so changing it later is no alarm.
+ */
 export async function passCodes(db: Kysely<Database>, userId: number, type: PassType, serials: number[]) {
   const keys = await keysFor(db, userId);
-  const rows = await db.selectFrom('passes').select(['serial', 'name'])
+  const rows = await db.selectFrom('passes').select(['serial', 'name', 'meta'])
     .where('type', '=', type).where('serial', 'in', serials).execute();
-  const names = new Map(rows.map((r) => [r.serial, r.name]));
+  const bySerial = new Map(rows.map((r) => [r.serial, r]));
   return serials.map((serial) => {
-    const name = names.get(serial) ?? '';
-    return { serial, name: printedName(name), code: makeCode(keys, type, serial, name) };
+    const row = bySerial.get(serial);
+    const name = row?.name ?? '';
+    return { serial, name: printedName(name), code: makeCode(keys, type, serial, printsName(type, row?.meta) ? name : '') };
   });
 }
 

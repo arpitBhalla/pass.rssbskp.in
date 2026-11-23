@@ -6,7 +6,7 @@ import { toast } from '@/client/toast';
 import { errorMessage, useTRPC } from '@/client/trpc';
 import type { CardData } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
-import { FLAG_LABELS, flagsFor, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
+import { FLAG_LABELS, flagsFor, layoutOf, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
 import { Qr } from './cards/Qr';
 import { btn, btnDanger, input } from './ui';
@@ -210,7 +210,7 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
 /** A made-up code as long as a real one (44 digits: a sample QR the right size; it checks NOT VALID). */
 /** More samples of a sheet, each with other yes / no details ticked, so every way a pass prints shows. */
 const EXTRA: Partial<Record<PassType, Partial<CardData>[]>> = {
-  'bav-entry': [{ ...SAMPLE['bav-entry'], name: 'Sunita Rani', vehicle_no: 'HR-29AB-1187', area: 'Faridabad', dept: 'Langar', meta: { rtb3: true } }],
+  'bav-entry': [{ ...SAMPLE['bav-entry'], name: 'Sunita Rani', vehicle_no: 'HR-29AB-1187', area: 'Faridabad', dept: 'Naamdaan', meta: { rtb3: true } }],
   'gate3-hospital': [{ ...SAMPLE['gate3-hospital'], meta: {} }],
 };
 
@@ -229,8 +229,8 @@ function Previews({ texts }: { texts: PrintTexts }) {
       {!ready ? <p className="text-muted-foreground">Loading the pass fonts…</p> : (
         <div className="flex flex-wrap items-end gap-x-6 gap-y-5">
           {SHEETS.flatMap((t) => [[t, SAMPLE[t]] as const, ...(EXTRA[t] ?? []).map((s) => [t, s] as const)]).map(([t, sample], i) => {
-            const { w, h } = CARD_SIZE[TYPE_INFO[t].layout];
             const p: CardData = { type: t, serial: i + 1, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', ...sample };
+            const { w, h } = CARD_SIZE[layoutOf(p)];
             const ticked = flagsFor(t).filter((f) => p.meta?.[f]).map((f) => FLAG_LABELS[f]);
             return (
               <figure key={`${t}-${i}`}>

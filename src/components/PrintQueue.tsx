@@ -8,7 +8,7 @@ import { useAllPasses } from '@/client/store';
 import { useTRPC } from '@/client/trpc';
 import { type CardData, cardsLabel, nPasses, planQueue, type PrintPlan, ranges, readyToPrint } from '@/lib/passes';
 import { CARD_SIZE, pagesFor, PAPER, PAPERS, roomFor, sheetPlan } from '@/lib/sheets';
-import { type Layout, type Pass, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
+import { type Layout, layoutOf, type Pass, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PrintView } from './PrintView';
 import { btn, btnPrimary, card } from './ui';
@@ -34,6 +34,15 @@ export function PrintQueueButton() {
 const same = (a: QueueItem, b: QueueItem) => a.type === b.type && a.serial === b.serial;
 const keyOf = (x: QueueItem) => `${x.type}:${x.serial}`;
 const area = (l: Layout) => CARD_SIZE[l].w * CARD_SIZE[l].h;
+/** The pass sizes, in the order of the sheets. */
+const SIZES = [...new Set(SHEETS.map((t) => TYPE_INFO[t].layout))];
+/** Gate 3 Hospital's Ferry Sewa passes are a size of their own (layoutOf). */
+const FERRY_SIZE = layoutOf({ type: 'gate3-hospital', meta: { ferry: true } });
+/** A size by the sheets that have it: Mobile, Bike, Sewa Vehicle / Ferry Sewa, … */
+const sizeName = (l: Layout) => (l === 'mobile' ? 'Mobile' : l === 'bike' ? 'Bike'
+  : [...SHEETS.filter((t) => TYPE_INFO[t].layout === l).map((t) => TYPE_INFO[t].label), ...(l === FERRY_SIZE ? ['Ferry Sewa'] : [])].join(' / '));
+/** A sheet's passes of one size: Gate 3 Hospital, or Gate 3 Hospital (Ferry Sewa). */
+const kindName = (t: PassType, l: Layout) => TYPE_INFO[t].label + (l === TYPE_INFO[t].layout ? '' : ' (Ferry Sewa)');
 
 /**
  * The print queue (printQueue.ts), in groups of passes of one size: each group can print on its own paper
@@ -58,20 +67,25 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
     for (const p of all) by.set(p.type, [...(by.get(p.type) ?? []), p]);
     return (t: PassType) => by.get(t) ?? [];
   }, [all]);
+  /** A queued pass's size, by its row in the register (layoutOf). */
+  const sizeOf = useMemo(() => {
+    const by = new Map(all.map((p) => [keyOf(p), layoutOf(p)]));
+    return (x: QueueItem) => by.get(keyOf(x)) ?? TYPE_INFO[x.type].layout;
+  }, [all]);
   const groups = useMemo(() => {
-    const layouts = [...new Set(SHEETS.filter((t) => items.some((x) => x.type === t)).map((t) => TYPE_INFO[t].layout))];
+    const layouts = [...new Set(SHEETS.flatMap((t) => items.filter((x) => x.type === t).map(sizeOf)))];
     return layouts.map((layout) => {
-      const mine = items.filter((x) => TYPE_INFO[x.type].layout === layout);
+      const mine = items.filter((x) => sizeOf(x) === layout);
       const plan = planQueue(mine, sheetOf);
       return { layout, mine, plan, perSheet: sheetPlan(paper, layout).perSheet, leftOut: mine.filter((x) => !plan.cards.some((c) => same(c, x))) };
     });
-  }, [items, sheetOf, paper]);
+  }, [items, sheetOf, paper, sizeOf]);
 
   // Every size at once: each size's full sheets as usual, what's left sharing sheets.
   const together = useMemo(() => {
     if (groups.length < 2) return null;
     const plan = planQueue(items, sheetOf);
-    const sheets = pagesFor(paper, plan.cards.map((c) => TYPE_INFO[c.type].layout)).length;
+    const sheets = pagesFor(paper, plan.cards.map(layoutOf)).length;
     const apart = groups.reduce((n, g) => n + Math.ceil(g.plan.cards.length / g.perSheet), 0);
     return { plan, sheets, apart };
   }, [groups, items, sheetOf, paper]);
@@ -85,26 +99,28 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
   const last = useMemo(() => {
     const plan = planQueue(items, sheetOf);
     if (!plan.cards.length || plan.err) return null;
-    const layouts = plan.cards.map((c) => TYPE_INFO[c.type].layout);
+    const layouts = plan.cards.map(layoutOf);
     const pages = pagesFor(paper, layouts);
     const end = pages[pages.length - 1];
     const used = end.items.reduce((a, it) => a + area(layouts[it.i]), 0) / (PAPER[paper].w * PAPER[paper].h);
     const queued = new Set(items.map(keyOf));
-    const room = new Map<Layout, number>();
+    /** How many more of each size fit on it, ready to print or not (the owner, 2026-11-23: "we can fit a mobile pass here"). */
+    const room = new Map(SIZES.map((l) => [l, roomFor(paper, layouts, l)]));
     const offers = SHEETS.flatMap((t) => {
       const ready = readyToPrint(sheetOf(t), t).filter((p) => !queued.has(keyOf(p)));
-      if (!ready.length) return [];
-      const l = TYPE_INFO[t].layout;
-      if (!room.has(l)) room.set(l, roomFor(paper, layouts, l));
-      const n = Math.min(room.get(l)!, ready.length);
-      return n ? [{ type: t, add: ready.slice(0, n).map((p) => ({ type: t, serial: p.serial })), ready: ready.length }] : [];
+      return SIZES.flatMap((l) => {
+        const these = ready.filter((p) => layoutOf(p) === l);
+        const n = Math.min(room.get(l)!, these.length);
+        return n ? [{ type: t, layout: l, add: these.slice(0, n).map((p) => ({ type: t, serial: p.serial })), ready: these.length }] : [];
+      });
     });
     const onEnd = new Set(end.items.map((it) => it.i));
     const keep = plan.cards.filter((_, i) => !onEnd.has(i));
     const leave = plan.cards.filter((_, i) => onEnd.has(i));
     const wait = groups.length > 1 && pages.length > 1 && used < 0.5
-      && pagesFor(paper, keep.map((c) => TYPE_INFO[c.type].layout)).length < pages.length ? { keep, leave } : null;
-    return { sheets: pages.length, used, n: end.items.length, offers, wait };
+      && pagesFor(paper, keep.map(layoutOf)).length < pages.length ? { keep, leave } : null;
+    const space = SIZES.filter((l) => room.get(l)! > 0).map((l) => `${room.get(l)} ${sizeName(l)}`);
+    return { sheets: pages.length, used, n: end.items.length, offers, wait, space };
   }, [items, sheetOf, paper, groups.length]);
 
   const [printing, setPrinting] = useState<PrintPlan | null>(null);
@@ -161,7 +177,7 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
                   return (
                     <li key={t} className="flex items-baseline gap-2">
                       <PassMark type={t} />
-                      <b className="font-semibold">{TYPE_INFO[t].label}</b>
+                      <b className="font-semibold">{kindName(t, layout)}</b>
                       <span className="min-w-0 flex-1 text-muted-foreground tabular-nums">{ranges(these.map((x) => x.serial))} ({these.length})</span>
                       <button className="text-[13px] text-primary hover:underline" onClick={() => printQueue.remove(these)}>Remove</button>
                     </li>
@@ -208,15 +224,18 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
             <p className="text-muted-foreground">
               {groups.length > 1 ? 'Printed all together' : `Printed all ${together?.plan.cards.length ?? groups[0].plan.cards.length}`}, the last {sheetName} is{' '}
               <b className="text-foreground">{Math.round(last.used * 100)}% used</b> ({nPasses(last.n)}).
-              {last.offers.length > 0 ? ' Fill it with passes ready to print (filled in, not printed), without another sheet:' : ' Nothing else ready to print fits on it.'}
+              {last.space.length === 0 ? ' No other pass fits on it.' : <> Room on it for <b className="text-foreground">{last.space.join(' or ')}</b> more.</>}
+              {last.space.length > 0 && (last.offers.length > 0
+                ? ' Fill it with passes ready to print (filled in, not printed):'
+                : ' None of those are ready to print (filled in, not printed, not in the queue).')}
             </p>
             {last.offers.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {last.offers.map((o) => (
-                  <button key={o.type} className={`${btn} !h-auto gap-1.5 !px-2.5 !py-1 text-[13.5px]`} onClick={() => printQueue.add(o.add)}
-                    title={`${TYPE_INFO[o.type].label}: ${o.ready} ready to print, the lowest serials first. One size fills the space: adding one changes what the others can add.`}>
+                  <button key={`${o.type}:${o.layout}`} className={`${btn} !h-auto gap-1.5 !px-2.5 !py-1 text-[13.5px]`} onClick={() => printQueue.add(o.add)}
+                    title={`${kindName(o.type, o.layout)}: ${o.ready} ready to print, the lowest serials first. One size fills the space: adding one changes what the others can add.`}>
                     <PassMark type={o.type} />
-                    + {o.add.length} {TYPE_INFO[o.type].label}
+                    + {o.add.length} {kindName(o.type, o.layout)}
                     <span className="font-normal text-muted-foreground tabular-nums">{ranges(o.add.map((x) => x.serial))}</span>
                   </button>
                 ))}

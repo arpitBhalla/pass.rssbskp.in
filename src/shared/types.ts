@@ -40,7 +40,7 @@ export const FIELD_LABELS: Record<Field, string> = {
 /**
  * Yes / no details of a pass, kept in its `meta` (jsonb). A sheet has the ones in its `flags`; only a
  * ticked one is stored. Ferry Sewa (Gate 3 Hospital, the owner, 2026-11-22): printed on the pass when ticked.
- * Behind RTB 3 (Gate 1 & 11, the owner, 2026-11-23): the pass prints BEHIND RTB 3 where it prints BAV PARKING.
+ * Behind RTB 3 (Gate 1 & 11, the owner, 2026-11-23): the pass prints PARKING BEHIND RTB 3 where it prints BAV PARKING.
  */
 export const FLAGS = ['ferry', 'rtb3'] as const;
 export type Flag = (typeof FLAGS)[number];
@@ -123,8 +123,11 @@ const BROWN = { ...GREEN, name: 'Brown', band: '#7a4a1f', title: '#7a4a1f' };
 const NAVY = { ...GREEN, name: 'Navy', band: '#1d4e89', title: '#1d4e89' };
 // Gate 3 Hospital (the owner, 2026-11-22): indigo, brighter than Mobile Pandal's blue.
 const INDIGO = { ...GREEN, name: 'Indigo', band: '#4338ca', title: '#4338ca' };
-/** Gate 1 & 11 passes with Behind RTB 3 ticked print in magenta, a colour no other pass has (the owner, 2026-11-23). */
-export const RTB3_BAND = '#c2185b';
+/**
+ * Gate 1 & 11 passes with Behind RTB 3 ticked print in ocean blue, a colour no other gate pass has (the owner, 2026-11-23;
+ * magenta before, too like Gate 3 - VIP's red, then charcoal, "meh").
+ */
+export const RTB3_BAND = '#0277bd';
 
 export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'mobile-pandal': {
@@ -156,10 +159,22 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   metro: { label: 'Metro', short: 'ME', layout: 'large', helpline: true, title: 'METRO', fields: HELPLINE_FIELDS, color: NAVY },
   // Design round 2 A Rail with the RSSB logo (the owner, 2026-11-22).
   'gate3-hospital': {
-    label: 'Gate 3 Hospital', short: 'GH', layout: 'gate', title: 'GATE 3 ENTRY - HOSPITAL', fields: HOSPITAL_FIELDS, labels: REFERRED,
+    // Titled ENTRY GATE NO. 3 – HOSPITAL (the owner, 2026-11-23; GATE 3 ENTRY – HOSPITAL before). 151 × 103 like the other
+    // gate passes; with Ferry Sewa 204 × 145 (layoutOf).
+    label: 'Gate 3 Hospital', short: 'GH', layout: 'gate', title: 'ENTRY GATE NO. 3 - HOSPITAL', fields: HOSPITAL_FIELDS, labels: REFERRED,
     flags: ['ferry'], color: INDIGO,
   },
 };
+
+/**
+ * The size a pass prints at: its sheet's, but Gate 3 Hospital with Ferry Sewa prints 204 × 145 like Sewa Vehicle (the owner,
+ * 2026-11-23: "the other non ferry sewa should be same size as earlier 151 × 103").
+ */
+export const layoutOf = (p: { type: PassType; meta?: PassMeta | null }): Layout =>
+  p.type === 'gate3-hospital' && p.meta?.ferry ? 'vehicle' : TYPE_INFO[p.type].layout;
+
+/** False for a pass that prints no Name: Gate 3 Hospital with Ferry Sewa (the owner, 2026-11-23). Its QR code is signed with no name. */
+export const printsName = (t: PassType, meta: PassMeta | undefined) => !(t === 'gate3-hospital' && meta?.ferry);
 
 /** The yes / no details a sheet has. */
 export const flagsFor = (t: PassType): readonly Flag[] => TYPE_INFO[t].flags ?? [];

@@ -1,7 +1,7 @@
 import type { Font } from '@/client/measure';
 import { legible } from '@/fonts';
 import type { CardData } from '@/lib/passes';
-import { type Field, TYPE_INFO } from '@/shared/types';
+import { type Field, layoutOf, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import { RssbLogo } from './rssbLogo';
@@ -21,9 +21,9 @@ import { drawHeight, stretchY, VW } from './vehicleBox';
  */
 
 const face = legible.style.fontFamily;
-const REG: Font = { family: face, weight: 400 };
+export const REG: Font = { family: face, weight: 400 };
 const BOLD: Font = { family: face, weight: 700 };
-const HEAVY: Font = { family: face, weight: 800 };
+export const HEAVY: Font = { family: face, weight: 800 };
 /** Loaded (and measured with) before any pass is drawn: see useCardFonts. */
 export const MODERN_FONTS = [REG, BOLD, HEAVY];
 
@@ -129,17 +129,26 @@ function Fields({ p, x0, x1, ys, lw, label, value, gutter, rows = ROWS, split = 
   );
 }
 
+/** The Reg. no.'s cap height in RegPlate, its letters between `a` and `b`: as large as fits, at most `most`. */
+export function plateCap(v: string, x0: number, x1: number, a: number, b: number, most = Infinity) {
+  const t = upper(v);
+  const tall = Math.min(b - a, most);
+  const max = x1 - x0 - 5;
+  return t ? Math.min(tall, (tall * max) / widthOf(t, HEAVY, tall)) : tall;
+}
+
 /**
  * The Reg. no. as large as it fits, in a white number plate with a black border, "Reg. no." small in its
  * top left corner (`label`: its cap height; 0 for none, the number centred in the plate); empty on a blank pass, to write in. (the owner, 2026-11-15: "improve reg no, increase size")
  * Sewa Vehicle, Tractor Trolley, VIP and Gate 1 & 11 Entry passes.
  */
-export function RegPlate({ v, x0, x1, top, bottom, label = 1.8 }: { v: string; x0: number; x1: number; top: number; bottom: number; label?: number }) {
+export function RegPlate({ v, x0, x1, top, bottom, label = 1.8, most = Infinity }: {
+  v: string; x0: number; x1: number; top: number; bottom: number; label?: number; most?: number;
+}) {
   const t = upper(v);
   const [a, b] = [label ? top + 2.6 + label : top + 1.4, bottom - 1.4];
-  const tall = b - a;
+  const cap = plateCap(v, x0, x1, a, b, most);
   const max = x1 - x0 - 5;
-  const cap = t ? Math.min(tall, (tall * max) / widthOf(t, HEAVY, tall)) : tall;
   return (
     <g>
       <rect x={x0} y={mm(top)} width={mm(x1 - x0)} height={mm(bottom - top)} rx={1.6} fill={WHITE} stroke={INK} strokeWidth={0.5} />
@@ -155,7 +164,7 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
   const ink = color.band;
   const [x0, x1] = [7, 143];
   /** Sewa Vehicle 204 × 145, Tractor Trolley 232 × 158: the drawing takes the pass's shape. */
-  const h = drawHeight(TYPE_INFO[p.type].layout);
+  const h = drawHeight(layoutOf(p));
   const Y = stretchY(5, 96, h);
   const tag = tagText(texts.tag);
   const qr = 15;

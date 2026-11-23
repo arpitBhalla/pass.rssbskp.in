@@ -9,7 +9,7 @@ export const CARD_SIZE: Record<Layout, { w: number; h: number }> = {
   /** The largest that fits 4 to an A4 sheet (2 × 2, turned, inside MARGIN). */
   bike: { w: 145, h: 99 },
   /**
-   * Sewa Vehicle: half an A4 sheet, the largest that fits 2 to an A4 inside MARGIN (150 × 100 until
+   * Sewa Vehicle and Gate 3 Hospital with Ferry Sewa (since 2026-11-23): half an A4 sheet, the largest that fits 2 to an A4 inside MARGIN (150 × 100 until
    * 2026-11-15; Tractor Trolley too until 2026-11-16).
    */
   vehicle: { w: 204, h: 145 },
@@ -448,8 +448,13 @@ function squeeze(paper: Paper, layouts: readonly Layout[], pages: PagePlan[]): P
 export function roomFor(paper: Paper, layouts: readonly Layout[], add: Layout): number {
   if (!layouts.length) return 0;
   const sheets = pagesFor(paper, layouts).length;
-  const max = sheetPlan(paper, add).perSheet;
-  let k = 0;
-  while (k < max && pagesFor(paper, [...layouts, ...Array<Layout>(k + 1).fill(add)]).length === sheets) k++;
-  return k;
+  const fits = (k: number) => pagesFor(paper, [...layouts, ...Array<Layout>(k).fill(add)]).length === sheets;
+  // More passes never take fewer sheets: the most that fit, found by halving.
+  let [lo, hi] = [0, sheetPlan(paper, add).perSheet];
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
 }

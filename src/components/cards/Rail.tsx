@@ -1,11 +1,11 @@
 'use client';
-import { type Field, RTB3_BAND, TYPE_INFO } from '@/shared/types';
+import { type Field, layoutOf, RTB3_BAND, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
   BIG, C700, C800, C900, GREY, kindOf, LEGIBLE, mm, type Row, S600, S700, serialText, T, upper, WHITE, widthOf,
 } from './v2kit';
-import { KindWord, kindCap, ORG_LOGO, OrgHead, RegPlate } from './Modern';
+import { HEAVY, KindWord, kindCap, ORG_LOGO, OrgHead, plateCap, REG, RegPlate } from './Modern';
 import { drawHeight, GH, stretchY, VW } from './vehicleBox';
 
 /**
@@ -61,7 +61,7 @@ function SignOff({ href, x0, x1, y, h, line }: { href: string; x0: number; x1: n
   );
 }
 
-/** Gate 1 & 11 Entry: Name, then Area and Dept. (no Vehicle since 2026-11-23, the owner); the Reg. No. in its plate (RegPlate). */
+/** Gate 1 & 11 Entry: Name, then Area and Dept. (no Vehicle since 2026-11-23, the owner); Behind RTB 3: Name only, under a NAAMDAAN band. The Reg. No. in its plate (RegPlate). */
 const PLATE_ROWS: Row[] = [['name'], ['area', 'dept']];
 /** Admin: Name and Vehicle, no Area or Dept. (the owner, 2026-11-15); the Reg. No. in its plate too. */
 const ADMIN_ROWS: Row[] = [['name'], ['vehicle']];
@@ -122,14 +122,15 @@ function ParkingTile({ x, y, size, color }: { x: number; y: number; size: number
 /**
  * Gate 1 & 11 passes print two lines of one size and colour where other passes print the kind word: the gate,
  * ENTRY GATE NO. 1 & 11 (was GATE 1 & 11 ENTRY), then where to park, BAV PARKING or, with Behind RTB 3 ticked,
- * BEHIND RTB 3 (the owner, 2026-11-23).
+ * PARKING BEHIND RTB 3, laid out apart (RailVehicle) with no parking sign (the owner, 2026-11-23).
  */
 const BAV_GATE = 'ENTRY GATE NO. 1 & 11';
-const bavLines = (p: CardProps['p']) => [BAV_GATE, p.meta?.rtb3 ? 'BEHIND RTB 3' : 'BAV PARKING'];
+const RTB3 = 'PARKING BEHIND RTB 3';
+const bavLines = (p: CardProps['p']) => [BAV_GATE, p.meta?.rtb3 ? RTB3 : 'BAV PARKING'];
 
 /** The two lines' cap height: up to `cap`, each line fitting `max`; the same for both places to park. */
 const twoLinesCap = (cap: number, max: number) =>
-  Math.min(cap, ...[BAV_GATE, 'BAV PARKING', 'BEHIND RTB 3'].map((l) => cap * (max / widthOf(l, C900, cap))));
+  Math.min(cap, ...[BAV_GATE, 'BAV PARKING', RTB3].map((l) => cap * (max / widthOf(l, C900, cap))));
 
 /** The two lines at cap height `c`, 1.3 × c apart; `y`: the last line's baseline. Their ink is 2.3 × c tall. */
 function TwoLines({ lines, x, y, c, max, color }: { lines: string[]; x: number; y: number; c: number; max: number; color: string }) {
@@ -147,29 +148,60 @@ export function RailVehicle({ p, texts, code }: CardProps) {
   const [w, h] = [VW, GH];
   const Y = stretchY(5, 96.5, GH);
   const bav = p.type === 'bav-entry';
+  const rtb3 = bav && !!p.meta?.rtb3;
   /** Gate 1 & 11 Entry: the two lines' cap height, and the parking sign as tall as they are (cap top of the first to the baseline of the second). */
   const bc = bav ? twoLinesCap(6.2, 118) : 0;
   const kindWord = p.type === 'admin' ? 'ADMINISTRATION' : kindOf(p.type);
+  /**
+   * Behind RTB 3 (the owner, 2026-11-23: "ENTRY then NAAMDAAN then PARKING in center", the month elsewhere "and center it",
+   * "improve it further"): ENTRY GATE NO. 1 & 11, the NAAMDAAN band, PARKING BEHIND RTB 3, then the Name. The two lines
+   * centred in NAAMDAAN's type, Atkinson 800, each as large as makes it 116 wide, so they square up as a block; NAAMDAAN 7.2
+   * tall, larger than they are, on a band 1.7 × that. Within the block, gaps 0.7 × those around it (the QR code's foot to the
+   * first line, the second line to the Name, the Name's line to the plate's top); the Name row is 11.4 tall, its label's top
+   * to its line (Fields: 2.6 label, 1.3, 6 value, 1.44). The month moves up beside Zone-III, in its type, no colour
+   * ("no color"), a thin rule between them.
+   */
+  const fit = (t: string) => (10 * 116) / widthOf(t, HEAVY, 10);
+  const [gc, pc, nc] = [fit(BAV_GATE), fit(RTB3), 7.2];
+  const band = 1.7 * nc;
+  const top = Y(8.5) + 15;
+  const inner = (Y(80) - top - gc - band - pc - 11.4) / (2 + 3 / 0.7);
+  const gap = inner / 0.7;
+  const gateBase = top + gap + gc;
+  const parkBase = gateBase + inner + band + inner + pc;
+  /** Zone-III's start, baseline and end in OrgHead; the month 4.4 after it on that line, a rule midway. */
+  const zone = { x: 6 + ORG_LOGO.w + 3.2, y: 7 + 12.6, end: 6 + ORG_LOGO.w + 3.2 + widthOf('Zone-III', REG, 2.6) };
+  const nameLine = rtb3 ? Y(80) - gap : Y(59);
   return (
     <>
       <rect width={w} height={h} fill={WHITE} />
-      <rect width={w} height={4.5} fill={c} />
-      <rect y={h - 3.5} width={w} height={3.5} fill={c} />
+      {/* Behind RTB 3: no bars top and bottom (the owner, 2026-11-23). */}
+      {!rtb3 && <rect width={w} height={4.5} fill={c} />}
+      {!rtb3 && <rect y={h - 3.5} width={w} height={3.5} fill={c} />}
       <OrgHead x={6} y={7} max={129 - 4 - (6 + ORG_LOGO.w + 3.2)} />
       {code && <Qr text={code} x={129} y={Y(8.5)} size={15} pad={0} />}
       {bav
-        ? <ParkingTile x={6} y={Y(42.4) - 2.3 * bc} size={2.3 * bc} color={c} />
+        ? !rtb3 && <ParkingTile x={6} y={Y(42.4) - 2.3 * bc} size={2.3 * bc} color={c} />
         : <Caption t="VEHICLE PASS" at={[6, Y(29.4), 3.4, 25.95 * (3.4 / 2.5)]} weight={S700} tracked />}
-      <Pill t={texts.tag} x={144} cy={Y(28.4)} h={4.6} cap={2.3} color={c} />
+      {rtb3 ? texts.tag.trim() && (
+        <>
+          <rect x={zone.end + 2.1} y={zone.y - 2.9} width={0.2} height={3.2} fill={GREY} />
+          <T t={upper(texts.tag)} f={REG} cap={2.6} x={zone.end + 4.4} y={zone.y} />
+        </>
+      ) : <Pill t={texts.tag} x={144} cy={Y(28.4)} h={4.6} cap={2.3} color={c} />}
+      {rtb3 && <T t={BAV_GATE} f={HEAVY} cap={gc} x={VW / 2} y={gateBase} align="middle" max={138} fill={c} />}
+      {rtb3 && <T t={RTB3} f={HEAVY} cap={pc} x={VW / 2} y={parkBase} align="middle" max={138} fill={c} />}
       {bav
-        ? <TwoLines lines={bavLines(p)} x={25.3} y={Y(42.4)} c={bc} max={118} color={c} />
+        ? !rtb3 && <TwoLines lines={bavLines(p)} x={25.3} y={Y(42.4)} c={bc} max={118} color={c} />
         /* Admin: ADMINISTRATION in Atkinson 800, a little extra letter space, as large as fits the pass (the owner, 2026-11-16; was Roboto Condensed). */
         : <KindWord t={kindWord} cap={kindCap([kindWord], 12, 138)} x={VW / 2} y={Y(45)} max={138} fill={c} />}
       {/* lw 11 (was 16): the values start closer to their labels (owner, 2026-11-15: "reduce gap"). */}
       {/* Admin: two rows, so the values larger (5.6, was 4.2; the owner, 2026-11-15). */}
       {/* Gate 1 & 11: each label over its value, two rows, so the values larger (6, was 4.2; the owner, 2026-11-23). */}
-      <Fields p={p} rows={bav ? PLATE_ROWS : ADMIN_ROWS} ys={(bav ? [59, 73.5] : [57.5, 70]).map(Y)} x0={6} x1={144} lw={11}
+      {/* Behind RTB 3: no Area or Dept.; NAAMDAAN (so spelt, whatever the Dept. says) white on a band of the pass colour edge to edge, as FERRY SEWA on Gate 3 Hospital, above the Name (the owner, 2026-11-23). */}
+      <Fields p={p} rows={bav ? (rtb3 ? [['name']] : PLATE_ROWS) : ADMIN_ROWS} ys={bav ? [nameLine, Y(73.5)] : [Y(57.5), Y(70)]} x0={6} x1={144} lw={11}
         cap={bav ? 6 : 5.6} color={c} above={bav} />
+      {rtb3 && <WordBand t="NAAMDAAN" cap={nc} mid={gateBase + inner + band / 2} color={c} h={band} />}
       <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
       {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall, Gate 1 & 11's 11.5, just under its Area / Dept. line (8.4 before; the owner, 2026-11-18). */}
@@ -178,6 +210,10 @@ export function RailVehicle({ p, texts, code }: CardProps) {
     </>
   );
 }
+
+/** Gate 3 Hospital's title in two lines, as Gate 1 & 11's, and their cap height (the pass is wider: larger). */
+const HOSPITAL_LINES = ['ENTRY GATE NO. 3', 'HOSPITAL'];
+const HOSPITAL_CAP = 8;
 
 /** The Gate 3 sign of Gate 3 Hospital passes, `size` mm square at (x, y): a "3" on a white disc, on a tile of the pass colour (design round 2). */
 function GateTile({ x, y, size, color }: { x: number; y: number; size: number; color: string }) {
@@ -197,23 +233,53 @@ function GateTile({ x, y, size, color }: { x: number; y: number; size: number; c
 const YV = stretchY(5, 96, drawHeight('vehicle'));
 const SEWA_VEHICLE_CAP = kindCap(['SEWA VEHICLE'], Math.min(11, (YV(48.4) - YV(29.4)) / 1.9), 143 - 7);
 
+const FERRY = 'FERRY SEWA';
 /**
- * FERRY SEWA in white on a solid block of the pass colour with a white inner rule, from x0 to x1 and top to
- * bottom: seen at a glance at the gate (the owner, 2026-11-22: "more visual"). In the type of SEWA VEHICLE on the
- * Sewa Vehicle pass (KindWord), its letters as tall for the pass's width (the owner, 2026-11-23: "same size as
- * SEWA VEHICLE"; was condensed, 7.5 tall).
+ * FERRY SEWA's cap height: as SEWA VEHICLE's, the Ferry Sewa pass being 204 × 145 like Sewa Vehicle (layoutOf), fitting 4.5 from
+ * each edge; its band (FerryBand) is 1.9 × that tall, as SEWA VEHICLE's.
  */
-function FerryBlock({ x0, x1, top, bottom, color }: { x0: number; x1: number; top: number; bottom: number; color: string }) {
-  const t = 'FERRY SEWA';
-  const inset = 1.1;
-  const max = x1 - x0 - 5;
-  const cap = kindCap([t], Math.min(SEWA_VEHICLE_CAP, (bottom - top) * 0.6), max);
+const FERRY_CAP = kindCap([FERRY], SEWA_VEHICLE_CAP, VW - 9);
+
+/**
+ * FERRY SEWA as SEWA VEHICLE prints on the Sewa Vehicle pass: white on a band of the pass colour edge to edge, the same
+ * type, size and band (the owner, 2026-11-23: "same size as SEWA VEHICLE"), from `top` to `bottom`.
+ */
+function FerryBand({ top, bottom, color }: { top: number; bottom: number; color: string }) {
+  return <WordBand t={FERRY} cap={FERRY_CAP} mid={(top + bottom) / 2} color={color} />;
+}
+
+/** A word in white, `cap` tall, on a band of `color` edge to edge, `h` (1.9 × `cap`) tall, centred on `mid`; the word fits 4.5 from each edge. */
+function WordBand({ t, cap, mid, color, h = 1.9 * cap }: { t: string; cap: number; mid: number; color: string; h?: number }) {
+  const c = kindCap([t], cap, VW - 9);
+  const half = h / 2;
   return (
     <g>
-      <rect x={x0} y={mm(top)} width={mm(x1 - x0)} height={mm(bottom - top)} rx={2.2} fill={color} />
-      <rect x={x0 + inset} y={mm(top + inset)} width={mm(x1 - x0 - 2 * inset)} height={mm(bottom - top - 2 * inset)} rx={1.4}
-        fill="none" stroke={WHITE} strokeWidth={0.35} />
-      <KindWord t={t} cap={cap} x={(x0 + x1) / 2} y={(top + bottom) / 2 + cap / 2} max={max} fill={WHITE} />
+      <rect y={mm(mid - half)} width={VW} height={mm(2 * half)} fill={color} />
+      <KindWord t={t} cap={c} x={VW / 2} y={mid + c / 2} max={VW - 9} fill={WHITE} />
+    </g>
+  );
+}
+
+/**
+ * Ferry Sewa's foot, `top` to `bottom`, as Sewa Vehicle's and in its one typeface, Atkinson Hyperlegible Next (the owner, 2026-11-23:
+ * "change font family, alignment"): the Sr. No. and the Reg. No. (in its plate, no label) the same size on one baseline, the
+ * signature line on it too, "Sr. No." level with the plate's top. The plate 80 wide in the middle of the pass, as Sewa Vehicle's
+ * (the owner, 2026-11-23: "this should be center of page"); the serial at the left, the signature at the right.
+ */
+function FerryFoot({ p, top, bottom, line }: { p: CardProps['p']; top: number; bottom: number; line: string }) {
+  const [x0, sig] = [6, 121];
+  const serial = serialText(p.serial, 3);
+  const plate = { x0: VW / 2 - 40, x1: VW / 2 + 40 };
+  // The serial as large as the Reg. No. in the plate, at most 9; a blank pass: sized for a usual Reg. No.
+  const cap = plateCap(p.vehicle_no || 'HR-00XX-0000', plate.x0, plate.x1, top + 1.4, bottom - 1.4, 9);
+  const base = (top + bottom) / 2 + cap / 2;
+  return (
+    <g>
+      <T t="Sr. No." f={REG} cap={2.4} x={x0} y={top + 2.4} />
+      <T t={serial} f={HEAVY} cap={cap} scale={0.92} x={x0} y={base} />
+      <RegPlate v={p.vehicle_no} x0={plate.x0} x1={plate.x1} top={top} bottom={bottom} label={0} most={cap} />
+      <rect x={sig} y={base} width={mm(144 - sig)} height={0.18} fill={line} />
+      <T t="Auth. Signatory" f={REG} cap={1.6} x={(sig + 144) / 2} y={base + 1.6 * 1.9} align="middle" />
     </g>
   );
 }
@@ -223,44 +289,53 @@ const HOSPITAL_ROWS: Row[] = [['name'], ['vehicle_no']];
 
 /**
  * Gate 3 Hospital (the owner, 2026-11-22): design round 2 A "Rail" as picked, with the RSSB logo and heading of the
- * other passes (OrgHead), in indigo. The Gate 3 sign beside VEHICLE PASS and the title; VEHICLE PASS joined to the tag by a rail; FERRY SEWA large in a solid
- * block at the foot, between the serial and the signature, when ticked (FerryBlock); the signature line and its label only, no signature image, as on the
- * other Gate 3 passes (2026-11-21). 151 × 103 mm, drawn on 150 × GH like the other gate passes.
+ * other passes (OrgHead), in indigo. The Gate 3 sign beside VEHICLE PASS and the title; VEHICLE PASS joined to the tag by a rail. With Ferry Sewa
+ * ticked: no Name; FERRY SEWA on a band under the title (FerryBand), the serial, Reg. No. plate and signature in a row at the foot. The signature line and its label only, no signature image, as on the
+ * other Gate 3 passes (2026-11-21). 151 × 103 mm; with Ferry Sewa 204 × 145 since 2026-11-23 (layoutOf), drawn 150 wide in the pass's shape.
  */
 export function RailHospital({ p, texts, code }: CardProps) {
   const c = TYPE_INFO[p.type].color.band;
-  const [w, h] = [VW, GH];
-  const Y = stretchY(5, 96.5, GH);
-  const kind = kindOf(p.type);
+  const [w, h] = [VW, drawHeight(layoutOf(p))];
+  const Y = stretchY(5, 96.5, h);
   const ferry = !!p.meta?.ferry;
-  const head = 'VEHICLE PASS';
-  const headCap = 2.2;
-  const headTrack = 0.45;
-  /** Where VEHICLE PASS ends, the middle of its letters, and how long the tag is. */
-  const headEnd = 25.6 + widthOf(head, S700, headCap, headTrack);
-  const headMid = Y(29.4) - headCap / 2;
-  const tagW = pillWidth(texts.tag, 4.6, 2.3);
+  /** Ferry Sewa: FERRY SEWA's band under the title, as SEWA VEHICLE's on Sewa Vehicle; the foot (FerryFoot) as far from it as from the bottom edge. */
+  const band = { top: Y(42.4) + 6.5, bottom: Y(42.4) + 6.5 + 1.9 * FERRY_CAP };
+  const gap = (h - band.bottom - 20) / 2;
+  /**
+   * As on Gate 1 & 11 (the owner, 2026-11-23: "this can't be improved?"): the Gate 3 sign as tall as the two lines ENTRY GATE NO. 3 /
+   * HOSPITAL beside it (cap top of the first to the baseline of the second), the tag at the right level with the first line; was
+   * VEHICLE PASS and the tag on a rail over one long line.
+   */
+  const hc = HOSPITAL_CAP;
+  const tile = 2.3 * hc;
+  /** A strip of the pass colour down the left edge, 4 wide as Gate 3 - VIP's on the right (the owner, 2026-11-23: "add a left strip"); not with Ferry Sewa's band. */
+  const strip = ferry ? 0 : 4;
+  const x0 = 6 + strip;
   return (
     <>
+      {/* No colour bars at the top and bottom edges (the owner, 2026-11-23: "remove top and bottom strip"). */}
       <rect width={w} height={h} fill={WHITE} />
-      <rect width={w} height={4.5} fill={c} />
-      <rect y={h - 3.5} width={w} height={3.5} fill={c} />
-      <OrgHead x={6} y={7} max={129 - 4 - (6 + ORG_LOGO.w + 3.2)} />
+      {strip > 0 && <rect width={strip} height={h} fill={c} />}
+      <OrgHead x={x0} y={7} max={129 - 4 - (x0 + ORG_LOGO.w + 3.2)} />
       {code && <Qr text={code} x={129} y={Y(8.5)} size={15} pad={0} />}
-      <GateTile x={6} y={Y(42.4) - 16} size={16} color={c} />
-      <T t={head} f={S700} cap={headCap} x={25.6} y={Y(29.4)} track={headTrack} fill={GREY} />
-      {/* VEHICLE PASS and the tag at the ends of a rail in the pass colour, so the space between them reads as one line
-          (the owner, 2026-11-22: "reduce this gap", "think out of box"). */}
-      <rect x={mm(headEnd + 2.4)} y={mm(headMid - 0.2)} width={mm(144 - tagW - 2.4 - headEnd - 2.4)} height={0.4} fill={c} />
-      <circle cx={mm(headEnd + 2.4)} cy={mm(headMid)} r={0.75} fill={c} />
-      <Pill t={texts.tag} x={144} cy={headMid} h={4.6} cap={2.3} color={c} />
-      <T t={kind} f={C900} cap={10.5} x={25.3} y={Y(42.4)} max={118.7} fill={c} />
-      <Fields p={p} rows={HOSPITAL_ROWS} ys={[57.5, 70].map(Y)} x0={6} x1={144} lw={13} cap={5.6} color={c} />
-      <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
-      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={ferry ? 24 : 30} />
-      {/* Ferry Sewa: the signature 26 wide (was 30), as on Sewa Vehicle, to make room for FERRY SEWA. */}
-      <SignOff href="" x0={ferry ? 118 : 114} x1={144} y={Y(88.6)} h={0} line={c} />
-      {ferry && <FerryBlock x0={32.5} x1={114.5} top={Y(76.2)} bottom={Y(95)} color={c} />}
+      <GateTile x={x0} y={Y(42.4) - tile} size={tile} color={c} />
+      <Pill t={texts.tag} x={144} cy={Y(42.4) - tile + hc / 2} h={4.6} cap={2.3} color={c} />
+      <TwoLines lines={HOSPITAL_LINES} x={x0 + tile + 4} y={Y(42.4)} c={hc} max={144 - (x0 + tile + 4)} color={c} />
+      {ferry ? (
+        /* Ferry Sewa (the owner, 2026-11-23): no Name; FERRY SEWA's band under the title ("move ferry sewa text to above sno, reg,
+           sign"), then one row as on Sewa Vehicle: the Sr. No. large, the Reg. No. in its plate in the middle and the signature. */
+        <>
+          <FerryFoot p={p} top={band.bottom + gap} bottom={band.bottom + gap + 20} line={c} />
+          <FerryBand top={band.top} bottom={band.bottom} color={c} />
+        </>
+      ) : (
+        <>
+          <Fields p={p} rows={HOSPITAL_ROWS} ys={[57.5, 70].map(Y)} x0={x0} x1={144} lw={13} cap={5.6} color={c} />
+          <Caption t="Sr. No." at={[x0 - 0.062, Y(83.6), 2.5, 7.637]} />
+          <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={x0 - 0.24} y={Y(93.4)} max={30} />
+          <SignOff href="" x0={114} x1={144} y={Y(88.6)} h={0} line={c} />
+        </>
+      )}
     </>
   );
 }

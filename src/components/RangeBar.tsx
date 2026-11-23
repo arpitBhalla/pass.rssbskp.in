@@ -8,8 +8,8 @@ import { printQueue, usePrintQueue } from '@/client/printQueue';
 import { toast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { nPasses, parseSerial, type Picked, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
-import { PAPER, sheetPlan } from '@/lib/sheets';
-import { fmtSerial, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
+import { pagesFor, PAPER } from '@/lib/sheets';
+import { fmtSerial, layoutOf, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
 import { useMe } from './AppShell';
 import { PrintView } from './PrintView';
 import { btn, btnDanger, btnPrimary } from './ui';
@@ -43,7 +43,8 @@ export function RangeBar({ type, sheet, range, onClear }: {
   );
   const paper = usePaper();
   const nCards = print && !print.err ? print.cards.length : 0;
-  const sheets = Math.ceil(nCards / sheetPlan(paper, info.layout).perSheet);
+  /** Gate 3 Hospital's Ferry Sewa passes print larger (layoutOf), sharing sheets with the rest. */
+  const sheets = useMemo(() => (print && !print.err ? pagesFor(paper, print.cards.map(layoutOf)).length : 0), [print, paper]);
 
   const onMark = useCallback(async () => {
     if (!printing) return { error: 'Nothing to mark.' };

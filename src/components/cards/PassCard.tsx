@@ -4,7 +4,7 @@ import { type Font, inkWidth, layLine, loadFonts, type Placed, placeText, scaleF
 import { condensed, heavy, humanist } from '@/fonts';
 import { type CardData, forPrint } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
-import { type Layout, type PassType, TYPE_INFO } from '@/shared/types';
+import { type Layout, layoutOf, type PassType, TYPE_INFO } from '@/shared/types';
 import { Motorbike, Tractor } from './art';
 import { Qr } from './Qr';
 import { LABEL_FONT, LEDGER_FONTS, LedgerVehicle } from './Ledger';
@@ -66,12 +66,19 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * indigo, titled GATE 3 ENTRY – HOSPITAL; Name and Reg. No. (no Vehicle); FERRY SEWA large, white on a solid block at the foot, when ticked.
  *
  * v10 (2026-11-23): FERRY SEWA in the type of SEWA VEHICLE (Atkinson 800), as tall for the pass's width, on a wider block; the
- * signature 26 wide beside it. Gate 1 & 11 (was BAV Parking) passes say ENTRY GATE NO. 1 & 11; with Behind RTB 3 ticked, BEHIND RTB 3 for
- * BAV PARKING, in magenta (RTB3_BAND).
+ * signature 26 wide beside it. Gate 1 & 11 (was BAV Parking) passes say ENTRY GATE NO. 1 & 11; with Behind RTB 3 ticked, PARKING BEHIND
+ * RTB 3 for BAV PARKING and no P sign, in ocean blue (RTB3_BAND) with no bars top and bottom, NAAMDAAN white on a band of it above the
+ * Name, in place of Area and Dept.
+ *
+ * v11 (2026-11-23): Gate 3 Hospital with Ferry Sewa: no Name (its QR code signed with none); FERRY SEWA as large on paper as SEWA
+ * VEHICLE, white on a band (as SEWA VEHICLE's) under the title; at the foot, as on Sewa Vehicle, the Sr. No. large, the Reg. No. in its
+ * plate and the signature in one row. Gate 3 Hospital passes with Ferry Sewa are 204 × 145 mm, the rest 151 × 103 as before, titled ENTRY GATE NO. 3 /
+ * HOSPITAL in two lines beside the Gate 3 sign, as Gate 1 & 11's (no VEHICLE PASS rail), and no colour bars at the top and bottom edges;
+ * the ones without Ferry Sewa have a strip of the pass colour down the left edge instead, the Ferry Sewa plate in the middle.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v10';
+export const TEMPLATE_VERSION = 'v11';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -668,7 +675,7 @@ const BY_TYPE: Partial<Record<PassType, Card>> = {
 export const PassCard = memo(function PassCard({ p, texts, code, x = 0, y = 0, turn = false, outline = true }: CardProps & {
   x?: number; y?: number; turn?: boolean; outline?: boolean;
 }) {
-  const layout = TYPE_INFO[p.type].layout;
+  const layout = layoutOf(p);
   const Card = BY_TYPE[p.type] ?? CARDS[layout];
   const { w, h } = CARD_SIZE[layout];
   /** Vehicle, gate and large passes are drawn VW wide (vehicleBox.ts) and printed CARD_SIZE[layout].w wide. */

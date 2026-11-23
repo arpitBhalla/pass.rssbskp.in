@@ -5,7 +5,7 @@ import { setPaper, usePaper } from '@/client/paper';
 import { errorMessage, useTRPCClient } from '@/client/trpc';
 import { type CardData, nPasses } from '@/lib/passes';
 import { pagesFor, PAPER, PAPERS } from '@/lib/sheets';
-import { fmtSerial, TYPE_INFO } from '@/shared/types';
+import { fmtSerial, layoutOf, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
 import { btn, btnPrimary } from './ui';
@@ -36,7 +36,7 @@ export function PrintView({ cards, texts, onMark, onClose }: {
 
   const types = useMemo(() => [...new Set(cards.map((c) => c.type))], [cards]);
   const paper = usePaper();
-  const sheets = useMemo(() => pagesFor(paper, cards.map((c) => TYPE_INFO[c.type].layout)), [paper, cards]);
+  const sheets = useMemo(() => pagesFor(paper, cards.map(layoutOf)), [paper, cards]);
 
   // The QR codes: made on the server with the name now in the register, which must be the name printed.
   const client = useTRPCClient();
