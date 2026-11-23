@@ -64,10 +64,14 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  *
  * v9 (2026-11-22): a new sheet, Gate 3 Hospital (RailHospital): design round 2 A Rail with the RSSB logo heading, in
  * indigo, titled GATE 3 ENTRY – HOSPITAL; Name and Reg. No. (no Vehicle); FERRY SEWA large, white on a solid block at the foot, when ticked.
+ *
+ * v10 (2026-11-23): FERRY SEWA in the type of SEWA VEHICLE (Atkinson 800), as tall for the pass's width, on a wider block; the
+ * signature 26 wide beside it. Gate 1 & 11 (was BAV Parking) passes say ENTRY GATE NO. 1 & 11; with Behind RTB 3 ticked, BEHIND RTB 3 for
+ * BAV PARKING, in magenta (RTB3_BAND).
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v9';
+export const TEMPLATE_VERSION = 'v10';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {

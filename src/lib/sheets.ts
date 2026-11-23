@@ -311,7 +311,7 @@ export function pagesFor(paper: Paper, layouts: readonly Layout[]): PagePlan[] {
     if (k < idx.length) rest.set(l, idx.slice(k));
   }
   const apart = [...rest].flatMap(([l, idx]) => usual(l, idx));
-  if (rest.size < 2) return [...full, ...apart];
+  if (rest.size < 2) return byLayout.size < 2 ? [...full, ...apart] : squeeze(paper, layouts, [...full, ...apart]);
 
   const counts = new Map([...rest].map(([l, idx]) => [l, idx.length]));
   let best: { turn: boolean; pages: Placed[][] } | null = null;
@@ -319,7 +319,7 @@ export function pagesFor(paper: Paper, layouts: readonly Layout[]): PagePlan[] {
     const pages = packMixed(paper, counts, turn);
     if (pages && (!best || pages.length < best.pages.length)) best = { turn, pages };
   }
-  if (!best || best.pages.length > apart.length) return [...full, ...apart];
+  if (!best || best.pages.length > apart.length) return squeeze(paper, layouts, [...full, ...apart]);
 
   const p = PAPER[paper];
   const next = new Map([...rest].map(([l, idx]) => [l, [...idx]]));
@@ -345,7 +345,100 @@ export function pagesFor(paper: Paper, layouts: readonly Layout[]): PagePlan[] {
       cuts: cutLines(moved, p),
     }];
   });
-  return [...full, ...mixed];
+  return squeeze(paper, layouts, [...full, ...mixed]);
+}
+
+/** A pass's spot on a page, and for passes kept apart (GAP), the gap around it too. */
+function spotOf(paper: Paper, l: Layout, it: { x: number; y: number; turn: boolean }, withGap: boolean): Rect {
+  const { w, h } = CARD_SIZE[l];
+  const g = withGap ? GAP[l]?.[paper] ?? 0 : 0;
+  return { x: it.x - g, y: it.y - g, w: (it.turn ? h : w) + 2 * g, h: (it.turn ? w : h) + 2 * g };
+}
+
+/**
+ * The empty rectangles of R around the passes in it, found by cutting R along straight lines that cross no pass,
+ * so the sheet still cuts edge to edge: first between passes, then where the empty side is biggest. A part that
+ * can't be cut so counts as full.
+ */
+function freeRects(R: Rect, rects: Rect[]): Rect[] {
+  const e = 1e-6;
+  const inside = rects.filter((r) => r.x < R.x + R.w - e && r.x + r.w > R.x + e && r.y < R.y + R.h - e && r.y + r.h > R.y + e);
+  if (!inside.length) return R.w > e && R.h > e ? [R] : [];
+  type Cut = { down: boolean; at: number; a: Rect; b: Rect; empty: number };
+  const cuts: Cut[] = [];
+  for (const down of [true, false]) {
+    const [lo, hi] = down ? [R.x, R.x + R.w] : [R.y, R.y + R.h];
+    for (const at of new Set(inside.flatMap((r) => (down ? [r.x, r.x + r.w] : [r.y, r.y + r.h])))) {
+      if (at <= lo + e || at >= hi - e) continue;
+      if (inside.some((r) => (down ? r.x < at - e && r.x + r.w > at + e : r.y < at - e && r.y + r.h > at + e))) continue;
+      const a = down ? { ...R, w: at - R.x } : { ...R, h: at - R.y };
+      const b = down ? { ...R, x: at, w: R.x + R.w - at } : { ...R, y: at, h: R.y + R.h - at };
+      const before = inside.some((r) => (down ? r.x < at - e : r.y < at - e));
+      const after = inside.some((r) => (down ? r.x + r.w > at + e : r.y + r.h > at + e));
+      cuts.push({ down, at, a, b, empty: before && after ? -1 : (before ? b : a).w * (before ? b : a).h });
+    }
+  }
+  if (!cuts.length) return [];
+  const pick = cuts.find((c) => c.empty < 0) ?? cuts.reduce((x, y) => (y.empty > x.empty ? y : x));
+  return [...freeRects(pick.a, inside), ...freeRects(pick.b, inside)];
+}
+
+/**
+ * Fewer sheets where it can: the passes of the emptiest sheet go into the space left on the others (beside a
+ * full sheet's passes, say) when all of them fit there (the owner, 2026-11-23: a Mobile pass printed alone on a
+ * sheet while a sheet of gate passes had room for it). Passes kept apart (GAP) aren't moved.
+ */
+function squeeze(paper: Paper, layouts: readonly Layout[], pages: PagePlan[]): PagePlan[] {
+  const p = PAPER[paper];
+  const used = (pg: PagePlan) => pg.items.reduce((a, it) => a + cardArea(layouts[it.i]), 0);
+  for (;;) {
+    const order = pages.map((pg, k) => ({ k, area: used(pg) })).sort((a, b) => a.area - b.area);
+    const fewer = order.map(({ k }) => moveAll(k)).find(Boolean);
+    if (!fewer) return pages;
+    pages = fewer;
+  }
+
+  function moveAll(k: number): PagePlan[] | null {
+    if (pages.length < 2 || pages[k].items.some((it) => GAP[layouts[it.i]]?.[paper])) return null;
+    const left = new Map<Layout, number[]>();
+    for (const it of pages[k].items) left.set(layouts[it.i], [...(left.get(layouts[it.i]) ?? []), it.i]);
+    const out = pages.map((pg) => ({ ...pg, items: [...pg.items] }));
+    for (const [j, page] of out.entries()) {
+      if (j === k || ![...left.values()].some((a) => a.length)) continue;
+      // The sheet's passes moved to its top-left corner, so the space left is in one piece (it's centred again after).
+      const m = Math.max(...page.items.map((it) => marginOf(layouts[it.i])));
+      const box = page.items.map((it) => spotOf(paper, layouts[it.i], it, false));
+      const [dx, dy] = [m - Math.min(...box.map((r) => r.x)), m - Math.min(...box.map((r) => r.y))];
+      const pg = { ...page, items: page.items.map((it) => ({ ...it, x: it.x + dx, y: it.y + dy })) };
+      const free = freeRects({ x: m, y: m, w: p.w - 2 * m, h: p.h - 2 * m }, pg.items.map((it) => spotOf(paper, layouts[it.i], it, true)));
+      let best: { turn: boolean; placed: Placed[] } = { turn: false, placed: [] };
+      for (const turn of [false, true]) {
+        const todo = [...left].filter(([, a]) => a.length).map(([l]) => l);
+        // On a sheet all one way round, the passes moved there face that way too (the owner, 2026-11-22: "it should be in
+        // same direction"); beside the usual sheet of a size that has passes both ways (gate passes on A3), upright if they fit.
+        const ways = new Set(pg.items.map((it) => it.turn));
+        if (ways.size === 1 && !ways.has(turn)) continue;
+        const cells = todo
+          .map((l) => ({ layout: l, w: turn ? CARD_SIZE[l].h : CARD_SIZE[l].w, h: turn ? CARD_SIZE[l].w : CARD_SIZE[l].h, gap: 0 }))
+          .sort((a, b) => cardArea(b.layout) - cardArea(a.layout));
+        const placed = fill(free, new Map(todo.map((l) => [l, left.get(l)!.length])), cells, true);
+        if (placed.reduce((a, o) => a + cardArea(o.layout), 0) > best.placed.reduce((a, o) => a + cardArea(o.layout), 0)) best = { turn, placed };
+      }
+      if (!best.placed.length) continue;
+      for (const o of best.placed) pg.items.push({ i: left.get(o.layout)!.shift()!, x: o.x, y: o.y, turn: best.turn });
+      // Centred on the sheet.
+      const all = pg.items.map((it) => spotOf(paper, layouts[it.i], it, false));
+      const [x0, x1] = [Math.min(...all.map((r) => r.x)), Math.max(...all.map((r) => r.x + r.w))];
+      const [y0, y1] = [Math.min(...all.map((r) => r.y)), Math.max(...all.map((r) => r.y + r.h))];
+      const [cx, cy] = [(p.w - (x1 - x0)) / 2 - x0, (p.h - (y1 - y0)) / 2 - y0];
+      pg.items = pg.items.map((it) => ({ ...it, x: it.x + cx, y: it.y + cy }));
+      pg.cuts = cutLines(pg.items.map((it) => spotOf(paper, layouts[it.i], it, false)), p);
+      out[j] = pg;
+    }
+    if ([...left.values()].some((a) => a.length)) return null;
+    out.splice(k, 1);
+    return out;
+  }
 }
 
 /**

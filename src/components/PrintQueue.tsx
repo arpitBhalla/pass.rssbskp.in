@@ -195,7 +195,7 @@ function PrintQueue({ onClose }: { onClose: () => void }) {
             <p className="text-muted-foreground">
               All sizes together: <b className="text-foreground">{nPasses(together.plan.cards.length)} on {together.sheets} {sheetName}{together.sheets === 1 ? '' : 's'}</b>
               {together.sheets < together.apart ? ` (${together.apart} printed size by size)` : ''}. The big passes first, the small ones in the
-              space left, all one way round.
+              space left beside them.
             </p>
             {together.plan.err && <p className="text-[13.5px] text-destructive">{together.plan.err}</p>}
             <button className={btnPrimary} disabled={!together.plan.cards.length || !!together.plan.err} onClick={() => print(together.plan.cards)}>

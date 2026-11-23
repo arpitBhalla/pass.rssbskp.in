@@ -1,12 +1,12 @@
 'use client';
-import { type Field, TYPE_INFO } from '@/shared/types';
+import { type Field, RTB3_BAND, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
   BIG, C700, C800, C900, GREY, kindOf, LEGIBLE, mm, type Row, S600, S700, serialText, T, upper, WHITE, widthOf,
 } from './v2kit';
 import { KindWord, kindCap, ORG_LOGO, OrgHead, RegPlate } from './Modern';
-import { GH, stretchY, VW } from './vehicleBox';
+import { drawHeight, GH, stretchY, VW } from './vehicleBox';
 
 /**
  * Design v2 "Rail" (round 6 A, Rozha masthead), the Admin and Gate 1 & 11 Entry (BAV Parking) passes: thin colour bars at the top and bottom
@@ -119,15 +119,21 @@ function ParkingTile({ x, y, size, color }: { x: number; y: number; size: number
   );
 }
 
-/** Gate 1 & 11 Entry passes print two lines of one size and colour where other passes print the kind word. */
-const BAV_LINES = ['GATE 1 & 11 ENTRY', 'BAV PARKING'];
+/**
+ * Gate 1 & 11 passes print two lines of one size and colour where other passes print the kind word: the gate,
+ * ENTRY GATE NO. 1 & 11 (was GATE 1 & 11 ENTRY), then where to park, BAV PARKING or, with Behind RTB 3 ticked,
+ * BEHIND RTB 3 (the owner, 2026-11-23).
+ */
+const BAV_GATE = 'ENTRY GATE NO. 1 & 11';
+const bavLines = (p: CardProps['p']) => [BAV_GATE, p.meta?.rtb3 ? 'BEHIND RTB 3' : 'BAV PARKING'];
 
-/** The two lines' cap height: up to `cap`, each line fitting `max`. */
-const twoLinesCap = (cap: number, max: number) => Math.min(cap, ...BAV_LINES.map((l) => cap * (max / widthOf(l, C900, cap))));
+/** The two lines' cap height: up to `cap`, each line fitting `max`; the same for both places to park. */
+const twoLinesCap = (cap: number, max: number) =>
+  Math.min(cap, ...[BAV_GATE, 'BAV PARKING', 'BEHIND RTB 3'].map((l) => cap * (max / widthOf(l, C900, cap))));
 
 /** The two lines at cap height `c`, 1.3 × c apart; `y`: the last line's baseline. Their ink is 2.3 × c tall. */
-function TwoLines({ x, y, c, max, color }: { x: number; y: number; c: number; max: number; color: string }) {
-  return <g>{BAV_LINES.map((l, i) => <T key={l} t={l} f={C900} cap={c} x={x} y={y - (BAV_LINES.length - 1 - i) * c * 1.3} max={max} fill={color} />)}</g>;
+function TwoLines({ lines, x, y, c, max, color }: { lines: string[]; x: number; y: number; c: number; max: number; color: string }) {
+  return <g>{lines.map((l, i) => <T key={l} t={l} f={C900} cap={c} x={x} y={y - (lines.length - 1 - i) * c * 1.3} max={max} fill={color} />)}</g>;
 }
 
 /**
@@ -137,7 +143,7 @@ function TwoLines({ x, y, c, max, color }: { x: number; y: number; c: number; ma
  * Sewa Vehicle (the owner, 2026-11-15).
  */
 export function RailVehicle({ p, texts, code }: CardProps) {
-  const c = TYPE_INFO[p.type].color.band;
+  const c = p.type === 'bav-entry' && p.meta?.rtb3 ? RTB3_BAND : TYPE_INFO[p.type].color.band;
   const [w, h] = [VW, GH];
   const Y = stretchY(5, 96.5, GH);
   const bav = p.type === 'bav-entry';
@@ -156,7 +162,7 @@ export function RailVehicle({ p, texts, code }: CardProps) {
         : <Caption t="VEHICLE PASS" at={[6, Y(29.4), 3.4, 25.95 * (3.4 / 2.5)]} weight={S700} tracked />}
       <Pill t={texts.tag} x={144} cy={Y(28.4)} h={4.6} cap={2.3} color={c} />
       {bav
-        ? <TwoLines x={25.3} y={Y(42.4)} c={bc} max={118} color={c} />
+        ? <TwoLines lines={bavLines(p)} x={25.3} y={Y(42.4)} c={bc} max={118} color={c} />
         /* Admin: ADMINISTRATION in Atkinson 800, a little extra letter space, as large as fits the pass (the owner, 2026-11-16; was Roboto Condensed). */
         : <KindWord t={kindWord} cap={kindCap([kindWord], 12, 138)} x={VW / 2} y={Y(45)} max={138} fill={c} />}
       {/* lw 11 (was 16): the values start closer to their labels (owner, 2026-11-15: "reduce gap"). */}
@@ -187,22 +193,27 @@ function GateTile({ x, y, size, color }: { x: number; y: number; size: number; c
   );
 }
 
+/** SEWA VEHICLE's cap height on the Sewa Vehicle pass (BandKind in Modern.tsx: x 7 to 143, Y(29.4) to Y(48.4)), in the 150-wide drawing. */
+const YV = stretchY(5, 96, drawHeight('vehicle'));
+const SEWA_VEHICLE_CAP = kindCap(['SEWA VEHICLE'], Math.min(11, (YV(48.4) - YV(29.4)) / 1.9), 143 - 7);
+
 /**
- * FERRY SEWA, large in white on a solid block of the pass colour with a white inner rule, from x0 to x1 and
- * top to bottom: seen at a glance at the gate (the owner, 2026-11-22: "more visual"; was a small outlined pill).
+ * FERRY SEWA in white on a solid block of the pass colour with a white inner rule, from x0 to x1 and top to
+ * bottom: seen at a glance at the gate (the owner, 2026-11-22: "more visual"). In the type of SEWA VEHICLE on the
+ * Sewa Vehicle pass (KindWord), its letters as tall for the pass's width (the owner, 2026-11-23: "same size as
+ * SEWA VEHICLE"; was condensed, 7.5 tall).
  */
 function FerryBlock({ x0, x1, top, bottom, color }: { x0: number; x1: number; top: number; bottom: number; color: string }) {
   const t = 'FERRY SEWA';
   const inset = 1.1;
-  const track = 0.5;
-  const max = x1 - x0 - 8;
-  const cap = Math.min((bottom - top) * 0.5, (8 * (max - track * (t.length - 1))) / widthOf(t, C900, 8));
+  const max = x1 - x0 - 5;
+  const cap = kindCap([t], Math.min(SEWA_VEHICLE_CAP, (bottom - top) * 0.6), max);
   return (
     <g>
       <rect x={x0} y={mm(top)} width={mm(x1 - x0)} height={mm(bottom - top)} rx={2.2} fill={color} />
       <rect x={x0 + inset} y={mm(top + inset)} width={mm(x1 - x0 - 2 * inset)} height={mm(bottom - top - 2 * inset)} rx={1.4}
         fill="none" stroke={WHITE} strokeWidth={0.35} />
-      <T t={t} f={C900} cap={cap} x={(x0 + x1) / 2} y={(top + bottom) / 2 + cap / 2} align="middle" track={track} fill={WHITE} />
+      <KindWord t={t} cap={cap} x={(x0 + x1) / 2} y={(top + bottom) / 2 + cap / 2} max={max} fill={WHITE} />
     </g>
   );
 }
@@ -221,6 +232,7 @@ export function RailHospital({ p, texts, code }: CardProps) {
   const [w, h] = [VW, GH];
   const Y = stretchY(5, 96.5, GH);
   const kind = kindOf(p.type);
+  const ferry = !!p.meta?.ferry;
   const head = 'VEHICLE PASS';
   const headCap = 2.2;
   const headTrack = 0.45;
@@ -245,9 +257,10 @@ export function RailHospital({ p, texts, code }: CardProps) {
       <T t={kind} f={C900} cap={10.5} x={25.3} y={Y(42.4)} max={118.7} fill={c} />
       <Fields p={p} rows={HOSPITAL_ROWS} ys={[57.5, 70].map(Y)} x0={6} x1={144} lw={13} cap={5.6} color={c} />
       <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
-      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
-      <SignOff href="" x0={114} x1={144} y={Y(88.6)} h={0} line={c} />
-      {p.meta?.ferry && <FerryBlock x0={38} x1={106} top={Y(77.5)} bottom={Y(93.4)} color={c} />}
+      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={ferry ? 24 : 30} />
+      {/* Ferry Sewa: the signature 26 wide (was 30), as on Sewa Vehicle, to make room for FERRY SEWA. */}
+      <SignOff href="" x0={ferry ? 118 : 114} x1={144} y={Y(88.6)} h={0} line={c} />
+      {ferry && <FerryBlock x0={32.5} x1={114.5} top={Y(76.2)} bottom={Y(95)} color={c} />}
     </>
   );
 }

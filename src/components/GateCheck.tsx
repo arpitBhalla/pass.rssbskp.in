@@ -23,7 +23,7 @@ const WORD = { valid: 'VALID', check: 'CHECK', invalid: 'NOT VALID' } as const;
 const ADVICE = { valid: 'Let in.', check: 'Genuine pass, but the register disagrees. Look closer:', invalid: "Don't let in." } as const;
 const BAND = { valid: 'bg-[#007236] text-white', check: 'bg-[#f2b705] text-[#231f20]', invalid: 'bg-[#9e0b0f] text-white', none: 'bg-[#6d6e71] text-white' };
 const RESULT = { valid: 'text-[#007236]', check: 'text-[#8a6100]', invalid: 'text-[#9e0b0f]' } as Record<string, string>;
-const LABELS = { name: 'Name', dept: 'Dept', area: 'Area', incharge: 'Incharge', issued_to: 'Issued To', vehicle: 'Vehicle', vehicle_no: 'Reg. No.', ferry: 'Ferry Sewa' } as const;
+const LABELS = { name: 'Name', dept: 'Dept', area: 'Area', incharge: 'Incharge', issued_to: 'Issued To', vehicle: 'Vehicle', vehicle_no: 'Reg. No.', ferry: 'Ferry Sewa', rtb3: 'Behind RTB 3' } as const;
 const login = (next: string) => `/login?next=${encodeURIComponent(next)}`;
 
 /**
@@ -102,7 +102,7 @@ function Result({ r }: { r: Check }) {
       {rows.length > 0 && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-b border-border bg-white px-4 py-3.5 text-[18px]">
           {rows.map((k) => [
-            <dt key={`${k}-t`} className="text-muted-foreground">{r.claim && k !== 'ferry' ? fieldLabel(r.claim.type, k) : LABELS[k]}</dt>,
+            <dt key={`${k}-t`} className="text-muted-foreground">{r.claim && k !== 'ferry' && k !== 'rtb3' ? fieldLabel(r.claim.type, k) : LABELS[k]}</dt>,
             <dd key={k} className="font-bold [overflow-wrap:anywhere]">{r.pass?.[k].toUpperCase()}</dd>,
           ])}
         </dl>

@@ -6,7 +6,7 @@ import { toast } from '@/client/toast';
 import { errorMessage, useTRPC } from '@/client/trpc';
 import type { CardData } from '@/lib/passes';
 import { CARD_SIZE } from '@/lib/sheets';
-import { type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
+import { FLAG_LABELS, flagsFor, type PassType, SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassCard, type PrintTexts, useCardFonts } from './cards/PassCard';
 import { Qr } from './cards/Qr';
 import { btn, btnDanger, input } from './ui';
@@ -208,6 +208,12 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
 };
 
 /** A made-up code as long as a real one (44 digits: a sample QR the right size; it checks NOT VALID). */
+/** More samples of a sheet, each with other yes / no details ticked, so every way a pass prints shows. */
+const EXTRA: Partial<Record<PassType, Partial<CardData>[]>> = {
+  'bav-entry': [{ ...SAMPLE['bav-entry'], name: 'Sunita Rani', vehicle_no: 'HR-29AB-1187', area: 'Faridabad', dept: 'Langar', meta: { rtb3: true } }],
+  'gate3-hospital': [{ ...SAMPLE['gate3-hospital'], meta: {} }],
+};
+
 const SAMPLE_CODE = Array.from({ length: 44 }, (_, i) => (i === 0 ? 4 : (i * 7 + 3) % 10)).join('');
 
 /** PX per mm on screen. */
@@ -222,16 +228,17 @@ function Previews({ texts }: { texts: PrintTexts }) {
       <p className="mb-4 text-muted-foreground">As they print, with sample details. The sample QR codes check as NOT VALID.</p>
       {!ready ? <p className="text-muted-foreground">Loading the pass fonts…</p> : (
         <div className="flex flex-wrap items-end gap-x-6 gap-y-5">
-          {SHEETS.map((t, i) => {
+          {SHEETS.flatMap((t) => [[t, SAMPLE[t]] as const, ...(EXTRA[t] ?? []).map((s) => [t, s] as const)]).map(([t, sample], i) => {
             const { w, h } = CARD_SIZE[TYPE_INFO[t].layout];
-            const p: CardData = { type: t, serial: i + 1, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', ...SAMPLE[t] };
+            const p: CardData = { type: t, serial: i + 1, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', ...sample };
+            const ticked = flagsFor(t).filter((f) => p.meta?.[f]).map((f) => FLAG_LABELS[f]);
             return (
-              <figure key={t}>
+              <figure key={`${t}-${i}`}>
                 <svg width={w * PX} height={h * PX} viewBox={`0 0 ${w} ${h}`} className="shadow-[0_1px_3px_rgb(0_0_0/0.18)]">
                   <PassCard p={p} texts={texts} code={SAMPLE_CODE} />
                 </svg>
                 <figcaption className="mt-1.5 text-[13.5px] text-muted-foreground">
-                  {TYPE_INFO[t].label}, {w} × {h} mm
+                  {TYPE_INFO[t].label}{ticked.length ? ` (${ticked.join(', ')})` : ''}, {w} × {h} mm
                 </figcaption>
               </figure>
             );

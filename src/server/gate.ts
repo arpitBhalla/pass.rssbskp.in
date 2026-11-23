@@ -49,6 +49,7 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
       pass = {
         name: row.name, dept: row.dept, area: row.area, incharge: row.incharge, issued_to: row.issued_to, vehicle: row.vehicle, vehicle_no: row.vehicle_no,
         ferry: row.meta?.ferry ? 'Yes' : '', // Ferry Sewa (Gate 3 Hospital)
+        rtb3: row.meta?.rtb3 ? 'Yes' : '', // Behind RTB 3 (Gate 1 & 11), not BAV Parking
       };
       // A pass printed blank gets its name later, by hand and in the register: only a printed name must match.
       if (!hashOfName(c.nameHash, '') && !hashOfName(c.nameHash, row.name)) {

@@ -9,7 +9,7 @@ import { authedProcedure, router } from '../trpc';
 const text = z.string().max(500).optional();
 const values = z.object({ name: text, dept: text, area: text, phone: text, vehicle: text, vehicle_no: text, incharge: text, issued_to: text }).strict();
 /** Yes / no details to tick or untick (FLAGS). */
-const flags = z.object({ ferry: z.boolean().optional() }).strict().optional();
+const flags = z.object({ ferry: z.boolean().optional(), rtb3: z.boolean().optional() }).strict().optional();
 
 /** See `Resendable`. */
 const requestId = z.string().min(8).max(64).optional();

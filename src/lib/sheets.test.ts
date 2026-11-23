@@ -121,9 +121,24 @@ describe('pagesFor (the print queue: passes of several sizes)', () => {
     }
   });
 
+  it('puts the passes of a sheet that would be nearly empty in the space left beside a full sheet of another size', () => {
+    const n = (paper: (typeof PAPERS)[number], mix: Partial<Record<L, number>>) => pagesFor(paper, cards(mix)).length;
+    expect(n('a3', { gate: 6, mobile: 1 })).toBe(1); // the owner, 2026-11-23: the Mobile pass went to a sheet of its own
+    expect(n('a3', { gate: 6, mobile: 9 })).toBe(1);
+    expect(n('a3', { gate: 6, mobile: 16 })).toBe(2);
+    expect(n('a4', { gate: 2, mobile: 6 })).toBe(1);
+    expect(n('a3', { gate: 12 })).toBe(2); // one size: its usual sheets
+    // The print queue offers to fill that space: as many Mobile passes as fit beside the 6 gate passes, and no more.
+    const k = roomFor('a3', cards({ gate: 6 }), 'mobile');
+    expect(k).toBeGreaterThanOrEqual(9);
+    expect(n('a3', { gate: 6, mobile: k })).toBe(1);
+    expect(n('a3', { gate: 6, mobile: k + 1 })).toBe(2);
+  });
+
   it('places every pass once, inside the margin, one way round on a mixed sheet, apart, with cuts along every edge and none across a pass', () => {
     const mixes: Partial<Record<L, number>>[] = [
       { large: 1, vehicle: 3, gate: 5, bike: 7, mobile: 71 }, { large: 1, mobile: 40 }, { vehicle: 2, mobile: 30 }, { gate: 3, bike: 1, mobile: 9 },
+      { gate: 6, mobile: 9 }, { gate: 2, mobile: 1 }, { gate: 12, bike: 2, mobile: 3 },
     ];
     const e = 1e-6;
     for (const paper of PAPERS) for (const mix of mixes) {
@@ -135,7 +150,14 @@ describe('pagesFor (the print queue: passes of several sizes)', () => {
           const c = CARD_SIZE[layouts[it.i]];
           return { l: layouts[it.i], x: it.x, y: it.y, w: it.turn ? c.h : c.w, h: it.turn ? c.w : c.h };
         });
-        if (new Set(rects.map((r) => r.l)).size > 1) expect(new Set(page.items.map((it) => it.turn)).size).toBe(1);
+        // A sheet of several sizes is all one way round, but for a full usual sheet of a size that faces both ways (gate
+        // passes on A3) with smaller passes in the space beside them, those all one way.
+        const sizes = new Set(rects.map((r) => r.l));
+        if (sizes.size > 1 && new Set(page.items.map((it) => it.turn)).size > 1) {
+          const big = [...sizes].sort((a, b) => CARD_SIZE[b].w * CARD_SIZE[b].h - CARD_SIZE[a].w * CARD_SIZE[a].h)[0];
+          expect(rects.filter((r) => r.l === big)).toHaveLength(sheetPlan(paper, big).perSheet);
+          expect(new Set(page.items.filter((it) => layouts[it.i] !== big).map((it) => it.turn)).size).toBe(1);
+        }
         for (const [k, a] of rects.entries()) {
           const m = 3;
           expect(a.x).toBeGreaterThanOrEqual(m - e);

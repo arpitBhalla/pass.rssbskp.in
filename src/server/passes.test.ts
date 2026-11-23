@@ -109,6 +109,17 @@ describe('apply', () => {
     expect(back.rows[0].meta).toEqual({ ferry: true });
   });
 
+  it('Behind RTB 3: on Gate 1 & 11 (BAV Parking) only, stored like Ferry Sewa', async () => {
+    const made = await applyChange(db, ramesh, { action: 'give', summary: 'g', create: [{ type: 'bav-entry', serial: 1, values: { name: 'SUNITA' }, flags: { rtb3: true } }] });
+    expect(made.rows[0].meta).toEqual({ rtb3: true });
+    await expect(applyChange(db, ramesh, { action: 'give', summary: 'g', create: [{ type: 'gate3-hospital', serial: 1, values: { name: 'A' }, flags: { rtb3: true } }] }))
+      .rejects.toThrow(/have no Behind RTB 3/);
+    await expect(applyChange(db, ramesh, { action: 'give', summary: 'g', create: [{ type: 'bav-entry', serial: 2, values: { name: 'A' }, flags: { ferry: true } }] }))
+      .rejects.toThrow(/have no Ferry Sewa/);
+    const off = await applyChange(db, suresh, { action: 'edit', summary: 'off', set: [{ id: made.rows[0].id, flags: { rtb3: false }, expect: { flags: { rtb3: true } } }] });
+    expect(off.rows[0].meta).toEqual({});
+  });
+
   it('locks printed passes until Printed is unticked', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
     await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });

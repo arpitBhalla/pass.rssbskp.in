@@ -22,10 +22,10 @@ export const PASS_TYPES = [
 ] as const;
 export type PassType = (typeof PASS_TYPES)[number];
 
-/** The sheets in the order the tabs (and lists of sheets) show them: Gate 3 Hospital after Gate 3 - VIP. */
+/** The sheets in the order the tabs (and lists of sheets) show them: Gate 1 & 11 before Gate 3 Entry (the owner, 2026-11-23), Gate 3 Hospital after Gate 3 - VIP. */
 export const SHEETS: readonly PassType[] = [
   'mobile-pandal', 'mobile-non-pandal', 'bike-pandal', 'bike-non-pandal', 'sewa-vehicle', 'tractor-trolley',
-  'gate3-entry', 'bav-entry', 'vip-gate', 'gate3-hospital', 'admin', 'e-rickshaw', 'eco', 'metro',
+  'bav-entry', 'gate3-entry', 'vip-gate', 'gate3-hospital', 'admin', 'e-rickshaw', 'eco', 'metro',
 ];
 
 /** Text columns. A sheet shows its own subset, in its own order (see `fields` below). */
@@ -40,10 +40,11 @@ export const FIELD_LABELS: Record<Field, string> = {
 /**
  * Yes / no details of a pass, kept in its `meta` (jsonb). A sheet has the ones in its `flags`; only a
  * ticked one is stored. Ferry Sewa (Gate 3 Hospital, the owner, 2026-11-22): printed on the pass when ticked.
+ * Behind RTB 3 (Gate 1 & 11, the owner, 2026-11-23): the pass prints BEHIND RTB 3 where it prints BAV PARKING.
  */
-export const FLAGS = ['ferry'] as const;
+export const FLAGS = ['ferry', 'rtb3'] as const;
 export type Flag = (typeof FLAGS)[number];
-export const FLAG_LABELS: Record<Flag, string> = { ferry: 'Ferry Sewa' };
+export const FLAG_LABELS: Record<Flag, string> = { ferry: 'Ferry Sewa', rtb3: 'Behind RTB 3' };
 /** A pass's `meta`: the flags ticked. */
 export type PassMeta = Partial<Record<Flag, true>>;
 /** Flags to tick (true) or untick (false); the others are left as they are. */
@@ -122,6 +123,8 @@ const BROWN = { ...GREEN, name: 'Brown', band: '#7a4a1f', title: '#7a4a1f' };
 const NAVY = { ...GREEN, name: 'Navy', band: '#1d4e89', title: '#1d4e89' };
 // Gate 3 Hospital (the owner, 2026-11-22): indigo, brighter than Mobile Pandal's blue.
 const INDIGO = { ...GREEN, name: 'Indigo', band: '#4338ca', title: '#4338ca' };
+/** Gate 1 & 11 passes with Behind RTB 3 ticked print in magenta, a colour no other pass has (the owner, 2026-11-23). */
+export const RTB3_BAND = '#c2185b';
 
 export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'mobile-pandal': {
@@ -143,7 +146,8 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'sewa-vehicle': { label: 'Sewa Vehicle', short: 'SV', layout: 'vehicle', title: 'SEWA VEHICLE PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'tractor-trolley': { label: 'Tractor Trolley', short: 'TT', layout: 'large', title: 'TRACTOR TROLLEY PASS', fields: VEHICLE_FIELDS, color: GREEN },
   'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: ORANGE },
-  'bav-entry': { label: 'BAV Parking', short: 'BA', layout: 'gate', title: 'BAV PARKING PASS', fields: VEHICLE_FIELDS, color: PURPLE },
+  // Gate 1 & 11 (was BAV Parking until 2026-11-23, when some passes became Behind RTB 3; the owner).
+  'bav-entry': { label: 'Gate 1 & 11', short: 'BA', layout: 'gate', title: 'ENTRY GATE NO. 1 & 11 PASS', fields: VEHICLE_FIELDS, flags: ['rtb3'], color: PURPLE },
   'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: RED },
   admin: { label: 'Admin', short: 'AD', layout: 'gate', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: TEAL },
   'e-rickshaw': { label: 'E-Rickshaw', short: 'ER', layout: 'large', helpline: true, title: 'E-RICKSHAW', fields: HELPLINE_FIELDS, color: RED },

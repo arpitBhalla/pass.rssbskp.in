@@ -30,7 +30,7 @@ const FLEX_MIN = 112;
 /** The other columns' widths. Mobile sheets fit beside the side panel on a 1440 px screen. */
 const COL = { serial: 90, added: 70, by: 92, printed: 66, given: 64 };
 /** A yes / no detail's column (Ferry Sewa). */
-const FLAG_W = 92;
+const FLAG_W = 104;
 
 export interface Span {
   lo: number;

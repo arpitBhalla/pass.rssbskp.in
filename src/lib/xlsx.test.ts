@@ -44,7 +44,7 @@ describe('Excel workbook export', () => {
     sheets['mobile-pandal'] = [pass('mobile-pandal', 7, { name: 'Kaur & <Singh>', phone: '+919876543210', incharge: 'Ramesh', given_at: '2026-11-12T11:00:00Z' })];
     sheets['bav-entry'] = [pass('bav-entry', 12, { vehicle_no: 'DL 8C 0012' })];
     const files = unzip(await exportWorkbook(sheets));
-    expect(files.get('xl/workbook.xml')).toContain('<sheet name="BAV Parking" sheetId="8" r:id="rId8"/>');
+    expect(files.get('xl/workbook.xml')).toContain('<sheet name="Gate 1 &amp; 11" sheetId="7" r:id="rId7"/>');
     const mp = files.get('xl/worksheets/sheet1.xml')!;
     expect(mp).toContain('<t xml:space="preserve">0007</t>');
     expect(mp).toContain('<t xml:space="preserve">+919876543210</t>');
@@ -53,7 +53,7 @@ describe('Excel workbook export', () => {
     expect(mp).toMatch(/r="H1" t="inlineStr"[^>]*><is><t xml:space="preserve">Printed</); // Printed, then Given
     expect(mp).toMatch(/r="I1" t="inlineStr"[^>]*><is><t xml:space="preserve">Given</);
     expect(mp).toMatch(/r="I2" t="inlineStr"><is><t xml:space="preserve">Yes</); // Given column, ticked
-    expect(files.get('xl/worksheets/sheet8.xml')).toContain('DL 8C 0012');
+    expect(files.get('xl/worksheets/sheet7.xml')).toContain('DL 8C 0012');
   });
 });
 
@@ -65,11 +65,11 @@ describe('VIP Gate renamed to Gate 3 - VIP', () => {
   });
 });
 
-describe('BAV Entry renamed to BAV Parking', () => {
-  it('still imports a CSV whose Pass type says BAV Entry', () => {
-    const plan = planImport([], 'bav-entry', 'Sr. No.,Pass type,Name\n0001,BAV Entry,Harpreet\n0002,BAV Parking,Gurmeet\n');
+describe('BAV Entry renamed to BAV Parking, then Gate 1 & 11', () => {
+  it('still imports a CSV whose Pass type says BAV Entry or BAV Parking', () => {
+    const plan = planImport([], 'bav-entry', 'Sr. No.,Pass type,Name\n0001,BAV Entry,Harpreet\n0002,BAV Parking,Gurmeet\n0003,Gate 1 & 11,Sunita\n');
     expect(plan.error).toBe('');
-    expect(plan.create.map((c) => c.serial)).toEqual([1, 2]);
+    expect(plan.create.map((c) => c.serial)).toEqual([1, 2, 3]);
     expect(plan.otherSheet + plan.unknownSheet).toBe(0);
   });
 });
