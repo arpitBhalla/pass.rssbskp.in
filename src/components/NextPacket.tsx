@@ -4,13 +4,15 @@ import { usePathname } from 'next/navigation';
 import { type FormEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { openPacket, packetName, packetScan, tray } from '@/client/packetScan';
+import { useScannerCatch } from '@/client/scanner';
 import { useUserNames } from '@/client/users';
 import { useAllPasses } from '@/client/store';
-import { canPack, handOverOps, noteOn, type Packet, packetsOf, packOps, retagOps, suggestTag } from '@/lib/packets';
+import { canPack, handOverOps, noteOn, type Packet, packetsOf, packOps, retagOps, scanOf, suggestTag } from '@/lib/packets';
 import { cardsLabel, isGiven, isPrinted, nPasses } from '@/lib/passes';
 import { cleanField, cleanPacket, fmtSerial, MAX_PACKET, type Pass, TYPE_INFO } from '@/shared/types';
 import { PassMark, useMe } from './AppShell';
 import { GivenIcon, PacketIcon } from './icons';
+import { beep } from './LiveScan';
 import { btnPrimary, input } from './ui';
 
 const keyOf = (x: { type: string; serial: number }) => `${x.type}:${x.serial}`;
@@ -43,7 +45,10 @@ export function NextPacket({ onDone, listClass = 'max-h-[45vh]' }: { onDone?: ()
   const ready = list.filter(canPack);
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
-  const finish = () => { packetScan.clear(); packetName.set(''); setTo(''); onDone?.(); };
+  const finish = () => { packetScan.clear(); packetName.set(''); setTo(''); tray.set({ ...tray.get(), scan: undefined }); onDone?.(); };
+  const scan = tray.use().scan;
+  const marked = useRef<HTMLLIElement>(null);
+  useEffect(() => { marked.current?.scrollIntoView({ block: 'nearest' }); }, [scan]);
 
   const onTag = async () => {
     setBusy(true);
@@ -69,6 +74,11 @@ export function NextPacket({ onDone, listClass = 'max-h-[45vh]' }: { onDone?: ()
 
   return (
     <div className="space-y-3">
+      {scan && (
+        <p aria-live="polite" className={`rounded-[3px] px-2.5 py-1.5 text-[14px] font-semibold ${scan.bad ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'}`}>
+          {scan.bad ? '✕ ' : '✓ '}{scan.text}
+        </p>
+      )}
       {list.length === 0 ? (
         <p className="rounded-[3px] border border-dashed border-input px-3 py-4 text-center text-[13.5px] text-muted-foreground">
           Only printed passes not given yet go in. Scan them, select rows in a sheet and use <b className="font-semibold">Add to packet</b>,
@@ -79,7 +89,10 @@ export function NextPacket({ onDone, listClass = 'max-h-[45vh]' }: { onDone?: ()
           {list.map((p, i) => {
             const why = noteOn(p, tag);
             return (
-              <li key={p.id} className={`flex flex-wrap items-center gap-x-2 px-2 py-1.5 ${why ? 'bg-amber-50' : ''}`}>
+              <li
+                key={p.id} ref={p.id === scan?.id ? marked : undefined}
+                className={`flex flex-wrap items-center gap-x-2 px-2 py-1.5 ${p.id === scan?.id ? 'bg-emerald-50 shadow-[inset_3px_0_0] shadow-emerald-600' : why ? 'bg-amber-50' : ''}`}
+              >
                 <span className="w-5 text-right text-[13px] text-muted-foreground tabular-nums">{i + 1}</span>
                 <PassMark type={p.type} />
                 <span className="whitespace-nowrap text-[14px] font-semibold">{passName(p)}</span>
@@ -155,10 +168,14 @@ export function PacketTray() {
   // Opens by itself on the next packet when a pass is added to it (not when one is taken out).
   const was = useRef(n);
   useEffect(() => {
-    if (n > was.current) tray.set({ open: true, packet: '' });
+    if (n > was.current) {
+      const v = tray.get();
+      tray.set(v.hold ? { ...v, hold: false } : { ...v, open: true, packet: '' });
+    }
     was.current = n;
   }, [n]);
-  if (me.scan_only || path === '/packets' || (!n && !k)) return null;
+  // Shown while it holds passes, a packet is opened, or a scan that didn't go in says why.
+  if (me.scan_only || (!n && !k && !view.scan?.bad)) return null;
   const open = view.open;
   const toggle = () => tray.set({ ...view, open: !open });
   return (
@@ -173,6 +190,11 @@ export function PacketTray() {
           <span className={`rounded-full px-1.5 text-[12.5px] leading-[18px] font-semibold text-white tabular-nums ${k ? 'bg-amber-600' : 'bg-primary'}`}>{k ? k.passes.length : n}</span>
           <span className="ml-auto shrink-0 pr-1 text-[13px] text-muted-foreground">{open ? 'Hide ▾' : 'Show ▴'}</span>
         </button>
+        {!k && !n && (
+          <button className="h-8 shrink-0 rounded-[3px] px-2 text-[13px] font-semibold text-primary hover:bg-muted" onClick={() => tray.set({ open: false, packet: '' })} title="Close">
+            ✕
+          </button>
+        )}
         {k && (
           <button
             className="h-8 shrink-0 rounded-[3px] px-2 text-[13px] font-semibold text-primary hover:bg-muted" onClick={() => tray.set({ open: n > 0, packet: '' })}
@@ -187,7 +209,7 @@ export function PacketTray() {
           {k ? <PacketView k={k} packets={packets} /> : (
             <>
               <NextPacket listClass="max-h-[35vh]" />
-              <Link href="/packets" className="mt-3 block text-[13.5px] font-semibold text-primary hover:underline">Scan more on the Packets page →</Link>
+              {path !== '/packets' && <Link href="/packets" className="mt-3 block text-[13.5px] font-semibold text-primary hover:underline">Scan with the camera on the Packets page →</Link>}
             </>
           )}
         </div>
@@ -342,4 +364,31 @@ export function Rename({ k, tags, onClose, onDone }: { k: Packet; tags: readonly
       {into && <span className="basis-full text-[13px] text-muted-foreground">{to} has {nPasses(into.passes.length)}: all of {k.tag} joins it, and {k.tag} is gone.</span>}
     </form>
   );
+}
+
+/**
+ * A scanned pass code (the owner, 2026-11-25): the pass goes in the next packet's list, and the box bottom right opens on it, saying
+ * what happened (added, in the list already, or why it can't go in, with a low beep). Then tag them as a packet or hand them over there.
+ * `open: false` (the phone's camera): the box isn't opened over the camera.
+ */
+export function takeScan(text: string, all: readonly Pass[], { open = true } = {}) {
+  const s = scanOf(text, all);
+  if ('error' in s) {
+    beep(330, 260);
+    const view = tray.get();
+    return tray.set({ ...view, open: open || view.open, packet: open ? '' : view.packet, scan: { text: s.error, bad: true } });
+  }
+  const p = s.pass;
+  const added = packetScan.add([p]);
+  const who = p.name ? `, ${p.name}` : '';
+  const view = tray.get();
+  tray.set({ ...view, open: open || view.open, packet: open ? '' : view.packet, hold: added > 0 && !open, scan: { text: added ? `Added ${passName(p)}${who}` : `${passName(p)}${who} is in the list already`, id: p.id } });
+}
+
+/** A scan from a scanner on any page, wherever the cursor is (a phone app as a Bluetooth keyboard needs no box clicked first). */
+export function ScanCatcher() {
+  const me = useMe();
+  const all = useAllPasses();
+  useScannerCatch((text) => takeScan(text, all), !me.scan_only);
+  return null;
 }

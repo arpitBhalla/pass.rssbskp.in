@@ -24,10 +24,19 @@ describe('packets', () => {
     expect(scanOf(codeFor(0, 12), all)).toEqual({ pass: a });
     expect(scanOf(` ${codeFor(0, 12)}\n`, all)).toEqual({ pass: a });
     expect(scanOf(codeFor(0, 99), all)).toEqual({ error: 'Mobile Pandal 0099 is not in the register.' });
-    expect(scanOf('hello', all)).toEqual({ error: 'Not an RSSB SKP pass QR code.' });
+    expect(scanOf('hello', all)).toEqual({ error: 'Not an RSSB SKP pass QR code. Read “hello” (5 characters).' });
     // Only printed passes not given yet.
     expect(scanOf(codeFor(0, 13), all)).toEqual({ error: 'Mobile Pandal 0013 is not printed yet.' });
     expect(scanOf(codeFor(2, 3), all)).toEqual({ error: 'Bike Pandal 0003 is given already (to HARJIT).' });
+  });
+
+  it("reads a code with a scanner app's prefix and suffix, and says what it read when it isn't one", () => {
+    const code = codeFor(0, 12);
+    const at = (text: string) => scanOf(text, all);
+    expect(at(`#P:${code}`)).toEqual({ pass: a });
+    expect(at(`PASS ${code} ;`)).toEqual({ pass: a });
+    expect(at(`${code}5`)).toEqual({ error: expect.stringMatching(/^Not an RSSB SKP pass QR code\. Read “\d{16}…\d{16}” \(45 characters\)\.$/) });
+    expect(at('hello')).toEqual({ error: 'Not an RSSB SKP pass QR code. Read “hello” (5 characters).' });
   });
 
   it('notes what to look at before packing', () => {

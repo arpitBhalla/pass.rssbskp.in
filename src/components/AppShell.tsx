@@ -9,7 +9,7 @@ import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { type PassType, SHEETS, TYPE_INFO, type User } from '@/shared/types';
 import { nPasses } from '@/lib/passes';
-import { PacketTray } from './NextPacket';
+import { PacketTray, ScanCatcher } from './NextPacket';
 import { PersonSearch } from './PersonSearch';
 import { PrintQueueButton } from './PrintQueue';
 
@@ -157,7 +157,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
           {status.loaded ? children : <div className="m-auto text-muted-foreground">Loading passes…</div>}
         </div>
       </div>
-      {status.loaded && <PacketTray />}
+      {status.loaded && <><PacketTray /><ScanCatcher /></>}
       <Toaster />
     </MeContext>
   );

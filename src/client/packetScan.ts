@@ -30,7 +30,9 @@ export const packetName = (() => {
 
 /** The Next packet box (bottom right): open or not, and the packet it shows ('' for the next packet). On this page only. */
 export const tray = (() => {
-  let view: { open: boolean; packet: string } = { open: false, packet: '' };
+  /** `scan`: what the last scan did, shown at the top of the box; `id` the pass it was, marked in the list. */
+  // `hold`: the pass just added came from the phone's camera: the box isn't opened over it.
+  let view: { open: boolean; packet: string; scan?: { text: string; bad?: boolean; id?: number }; hold?: boolean } = { open: false, packet: '' };
   const listeners = new Set<() => void>();
   const set = (v: typeof view) => { view = v; for (const fn of listeners) fn(); };
   const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };

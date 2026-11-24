@@ -2,16 +2,16 @@
 import Link from 'next/link';
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
-import { packetName, packetScan as scanned } from '@/client/packetScan';
+import { packetName, tray } from '@/client/packetScan';
 import { readPhoto } from '@/client/readPhoto';
 import { useAllPasses, useStatus } from '@/client/store';
 import { useUserNames } from '@/client/users';
-import { type Packet, handOverOps, packetsOf, scanOf } from '@/lib/packets';
+import { type Packet, handOverOps, packetsOf } from '@/lib/packets';
 import { cardsLabel, isGiven, isPrinted, nPasses } from '@/lib/passes';
 import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
 import { GivenIcon, PacketIcon, PrinterIcon } from './icons';
 import { LiveScan } from './LiveScan';
-import { NextPacket, Rename, useNextPacket } from './NextPacket';
+import { Rename, takeScan } from './NextPacket';
 import { btn, btnPrimary, card, heading, input } from './ui';
 
 const passName = (p: Pass) => `${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)}`;
@@ -24,7 +24,6 @@ const passName = (p: Pass) => `${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)}
 export function PacketsScreen() {
   const all = useAllPasses();
   const status = useStatus();
-  const { list } = useNextPacket();
   const packets = useMemo(() => packetsOf(all), [all]);
 
   const [code, setCode] = useState('');
@@ -36,11 +35,10 @@ export function PacketsScreen() {
   /** Adds what was scanned (several codes at once when pasted). */
   const take = (text: string) => {
     for (const t of text.split(/\s+/).filter(Boolean)) {
-      const s = scanOf(t, all);
-      if ('error' in s) setNote({ text: s.error, bad: true });
-      else if (!scanned.add([s.pass])) setNote({ text: `${passName(s.pass)} is already in the list.` });
-      else setNote({ text: `Added ${passName(s.pass)}${s.pass.name ? `, ${s.pass.name}` : ''}.` });
+      // Into the box bottom right; on a phone the camera stays in view (the box shows how many).
+      takeScan(t, all, { open: window.matchMedia('(min-width: 768px)').matches });
     }
+    setNote(null);
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return;
@@ -60,7 +58,7 @@ export function PacketsScreen() {
 
   const waiting = packets.filter((k) => k.given < k.passes.length);
   const done = packets.filter((k) => k.given === k.passes.length);
-  const onAddTo = (k: Packet) => { packetName.set(k.tag); box.current?.focus(); };
+  const onAddTo = (k: Packet) => { packetName.set(k.tag); tray.set({ ...tray.get(), open: true, packet: '' }); box.current?.focus(); };
 
   // The packets list: a tab (to hand over first) and a search.
   const [show, setShow] = useState<Show>('waiting');
@@ -88,7 +86,6 @@ export function PacketsScreen() {
         <section className={`${card} space-y-3 border-t-4 border-t-primary p-4 lg:sticky lg:top-0`}>
           <div className="flex items-baseline justify-between gap-2">
             <h2 className={heading}>New packet</h2>
-            {list.length > 0 && <span className="text-[13.5px] text-muted-foreground tabular-nums">{nPasses(list.length)} in the list</span>}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <LiveScan onCode={take} buttonClass={`${btnPrimary} max-md:h-11 max-md:flex-1 max-md:text-[16px]`} />
@@ -98,12 +95,15 @@ export function PacketsScreen() {
             </label>
           </div>
           <input
-            ref={box} className={input} placeholder="Or a handheld scanner here (or paste codes, then Enter)" aria-label="Scan a pass"
+            ref={box} data-scanbox className={input} placeholder="Or a handheld scanner here (or paste codes, then Enter)" aria-label="Scan a pass"
             value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={onKey}
           />
           {note && <p aria-live="polite" className={`text-[14px] ${note.bad ? 'font-semibold text-red-700' : 'text-muted-foreground'}`}>{note.text}</p>}
 
-          <NextPacket onDone={() => box.current?.focus()} />
+          <p className="rounded-[3px] border border-dashed border-input px-3 py-3 text-[13.5px] text-muted-foreground">
+            Scanned passes go into the <b className="font-semibold text-foreground">Next packet</b> box, bottom right: tag them as a packet there,
+            or hand them over. A scanner (or a phone app typing as a Bluetooth keyboard) works on any page, without clicking here first.
+          </p>
         </section>
 
         {/* ----- the packets: a table, those still to hand over first ----- */}

@@ -17,11 +17,19 @@ export const canPack = (p: Pass) => isPrinted(p) && !isGiven(p) && p.lost_at ===
 const reason = (p: Pass) => (p.lost_at !== null ? 'marked LOST' : !isPrinted(p) ? 'not printed yet'
   : isGiven(p) ? `given already${p.issued_to ? ` (to ${p.issued_to})` : ''}` : '');
 
+/** The code in what a scanner typed: alone, or with the prefix (and suffix) a scanner app adds around it (the owner, 2026-11-25). */
+const scannedCode = (text: string) => codeIn(text) ?? /(?:^|\D)([1-9]\d{43})\D*$/.exec(text.trim())?.[1] ?? null;
+/** What was read, short enough to show: "#P:5209314698…1518578385 (47 characters)". */
+const shown = (text: string) => {
+  const t = text.trim();
+  return `“${t.length > 40 ? `${t.slice(0, 16)}…${t.slice(-16)}` : t}” (${t.length} character${t.length === 1 ? '' : 's'})`;
+};
+
 /** What a scanned QR code (or a typed code) is in the register, if it can go in a packet. */
 export function scanOf(text: string, all: readonly Pass[]): Scan {
-  const code = codeIn(text);
+  const code = scannedCode(text);
   const claim = code ? claimOf(code) : null;
-  if (!claim) return { error: 'Not an RSSB SKP pass QR code.' };
+  if (!claim) return { error: `Not an RSSB SKP pass QR code. Read ${shown(text)}.` };
   const pass = all.find((p) => p.type === claim.type && p.serial === claim.serial);
   if (!pass) return { error: `${TYPE_INFO[claim.type].label} ${fmtSerial(claim.serial)} is not in the register.` };
   const why = reason(pass);
