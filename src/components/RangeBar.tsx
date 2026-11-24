@@ -95,7 +95,7 @@ export function RangeBar({ type, sheet, range, onClear }: {
   const toPacket = inRegister.filter((p) => !inPacket.includes(p));
   const addToPacket = useCallback(() => {
     const added = packetScan.add(toPacket);
-    if (added) toast(`Added ${nPasses(added)} to the next packet: ${packetScan.get().length} in it. Tag them on the Packets page.`);
+    if (added) toast(`Added ${nPasses(added)} to the next packet: ${packetScan.get().length} in it. See Next packet, bottom right.`);
   }, [toPacket]);
   const removeFromPacket = useCallback(() => {
     packetScan.remove(inPacket);

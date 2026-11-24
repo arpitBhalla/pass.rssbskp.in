@@ -167,6 +167,26 @@ describe('apply', () => {
       .rejects.toThrow(/just changed/);
   });
 
+  it('a packet is renamed, or moved into another, given and lost passes too; a given pass still can\'t go in a first packet', async () => {
+    const made = (await applyChange(db, ramesh, give(1, 3, 'GURPREET'))).rows;
+    await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: made.map((p) => ({ id: p.id, printed: true, expect: { printed: false } })) });
+    await applyChange(db, ramesh, { action: 'pack', summary: 'P', set: made.slice(0, 2).map((p) => ({ id: p.id, packet: 'A', expect: { packet: '' } })) });
+    await applyChange(db, ramesh, { action: 'given', summary: 'g', set: [{ id: made[0].id, given: true, expect: { given: false } }] });
+    await applyChange(db, ramesh, { action: 'lost', summary: 'l', set: [{ id: made[1].id, lost: true, expect: { lost: false } }] });
+    await applyChange(db, ramesh, { action: 'given', summary: 'g', set: [{ id: made[2].id, given: true, expect: { given: false } }] });
+    await expect(applyChange(db, suresh, { action: 'pack', summary: 'P', set: [{ id: made[2].id, packet: 'B', expect: { packet: '' } }] }))
+      .rejects.toThrow(/can't go in a packet/);
+    const renamed = await applyChange(db, suresh, {
+      action: 'pack', summary: 'Packet A renamed B', set: made.slice(0, 2).map((p) => ({ id: p.id, packet: 'b', expect: { packet: 'A' } })),
+    });
+    expect(renamed.rows.map((p) => p.packet)).toEqual(['B', 'B']);
+    // Only the packet changes on a lost pass.
+    await expect(applyChange(db, suresh, { action: 'pack', summary: 'x', set: [{ id: made[1].id, packet: 'C', values: { name: 'X' }, expect: { packet: 'B' } }] }))
+      .rejects.toThrow(/marked LOST/);
+    const back = (await undoChange(db, suresh, renamed.changeId)).rows;
+    expect(back.map((p) => p.packet)).toEqual(['A', 'A']);
+  });
+
   it('a lost pass is kept, locked, with a duplicate of it; Undo takes back both', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
     await applyChange(db, ramesh, { action: 'edit', summary: 'n', set: [{ id: p.id, values: { name: 'AMIT', issued_to: 'RAJ' }, expect: { name: '', issued_to: '' } }] });

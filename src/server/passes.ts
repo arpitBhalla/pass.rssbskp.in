@@ -167,8 +167,12 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const filled = row.printed_at !== null || row.given_at !== null || FIELDS.some((k) => row[k] !== '') || Object.keys(row.meta ?? {}).length > 0
           || row.packet !== '';
         if (isStale || (op.claim && filled)) { stale.push(row); continue; }
-        // A lost pass is locked: nothing changes on it but Lost itself. Only a printed pass can be lost.
-        if (row.lost_at !== null && op.lost !== false) { lostLocked.push(row); continue; }
+        // From one packet to another (a packet renamed, or all of it moved into another; the owner, 2026-11-24): any pass in it,
+        // given or lost too. Only that changes.
+        const retag = row.packet !== '' && !!op.packet && !Object.keys(op.values ?? {}).length && op.printed === undefined && op.given === undefined
+          && op.flags === undefined && op.lost === undefined && !op.claim;
+        // A lost pass is locked: nothing changes on it but Lost itself (and its packet's name). Only a printed pass can be lost.
+        if (row.lost_at !== null && op.lost !== false && !retag) { lostLocked.push(row); continue; }
         if (op.lost && row.printed_at === null && !op.printed) { unprinted.push(row); continue; }
         if (op.printed === false && row.printed_at !== null) unprinting.push(row);
         const values = op.values ?? {};
@@ -177,8 +181,9 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const differs = (Object.keys(values) as Field[]).some((k) => locksWhenPrinted(k) && row[k] !== values[k])
           || FLAGS.some((f) => ticked(row.meta, f) !== ticked(meta, f)); // a tick prints on the pass
         if (row.printed_at !== null && differs) { locked.push(row); continue; }
-        // Only a printed pass not given yet goes in a packet (the owner, 2026-11-24); taking one out is always allowed.
-        if (op.packet && op.packet !== row.packet && (row.printed_at === null || row.given_at !== null)) { unpackable.push(row); continue; }
+        // Only a printed pass not given yet goes in a packet (the owner, 2026-11-24); taking one out, or moving it from one packet to
+        // another, is always allowed.
+        if (op.packet && op.packet !== row.packet && !retag && (row.printed_at === null || row.given_at !== null)) { unpackable.push(row); continue; }
         // A pass is printed first, then handed over: Given needs Printed (unticking either is always allowed).
         if (op.given && row.given_at === null && !(op.printed ?? row.printed_at !== null)) { unprinted.push(row); continue; }
         checkFields(row.type, values, op.flags);

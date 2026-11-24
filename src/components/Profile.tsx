@@ -7,6 +7,7 @@ import { isGiven, isLost, isPrinted, planLost } from '@/lib/passes';
 import { type Duplicate, isPhoneless, phoneLabel, profileOf } from '@/lib/people';
 import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
 import { GivenIcon, PacketIcon, PrinterIcon } from './icons';
+import { PacketCell } from './NextPacket';
 import { btn, btnDanger, card } from './ui';
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
@@ -63,9 +64,7 @@ export function PassList({ passes, dupes, max = 6 }: { passes: readonly Pass[]; 
             icon={<GivenIcon size={13} />} at={isGiven(x) ? x.given_at : null} who={who(x.given_by)} cls="text-emerald-700"
             title={isGiven(x) ? `Given ${when(x.given_at)}${by(x.given_by)}${x.issued_to ? ` to ${x.issued_to}` : ''}` : 'Not given yet'}
           />
-          {x.packet
-            ? <span className="flex min-w-0 items-center gap-1 text-amber-800" title={`In packet ${x.packet}`}><PacketIcon size={13} /><span className="truncate">{x.packet}</span></span>
-            : <span />}
+          <PacketCell p={x} />
         </Fragment>
       ))}
       {passes.length > max && <span className="col-span-4 text-[13.5px] text-muted-foreground">+{passes.length - max} more</span>}
@@ -158,7 +157,7 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose, same }: {
                   <td className={`${td} whitespace-nowrap tabular-nums`}>{isPrinted(p) ? <>{when(p.printed_at)}{who(p.printed_by)}</> : <span className="text-muted-foreground">No</span>}</td>
                   <td className={`${td} whitespace-nowrap tabular-nums`}>{isGiven(p) ? <>{when(p.given_at)}{who(p.given_by)}</> : <span className="text-muted-foreground">No</span>}</td>
                   <td className={td}>{p.issued_to}</td>
-                  <td className={`${td} whitespace-nowrap`}>{p.packet || <span className="text-muted-foreground">–</span>}</td>
+                  <td className={`${td} whitespace-nowrap`}><PacketCell p={p} none="–" /></td>
                   <td className={`${td} whitespace-nowrap text-right`}>
                     {isPrinted(p) && !isLost(p) && (
                       <button

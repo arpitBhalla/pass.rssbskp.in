@@ -1,5 +1,5 @@
 import { claimOf, codeIn } from '@/lib/gateCode';
-import { cleanField, cleanPacket, fmtSerial, type Pass, type SetOp, SHEETS, TYPE_INFO } from '@/shared/types';
+import { cleanField, cleanPacket, fmtSerial, MAX_PACKET, type Pass, type SetOp, SHEETS, TYPE_INFO } from '@/shared/types';
 import { cardsLabel, isGiven, isPrinted } from './passes';
 
 /*
@@ -73,6 +73,35 @@ export function nextTag(all: readonly Pass[]): string {
   const most = all.reduce((m, p) => (/^\d+$/.test(p.packet) ? Math.max(m, Number(p.packet)) : m), 0);
   return String(most + 1);
 }
+
+/** The most common of these (first seen on a tie); '' if none. */
+function most(values: readonly string[]): string {
+  const n = new Map<string, number>();
+  for (const v of values) if (v) n.set(v, (n.get(v) ?? 0) + 1);
+  let best = '';
+  for (const [v, k] of n) if (k > (n.get(best) ?? 0)) best = v;
+  return best;
+}
+
+/**
+ * The name offered for the next packet (the owner, 2026-11-24): the Area and Incharge most of its passes share, "SIRSA - CHIMAN LAL",
+ * like the packets tagged by hand; a packet of that name still to hand over takes them, one handed over already gets the next number
+ * ("SIRSA - CHIMAN LAL 2"). No Area or Incharge: the next number.
+ */
+export function suggestTag(list: readonly Pass[], packets: readonly Packet[], all: readonly Pass[]): string {
+  const base = cleanPacket([most(list.map((p) => p.area)), most(list.map((p) => p.incharge))].filter(Boolean).join(' - '));
+  if (!base) return nextTag(all);
+  const tags = new Map(packets.map((k) => [k.tag, k]));
+  for (let n = 1; ; n++) {
+    const tag = n === 1 ? base : cleanPacket(`${base.slice(0, MAX_PACKET - String(n).length - 1)} ${n}`);
+    const k = tags.get(tag);
+    if (!k || k.given < k.passes.length) return tag;
+  }
+}
+
+/** Renames a packet, or moves all of it into another packet: every pass in it, given or lost too. */
+export const retagOps = (passes: readonly Pass[], tag: string): SetOp[] =>
+  passes.filter((p) => p.packet && p.packet !== cleanPacket(tag)).map((p) => ({ id: p.id, packet: tag, expect: { packet: p.packet } }));
 
 /** Puts these passes in packet `tag`: the printed ones not given yet (a pass already in it is left as it is). */
 export const packOps = (passes: readonly Pass[], tag: string): SetOp[] =>

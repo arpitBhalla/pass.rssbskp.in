@@ -2,19 +2,18 @@
 import Link from 'next/link';
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
-import { packetScan as scanned } from '@/client/packetScan';
+import { packetName, packetScan as scanned } from '@/client/packetScan';
 import { readPhoto } from '@/client/readPhoto';
 import { useAllPasses, useStatus } from '@/client/store';
 import { useUserNames } from '@/client/users';
-import { type Packet, handOverOps, nextTag, noteOn, packetsOf, packOps, scanOf } from '@/lib/packets';
+import { type Packet, handOverOps, packetsOf, retagOps, scanOf } from '@/lib/packets';
 import { cardsLabel, isGiven, isPrinted, nPasses } from '@/lib/passes';
 import { cleanPacket, fmtSerial, MAX_PACKET, type Pass, TYPE_INFO } from '@/shared/types';
-import { PassMark } from './AppShell';
 import { GivenIcon, PacketIcon, PrinterIcon } from './icons';
 import { LiveScan } from './LiveScan';
+import { NextPacket, useNextPacket } from './NextPacket';
 import { btn, btnPrimary, card, heading, input } from './ui';
 
-const keyOf = (x: { type: string; serial: number }) => `${x.type}:${x.serial}`;
 const passName = (p: Pass) => `${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)}`;
 
 /**
@@ -25,18 +24,11 @@ const passName = (p: Pass) => `${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)}
 export function PacketsScreen() {
   const all = useAllPasses();
   const status = useStatus();
-  const items = scanned.use();
-  const { apply } = useActions();
-  const byKey = useMemo(() => new Map(all.map((p) => [keyOf(p), p])), [all]);
-  const list = items.flatMap((x) => byKey.get(keyOf(x)) ?? []);
-  const gone = items.filter((x) => !byKey.has(keyOf(x)));
+  const { list } = useNextPacket();
   const packets = useMemo(() => packetsOf(all), [all]);
 
   const [code, setCode] = useState('');
-  const [tag, setTag] = useState('');
-  const tagNow = cleanPacket(tag) || nextTag(all);
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
-  const [busy, setBusy] = useState(false);
   const box = useRef<HTMLInputElement>(null);
   // Ready for a handheld scanner at a desk; not on a phone, where it would only bring up the keyboard (scan with the camera there).
   useEffect(() => { if (window.matchMedia('(min-width: 768px)').matches) box.current?.focus(); }, []);
@@ -66,21 +58,9 @@ export function PacketsScreen() {
     else take(text);
   };
 
-  const ops = packOps(list, tagNow);
-  const onTag = async () => {
-    setBusy(true);
-    const r = await apply({ action: 'pack', summary: `Packet ${tagNow}: ${cardsLabel(list)}`, set: ops });
-    setBusy(false);
-    if (!r) return;
-    scanned.clear();
-    setTag('');
-    setNote({ text: `Packet ${tagNow} tagged: ${nPasses(list.length)}. Hand it over below.` });
-    box.current?.focus();
-  };
-
   const waiting = packets.filter((k) => k.given < k.passes.length);
   const done = packets.filter((k) => k.given === k.passes.length);
-  const onAddTo = (k: Packet) => { setTag(k.tag); box.current?.focus(); };
+  const onAddTo = (k: Packet) => { packetName.set(k.tag); box.current?.focus(); };
 
   // The packets list: a tab (to hand over first) and a search.
   const [show, setShow] = useState<Show>('waiting');
@@ -123,58 +103,12 @@ export function PacketsScreen() {
           />
           {note && <p aria-live="polite" className={`text-[14px] ${note.bad ? 'font-semibold text-red-700' : 'text-muted-foreground'}`}>{note.text}</p>}
 
-          {list.length === 0 ? (
-            <p className="rounded-[3px] border border-dashed border-input px-3 py-4 text-center text-[13.5px] text-muted-foreground">
-              Only printed passes not given yet go in. Scan them here, or select rows in a sheet and use <b className="font-semibold">Add to packet</b>.
-            </p>
-          ) : (
-            <ol className="max-h-[45vh] divide-y divide-border overflow-auto rounded-[3px] border border-border">
-              {list.map((p, i) => {
-                const why = noteOn(p, tagNow);
-                return (
-                  <li key={p.id} className={`flex flex-wrap items-center gap-x-2 px-2 py-1.5 ${why ? 'bg-amber-50' : ''}`}>
-                    <span className="w-5 text-right text-[13px] text-muted-foreground tabular-nums">{i + 1}</span>
-                    <PassMark type={p.type} />
-                    <span className="whitespace-nowrap text-[14px] font-semibold">{passName(p)}</span>
-                    <span className="min-w-0 flex-1 truncate text-[13.5px]" title={[p.name, p.vehicle_no].filter(Boolean).join(', ')}>
-                      {p.name}{p.vehicle_no && <span className="text-muted-foreground"> {p.vehicle_no}</span>}
-                    </span>
-                    <button className="px-1 text-[16px] leading-none text-muted-foreground hover:text-destructive" onClick={() => scanned.remove([p])} title="Take it out of the list" aria-label={`Remove ${passName(p)}`}>
-                      ×
-                    </button>
-                    {why && <span className="basis-full pl-7 text-[13px] text-amber-900">{why}</span>}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-          {gone.length > 0 && (
-            <p className="text-[13.5px] text-red-700">
-              {nPasses(gone.length)} in the list {gone.length === 1 ? 'is' : 'are'} no longer in the register.{' '}
-              <button className="font-semibold text-primary hover:underline" onClick={() => scanned.remove(gone)}>Remove {gone.length === 1 ? 'it' : 'them'}</button>
-            </p>
-          )}
-          {list.length > 0 && (
-            <div className="space-y-2 border-t border-border pt-3">
-              <label className="flex items-center gap-2 text-[14px] font-semibold">
-                Packet
-                <input
-                  className={`${input} !w-auto flex-1`} maxLength={MAX_PACKET} placeholder={nextTag(all)} aria-label="Packet tag"
-                  value={tag} onChange={(e) => setTag(e.target.value)}
-                />
-              </label>
-              <div className="flex items-center gap-3">
-                <button className={`${btnPrimary} flex-1`} disabled={busy || !ops.length} onClick={onTag}>
-                  {ops.length ? `Tag ${nPasses(ops.length)} as packet ${tagNow}` : `All in packet ${tagNow} already`}
-                </button>
-                <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => { scanned.clear(); setNote(null); }}>Clear the list</button>
-              </div>
-            </div>
-          )}
+          <NextPacket onDone={() => box.current?.focus()} />
         </section>
 
         {/* ----- the packets: a table, those still to hand over first ----- */}
         <section className="min-w-0">
+          <datalist id="packet-tags-all">{packets.map((k) => <option key={k.tag} value={k.tag} />)}</datalist>
           <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
             <span role="group" aria-label="Show" className="inline-flex overflow-hidden rounded-[3px] border border-input">
               {([['waiting', 'To hand over', waiting.length], ['done', 'Handed over', done.length], ['all', 'All', packets.length]] as const).map(([k, name, n]) => (
@@ -205,7 +139,7 @@ export function PacketsScreen() {
                   <th className={th}><span className="flex items-center gap-1"><GivenIcon size={13} />Hand over</span></th>
                 </tr>
               </thead>
-              <tbody className="max-md:block max-md:space-y-2">{shown.map((k) => <PacketRow key={k.tag} k={k} onAddTo={() => onAddTo(k)} />)}</tbody>
+              <tbody className="max-md:block max-md:space-y-2">{shown.map((k) => <PacketRow key={k.tag} k={k} tags={packets} onAddTo={() => onAddTo(k)} />)}</tbody>
             </table>
           )}
         </section>
@@ -233,11 +167,12 @@ const TagLink = ({ tag }: { tag: string }) => (
  * A packet, one table row: its tag (to the People page), how many passes and which, and either Issued To + Hand over
  * (Given on the passes not given yet) or who it went to, when and by whom.
  */
-function PacketRow({ k, onAddTo }: { k: Packet; onAddTo: () => void }) {
+function PacketRow({ k, tags, onAddTo }: { k: Packet; tags: readonly Packet[]; onAddTo: () => void }) {
   const { apply } = useActions();
   const names = useUserNames();
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const left = k.passes.filter((p) => !isGiven(p));
   const unprinted = left.filter((p) => !isPrinted(p));
   const given = k.passes.filter(isGiven);
@@ -257,7 +192,14 @@ function PacketRow({ k, onAddTo }: { k: Packet; onAddTo: () => void }) {
         ? 'md:[&>td:first-child]:shadow-[inset_3px_0_0] md:[&>td:first-child]:shadow-amber-500 max-md:border-l-4 max-md:border-l-amber-500' : ''}`}
     >
       <td className={`${td} min-w-48`}>
-        <TagLink tag={k.tag} /><span className="ml-2 text-[14px] font-semibold md:hidden">{nPasses(k.passes.length)}</span>
+        {renaming ? <Rename k={k} tags={tags} onClose={() => setRenaming(false)} /> : (
+          <>
+            <TagLink tag={k.tag} /><span className="ml-2 text-[14px] font-semibold md:hidden">{nPasses(k.passes.length)}</span>
+            <button className="ml-2 text-[13px] font-semibold text-muted-foreground hover:text-primary hover:underline" onClick={() => setRenaming(true)} title="Rename it, or move all its passes into another packet">
+              Rename / move
+            </button>
+          </>
+        )}
       </td>
       <td className={`${td} text-right font-semibold tabular-nums max-md:!hidden`}>{k.passes.length}</td>
       <td className={`${td} text-[13.5px] text-muted-foreground tabular-nums max-md:mt-0.5`}>
@@ -286,5 +228,39 @@ function PacketRow({ k, onAddTo }: { k: Packet; onAddTo: () => void }) {
         )}
       </td>
     </tr>
+  );
+}
+
+/**
+ * Renames a packet, or moves all its passes into another (the name of one there already), given and lost passes too
+ * (the owner, 2026-11-24). One change in History: Undo puts it back.
+ */
+function Rename({ k, tags, onClose }: { k: Packet; tags: readonly Packet[]; onClose: () => void }) {
+  const { apply } = useActions();
+  const [name, setName] = useState(k.tag);
+  const [busy, setBusy] = useState(false);
+  const to = cleanPacket(name);
+  const into = tags.find((o) => o.tag === to && o.tag !== k.tag);
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy || !to || to === k.tag) return;
+    setBusy(true);
+    const summary = into ? `Packet ${k.tag} moved into ${to}: ${cardsLabel(k.passes)}` : `Packet ${k.tag} renamed ${to}`;
+    const r = await apply({ action: 'pack', summary, set: retagOps(k.passes, to) });
+    setBusy(false);
+    if (r) onClose();
+  };
+  return (
+    <form onSubmit={onSubmit} onKeyDown={(e) => e.key === 'Escape' && onClose()} className="flex flex-wrap items-center gap-2 py-0.5">
+      <input
+        autoFocus className={`${input} !h-8 !w-56 max-md:!h-10 max-md:!w-full`} maxLength={MAX_PACKET} list="packet-tags-all" aria-label={`New name for packet ${k.tag}`}
+        value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()}
+      />
+      <button type="submit" className={`${btnPrimary} !h-8 max-md:!h-10`} disabled={busy || !to || to === k.tag}>
+        {into ? `Move ${k.passes.length} into ${to}` : 'Rename'}
+      </button>
+      <button type="button" className="text-[13px] font-semibold text-primary hover:underline" onClick={onClose}>Cancel</button>
+      {into && <span className="basis-full text-[13px] text-muted-foreground">{to} has {nPasses(into.passes.length)}: all of {k.tag} joins it, and {k.tag} is gone.</span>}
+    </form>
   );
 }

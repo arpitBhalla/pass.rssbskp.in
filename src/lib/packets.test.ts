@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
-import { handOverOps, nextTag, noteOn, packetNote, packetsOf, packOps, scanOf } from './packets';
+import { handOverOps, nextTag, noteOn, packetNote, packetsOf, packOps, retagOps, scanOf, suggestTag } from './packets';
 import { blankPass } from './passes';
 
 let id = 0;
@@ -55,5 +55,22 @@ describe('packets', () => {
     expect(handOverOps([a, b], ' raj kumar ')).toEqual([
       { id: a.id, values: { issued_to: 'RAJ KUMAR' }, given: true, expect: { issued_to: '', given: false } },
     ]);
+  });
+
+  it('renames a packet: every pass in it, given ones too', () => {
+    expect(retagOps([a, b, d], 'b 2')).toEqual([
+      { id: b.id, packet: 'b 2', expect: { packet: '2' } }, { id: d.id, packet: 'b 2', expect: { packet: '2' } },
+    ]);
+  });
+
+  it('offers a name from the Area and Incharge most passes share; one handed over already gets the next number', () => {
+    const x = (n: number, area: string, incharge: string) => pass('mobile-pandal', 100 + n, { area, incharge });
+    const list = [x(1, 'SIRSA', 'CHIMAN LAL'), x(2, 'SIRSA', 'CHIMAN LAL'), x(3, 'HISAR', 'RAM')];
+    expect(suggestTag(list, packetsOf(all), all)).toBe('SIRSA - CHIMAN LAL');
+    expect(suggestTag([x(4, '', '')], packetsOf(all), all)).toBe('11');
+    const open = pass('bike-pandal', 50, { packet: 'SIRSA - CHIMAN LAL' });
+    expect(suggestTag(list, packetsOf([...all, open]), all)).toBe('SIRSA - CHIMAN LAL'); // still to hand over: they join it
+    const gone = { ...open, given_at: '2026-11-24T12:00:00Z' };
+    expect(suggestTag(list, packetsOf([...all, gone]), all)).toBe('SIRSA - CHIMAN LAL 2');
   });
 });
