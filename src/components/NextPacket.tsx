@@ -389,6 +389,13 @@ export function takeScan(text: string, all: readonly Pass[], { open = true } = {
 export function ScanCatcher() {
   const me = useMe();
   const all = useAllPasses();
-  useScannerCatch((text) => takeScan(text, all), !me.scan_only);
+  useScannerCatch((text) => {
+    // Not even part of a code: stray text from the scanner (the phone app types some when closed), thrown away.
+    if (!/\d{12}/.test(text)) {
+      const t = text.length > 40 ? `${text.slice(0, 37)}…` : text;
+      return tray.set({ ...tray.get(), open: true, packet: '', scan: { text: `Ignored text from the scanner: “${t}”`, bad: true } });
+    }
+    takeScan(text, all);
+  }, !me.scan_only);
   return null;
 }

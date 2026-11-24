@@ -4,6 +4,13 @@ import { useEffect, useRef } from 'react';
 /** A scanner at full speed types each key this soon after the last: after 8 such digits, its keys are kept from the page at once. */
 const FAST_MS = 70;
 const RUN = 8;
+/**
+ * Faster than anyone types: 6 keys in a row, each within 35 ms, letters too. The owner's phone app types stray text when it is closed
+ * (2026-11-25): such a burst is the scanner's, kept from the page, and if it isn't a pass code, thrown away. So is a character key
+ * repeating by itself (a key the scanner left held down).
+ */
+const GUARD_MS = 35;
+const GUARD_RUN = 6;
 /** A slower scanner (a phone app over Bluetooth): keys this close are one scan, told apart at the end by ending in a whole pass code. */
 const SLOW_MS = 500;
 /**
@@ -42,6 +49,7 @@ export function useScannerCatch(onCode: (code: string) => void, on = true) {
     let text = '';
     let last = 0;
     let fast = 0;
+    let fastAny = 0;
     let capturing = false;
     let timer = 0;
     /** Where the keys started: the box with the cursor, what it held, and whether it was being typed in. */
@@ -49,7 +57,7 @@ export function useScannerCatch(onCode: (code: string) => void, on = true) {
     let ours = false; // the Escape sent to a sheet cell below
     let tailUntil = 0; // a scan just done: its Enter, still to come, isn't the page's
 
-    const reset = () => { text = ''; fast = 0; capturing = false; start = null; window.clearTimeout(timer); };
+    const reset = () => { text = ''; fast = 0; fastAny = 0; capturing = false; start = null; window.clearTimeout(timer); };
     /** What went to the box with the cursor: taken back. */
     const takeBack = () => {
       const el = start?.el ?? null;
@@ -86,9 +94,10 @@ export function useScannerCatch(onCode: (code: string) => void, on = true) {
         }
         const digit = /\d/.test(e.key);
         fast = digit && text && gap <= FAST_MS ? fast + 1 : 0;
+        fastAny = text && gap <= GUARD_MS ? fastAny + 1 : 0;
         text += e.key;
         last = now;
-        if (!capturing && fast >= RUN - 1) { capturing = true; takeBack(); }
+        if (!capturing && (fast >= RUN - 1 || fastAny >= GUARD_RUN - 1 || e.repeat)) { capturing = true; takeBack(); }
         if (CODE.test(text)) { // a whole code: done now, its Enter kept from the page when it comes
           e.preventDefault();
           e.stopImmediatePropagation();
