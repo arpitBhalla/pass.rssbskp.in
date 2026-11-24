@@ -5,6 +5,7 @@ import type { CardData } from '@/lib/passes';
 import { type Field, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
+import { Dup } from './v2kit';
 import { KindWord, kindCap, ORG_LOGO, OrgHead } from './Modern';
 import { GH, stretchY, VW } from './vehicleBox';
 
@@ -221,6 +222,7 @@ export function LedgerVehicle({ p, texts, code }: CardProps) {
       <Perforation x={118} y0={Y(9)} y1={Y(91)} />
       {code && <Qr text={code} x={125.5} y={Y(9.5)} size={15} pad={0} />}
       <Serial no={serialText(p.serial, 3)} x={stub} y={Y(44.4)} cap={7.5} caption={2.4} captionY={Y(34.6)} />
+      <Dup p={p} x={stub} y={Y(30.4)} cap={1.8} align="middle" />
       {/* The 3 a little higher (Y(53) before 2026-11-18) to make room for the signature. */}
       <GateSign cx={stub} y={Y(51.5)} size={17} />
       {/* The line and AUTH. SIGNATORY only, signed by hand: no signature image (the owner, 2026-11-22). */}

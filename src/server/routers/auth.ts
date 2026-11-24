@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createSession, deleteSession, hashPassword, loginBlocked, noteLogin, sessionCookie, verifyPassword } from '../auth';
-import { authedProcedure, publicProcedure, router } from '../trpc';
+import { loggedInProcedure, publicProcedure, router } from '../trpc';
 import { newUserInput } from './users';
 
 export const authRouter = router({
@@ -15,7 +15,7 @@ export const authRouter = router({
   }),
 
   /** First run only: creates the first user, as admin, and logs them in. */
-  setup: publicProcedure.input(newUserInput.omit({ is_admin: true })).mutation(async ({ ctx, input }) => {
+  setup: publicProcedure.input(newUserInput.omit({ is_admin: true, scan_only: true })).mutation(async ({ ctx, input }) => {
     const password_hash = await hashPassword(input.password);
     const id = await ctx.db.transaction().execute(async (trx) => {
       await sql`LOCK TABLE users IN EXCLUSIVE MODE`.execute(trx); // two first-runs at once: only one wins
@@ -51,7 +51,7 @@ export const authRouter = router({
       return { ok: true };
     }),
 
-  logout: authedProcedure.mutation(async ({ ctx }) => {
+  logout: loggedInProcedure.mutation(async ({ ctx }) => {
     if (ctx.token) await deleteSession(ctx.db, ctx.token);
     ctx.resHeaders.append('Set-Cookie', sessionCookie('', 0));
     return { ok: true };

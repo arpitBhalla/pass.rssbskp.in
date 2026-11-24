@@ -6,7 +6,7 @@ import { addedBy, useUserNames } from '@/client/users';
 import {
   type ClipboardEvent, type FocusEvent, type FormEvent, type KeyboardEvent, memo, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { blankPass, groupRuns, isGiven, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
+import { blankPass, groupRuns, isGiven, isLost, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
 import { packetNote, packetsOf } from '@/lib/packets';
 import { alsoHeld, detailsFor, type Duplicate, passLabel, phoneKey } from '@/lib/people';
 import {
@@ -669,6 +669,22 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   /** What each packet's mark says on hover (Packets page): its passes on every sheet, and who it went to. */
   const all = useAllPasses();
   const packetNotes = useMemo(() => new Map(packetsOf(all).map((k) => [k.tag, packetNote(k)])), [all]);
+  /** What a lost pass's and a duplicate's marks say on hover: when it was lost, and which pass replaced it (or which it replaces). */
+  const lostNotes = useMemo(() => {
+    const byId = new Map(all.map((p) => [p.id, p]));
+    const notes = new Map<number, string>();
+    const day = (iso: string) => new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    for (const d of all) {
+      if (d.copy_of === null) continue;
+      const was = byId.get(d.copy_of);
+      notes.set(d.id, `Duplicate of ${was ? `${TYPE_INFO[was.type].label} ${fmtSerial(was.serial)}` : 'a lost pass'}, which was lost${was?.lost_at ? ` (${day(was.lost_at)})` : ''}.`);
+      if (was?.lost_at) notes.set(was.id, `LOST (marked ${day(was.lost_at)}): the gate check refuses it. Duplicate: ${TYPE_INFO[d.type].label} ${fmtSerial(d.serial)}.`);
+    }
+    for (const p of all) if (p.lost_at && !notes.has(p.id)) notes.set(p.id, `LOST (marked ${day(p.lost_at)}): the gate check refuses it.`);
+    return notes;
+  }, [all]);
+  /** Room by the Sr. No. for the LOST / DUP marks, on a sheet that has a lost pass or a duplicate. */
+  const wideSerial = useMemo(() => all.some((p) => p.type === type && (p.lost_at !== null || p.copy_of !== null)), [all, type]);
   const pickOf = useCallback<PickOf>((text) => picksRef.current.get(text), []); // the same each time: rows stay memoised
   /** One row of the sheet. */
   const drawItem = (v: (typeof vItems)[number]) => {
@@ -685,8 +701,8 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
           key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
           flags={flags} onFlag={onFlag} queued={queued.has(it.p.serial)}
           dupePhone={alsoHeld(ds, 'phone') || undefined} dupeReg={alsoHeld(ds, 'vehicle_no') || undefined}
-          held={phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
-          packet={packetNotes.get(it.p.packet)}
+          held={isLost(it.p) ? 0 : phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
+          packet={packetNotes.get(it.p.packet)} lostNote={lostNotes.get(it.p.id)}
         />
       );
     }
@@ -712,7 +728,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     <div ref={scrollRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto">
       <table className={`sheet-grid w-full table-fixed border-separate border-spacing-0 ${multi ? 'has-block' : ''}`} style={{ minWidth: tableMin }}>
         <colgroup>
-          <col style={{ width: COL.serial }} />
+          <col style={{ width: wideSerial ? COL.serial + 30 : COL.serial }} />
           {before(fields).map((k) => <col key={k} style={{ width: WIDTH[k] }} />)}
           {flags.map((f) => <col key={f} style={{ width: FLAG_W }} />)}
           <col style={{ width: COL.printed }} />
@@ -799,6 +815,17 @@ const margin = 'border-r-[3px] border-double !border-r-primary/75';
 /** A row waiting in the print queue: tinted blue, with a blue bar at its left edge (the owner, 2026-11-23). */
 const inQueue = '[&>td]:bg-sky-50';
 const QueuedMark = () => <span role="img" aria-label="in the print queue" className="absolute inset-y-0 left-0 w-[4px] bg-sky-600" />;
+/** Beside the Sr. No. of a lost pass (LOST, solid red) and of a duplicate (DUP); on hover, when, and the other pass. */
+const LostMark = ({ dup, note }: { dup: boolean; note: string }) => (
+  <span
+    role="img" aria-label={note} title={note}
+    className={`ml-1 inline-block rounded-[2px] px-[3px] align-[2px] font-sans text-[10px] leading-[14px] font-bold tracking-[0.04em] ${dup ? 'border border-red-700/70 text-red-800' : 'bg-red-700 text-white'}`}
+  >
+    {dup ? 'DUP' : 'LOST'}
+  </span>
+);
+/** A lost pass's row: faded on a pale red, its details kept. */
+const lostRow = '[&>td]:!bg-red-50/80 [&>td]:text-foreground/50';
 /** A box beside the Sr. No. of a pass in a packet (the owner, 2026-11-24); on hover, the packet: its passes and who it went to. */
 const PacketMark = ({ note }: { note: string }) => (
   <span role="img" aria-label={note} title={note} className="ml-1 inline-flex align-[-1px] text-amber-700">
@@ -821,13 +848,14 @@ const picked = '!bg-sand-200 !text-sand-900';
  * on hover). `held`: passes on its phone, on every sheet. The Sr. No. shows a person icon that opens them all
  * (with the count from 2; for one, only while the row is pointed at or has the cursor).
  */
-const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, queued, dupePhone, dupeReg, held, onPerson, pickOf, onPick, packet }: {
+const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, queued, dupePhone, dupeReg, held, onPerson, pickOf, onPick, packet, lostNote }: {
   p: Pass; i: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
   onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; queued: boolean; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
-  pickOf: PickOf; onPick: PickFn; packet?: string;
+  pickOf: PickOf; onPick: PickFn; packet?: string; lostNote?: string;
 }) {
   const printed = isPrinted(p);
   const given = isGiven(p);
+  const lost = isLost(p); // locked: nothing changes on it (Undo in History takes the Lost back)
   const cell = (k: Field) => {
     const c = fields.indexOf(k);
     const warn = k === 'phone' ? dupePhone : k === 'vehicle_no' ? dupeReg : undefined;
@@ -835,7 +863,7 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
       <td key={k} data-c={c} className={`${cellTd(c, mark)} ${warn ? 'relative' : ''}`} title={warn}>
         {warn && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-red-600" />}
         <CellInput
-          key={p[k]} target={[p]} k={k} saved={p[k]} locked={printed && locksWhenPrinted(k)} warn={!!warn} onEdit={onEdit}
+          key={p[k]} target={[p]} k={k} saved={p[k]} locked={lost || (printed && locksWhenPrinted(k))} warn={!!warn} onEdit={onEdit}
           pick={k === 'name' ? { of: pickOf, save: (v) => onPick(p, v) } : undefined}
         />
         {mark?.handle === c && <FillHandle />}
@@ -843,19 +871,22 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
     );
   };
   return (
-    <tr data-i={i} className={rowCls(selected, queued ? inQueue : '')}>
+    <tr data-i={i} className={rowCls(selected, lost ? lostRow : queued ? inQueue : '')}>
       <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} relative cursor-pointer select-none ${selected ? picked : ''}`} title={queued ? 'In the print queue. Click to select. Shift+click or drag for more.' : 'Click to select. Shift+click or drag for more.'}>
-        {queued && <QueuedMark />}{fmtSerial(p.serial)}{packet && <PacketMark note={packet} />}{isUnsaved(p) && <NotSaved />}
+        {queued && <QueuedMark />}{fmtSerial(p.serial)}{lostNote && <LostMark dup={!lost} note={lostNote} />}{packet && <PacketMark note={packet} />}{isUnsaved(p) && <NotSaved />}
         {held > 0 && <HeldCount n={held} warn={!!(dupePhone || dupeReg)} onClick={() => onPerson(phoneKey(p.phone))} />}
       </td>
       {before(fields).map(cell)}
       {flags.map((f) => <FlagCell key={f} f={f} passes={[p]} printed={printed} onFlag={onFlag} />)}
       <td className={`${td} text-center`}>
-        <TickBox col="printed" checked={printed} onChange={(v) => onPrinted([p], v)} title={printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'} />
+        <TickBox
+          col="printed" checked={printed} disabled={lost} onChange={(v) => onPrinted([p], v)}
+          title={lost ? 'LOST: locked. Its duplicate is printed instead.' : printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'}
+        />
       </td>
       <td className={`${td} text-center`}>
         <TickBox
-          col="given" checked={given} disabled={!given && !printed} onChange={(v) => onGiven([p], v)}
+          col="given" checked={given} disabled={lost || (!given && !printed)} onChange={(v) => onGiven([p], v)}
           title={given ? `Given ${new Date(p.given_at!).toLocaleString()}. Untick if it wasn't handed over.` : printed ? 'Not given yet: tick when the pass is handed over' : 'Not printed yet: print it first, then tick Given when it is handed over'}
         />
       </td>
@@ -1214,7 +1245,7 @@ function CellInput({ target, k, saved, locked, warn, onEdit, pick }: {
       data-locked={locked || undefined}
       list={locked || (k === 'name' && !pick) ? undefined : SUGGEST[k]}
       onInput={pick && pickPerson}
-      title={locked ? 'Printed: locked. Untick Printed to change it.' : undefined}
+      title={locked ? (target.some((p) => p.lost_at !== null) ? 'LOST: locked. Undo the Lost in History to change it.' : 'Printed: locked. Untick Printed to change it.') : undefined}
       onBlur={(e) => save(e.target.value)}
       className={cellCls(locked, k, warn)}
     />

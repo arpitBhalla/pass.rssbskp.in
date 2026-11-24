@@ -3,7 +3,7 @@ import { type Field, layoutOf, RTB3_BAND, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
-  BIG, C700, C800, C900, GREY, kindOf, LEGIBLE, mm, type Row, S600, S700, serialText, T, upper, WHITE, widthOf,
+  BIG, C700, C800, C900, Dup, GREY, kindOf, LEGIBLE, mm, type Row, S600, S700, serialText, T, upper, WHITE, widthOf,
 } from './v2kit';
 import { HEAVY, KindWord, kindCap, ORG_LOGO, OrgHead, plateCap, REG, RegPlate } from './Modern';
 import { drawHeight, GH, stretchY, VW } from './vehicleBox';
@@ -203,6 +203,7 @@ export function RailVehicle({ p, texts, code }: CardProps) {
         cap={bav ? 6 : 5.6} color={c} above={bav} />
       {rtb3 && <WordBand t="NAAMDAAN" cap={nc} mid={gateBase + inner + band / 2} color={c} h={band} />}
       <Caption t="Sr. No." at={[5.938, Y(83.6), 2.5, 7.637]} />
+      <Dup p={p} x={5.938 + 7.637 + 1.6} y={Y(83.6) - 0.4} cap={1.6} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={5.76} y={Y(93.4)} max={30} />
       {/* The Reg. No. large in a plate centred on the pass, the signature 30 wide (was 34) to make room; Admin's 16 tall, Gate 1 & 11's 11.5, just under its Area / Dept. line (8.4 before; the owner, 2026-11-18). */}
       <RegPlate v={p.vehicle_no} x0={VW / 2 - 34} x1={VW / 2 + 34} top={Y(80)} bottom={Y(94)} />
@@ -276,6 +277,7 @@ function FerryFoot({ p, top, bottom, line }: { p: CardProps['p']; top: number; b
   return (
     <g>
       <T t="Sr. No." f={REG} cap={2.4} x={x0} y={top + 2.4} />
+      <Dup p={p} x={x0 + widthOf('Sr. No.', REG, 2.4) + 1.6} y={top + 2.4} cap={1.6} />
       <T t={serial} f={HEAVY} cap={cap} scale={0.92} x={x0} y={base} />
       <RegPlate v={p.vehicle_no} x0={plate.x0} x1={plate.x1} top={top} bottom={bottom} label={0} most={cap} />
       <rect x={sig} y={base} width={mm(144 - sig)} height={0.18} fill={line} />
@@ -341,6 +343,7 @@ export function RailHospital({ p, texts, code }: CardProps) {
         <>
           <Fields p={p} rows={HOSPITAL_ROWS} ys={[57.5, 70].map(Y)} x0={x0} x1={144} lw={13} cap={5.6} color={c} />
           <Caption t="Sr. No." at={[x0 - 0.062, Y(83.6), 2.5, 7.637]} />
+          <Dup p={p} x={x0 - 0.062 + 7.637 + 1.6} y={Y(83.6) - 0.4} cap={1.6} />
           <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={x0 - 0.24} y={Y(93.4)} max={30} />
           <SignOff href="" x0={114} x1={144} y={Y(88.6)} h={0} line={c} />
         </>

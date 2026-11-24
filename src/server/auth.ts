@@ -58,7 +58,7 @@ export async function sessionUser(db: Kysely<Database>, token: string | undefine
   const row = await db
     .selectFrom('sessions')
     .innerJoin('users', 'users.id', 'sessions.user_id')
-    .select(['users.id', 'users.username', 'users.name', 'users.is_admin', 'users.active'])
+    .select(['users.id', 'users.username', 'users.name', 'users.is_admin', 'users.scan_only', 'users.active'])
     .where('sessions.id', '=', sha256(token))
     .where('sessions.expires_at', '>', new Date())
     .where('users.active', '=', true)

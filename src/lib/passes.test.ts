@@ -3,19 +3,45 @@ import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '
 import { exportCSV, exportTable, planImport } from './csv';
 import {
   blankPass, cleanFill, filterPasses, groupRuns, hidePasses, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
-  cardsLabel, forPrint, planPrint, planQueue, ranges, readyToPrint, unfilledOf,
+  cardsLabel, forPrint, planLost, planPrint, planQueue, ranges, readyToPrint, unfilledOf,
 } from './passes';
+import { findDuplicates } from './people';
 import { buildReport, reportCSV } from './report';
 
 let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
   return {
     id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '', packet: '',
-    printed_at: null, given_at: null, meta: {}, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
+    printed_at: null, given_at: null, meta: {}, lost_at: null, copy_of: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
   };
 }
 const sheet = (from: number, to: number, extra: Partial<Pass> = {}) =>
   Array.from({ length: to - from + 1 }, (_, i) => pass(from + i, extra));
+
+describe('lost passes', () => {
+  const printed = '2026-11-20T06:00:00.000Z';
+  it('marks printed passes LOST and adds a duplicate of each at the end, with the same details', () => {
+    const s = [
+      pass(1, { name: 'AMIT', phone: '9000000011', issued_to: 'RAJ', printed_at: printed, given_at: printed, packet: '3' }),
+      pass(2, { name: 'B' }),
+      pass(3, { name: 'C', printed_at: printed, lost_at: printed }),
+      pass(5, { name: 'D', printed_at: printed }),
+    ];
+    const plan = planLost(s, 'mobile-pandal', '1', '3');
+    expect(plan.serials).toEqual([1]);
+    expect(plan.notPrinted).toEqual([2]);
+    expect(plan.to).toEqual([6]);
+    expect(plan.set).toEqual([{ id: s[0].id, lost: true, expect: { lost: false, printed: true } }]);
+    expect(plan.create).toEqual([{ type: 'mobile-pandal', serial: 6, values: { name: 'AMIT', phone: '9000000011', issued_to: 'RAJ' }, flags: {}, copy_of: s[0].id }]);
+  });
+  it('a lost pass shows on its own, and its duplicate does not repeat its phone', () => {
+    const a = pass(1, { name: 'A', phone: '9000000011', printed_at: printed, lost_at: printed, incharge: 'X' });
+    const b = pass(2, { name: 'A', phone: '9000000011', copy_of: a.id, incharge: 'X' });
+    expect(groupRuns([a, pass(2, { name: 'A', phone: '9000000011', incharge: 'X', printed_at: printed })]).map((r) => r.length)).toEqual([1, 1]);
+    expect(findDuplicates([a, b]).size).toBe(0);
+    expect(findDuplicates([{ ...a, lost_at: null }, b]).size).toBe(2);
+  });
+});
 
 describe('Ferry Sewa (Gate 3 Hospital)', () => {
   const H = 'gate3-hospital' as const;

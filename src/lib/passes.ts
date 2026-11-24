@@ -14,6 +14,8 @@ export const nPasses = (n: number) => `${n} pass${n === 1 ? '' : 'es'}`;
 /** Given = handed over: ticked by hand in the sheet or the side panel (filling in details doesn't tick it). */
 export const isGiven = (p: Pick<Pass, 'given_at'>) => p.given_at !== null;
 export const isPrinted = (p: Pass) => p.printed_at !== null;
+/** Marked LOST: stays in the register, locked, and the gate refuses it (the owner, 2026-11-24). */
+export const isLost = (p: Pick<Pass, 'lost_at'>) => p.lost_at !== null;
 
 /** Compresses serials into readable ranges: "0101–0145, 0150". */
 export function ranges(serials: number[]): string {
@@ -32,7 +34,7 @@ export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
 /** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
 export const blankPass = (type: PassType, serial: number): Pass => ({
   id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '', packet: '',
-  printed_at: null, given_at: null, meta: {}, created_at: '', created_by: 0, updated_by: 0, rev: 0,
+  printed_at: null, given_at: null, meta: {}, lost_at: null, copy_of: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
 });
 
 /** The same yes / no details (FLAGS) ticked. */
@@ -142,7 +144,8 @@ export function groupRuns(view: Pass[]): Pass[][] {
     const run = runs[runs.length - 1];
     const prev = run?.[run.length - 1];
     const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && isGiven(prev) === isGiven(p)
-      && FIELDS.every((k) => prev[k] === p[k]) && sameMeta(prev.meta, p.meta) && prev.packet === p.packet;
+      && FIELDS.every((k) => prev[k] === p[k]) && sameMeta(prev.meta, p.meta) && prev.packet === p.packet
+      && !isLost(prev) && !isLost(p) && prev.copy_of === null && p.copy_of === null; // lost passes and duplicates show on their own
     if (joins) run.push(p);
     else runs.push([p]);
   }
@@ -329,7 +332,7 @@ export function planClear(passes: Pass[], keys: readonly Field[]): ClearPlan {
     seen.add(p.id);
     const changed = keys.filter((k) => p[k] !== '');
     if (!changed.length) continue;
-    if (isPrinted(p) && changed.some(locksWhenPrinted)) { plan.locked.push(p.serial); continue; }
+    if (isLost(p) || (isPrinted(p) && changed.some(locksWhenPrinted))) { plan.locked.push(p.serial); continue; }
     plan.cells += changed.length;
     plan.passes.push(p);
     plan.set.push({ id: p.id, values: Object.fromEntries(changed.map((k) => [k, ''])), expect: Object.fromEntries(changed.map((k) => [k, p[k]])) });
@@ -346,6 +349,8 @@ export const MAX_PRINT = 900;
 export type CardData = Pick<Pass, 'type' | 'serial' | 'name' | 'dept' | 'area' | 'phone' | 'vehicle' | 'vehicle_no'> & {
   /** Ticks printed on the pass (Ferry Sewa). */
   meta?: PassMeta;
+  /** A duplicate of a lost pass: prints DUPLICATE. */
+  copy_of?: number | null;
 };
 
 /**
@@ -484,6 +489,7 @@ export function planGiven(sheet: Pass[], from: string, to: string, only?: readon
   if ('err' in r) return { ...plan, err: r.err };
   for (const p of passesIn(sheet, r.serials)) {
     const given = isGiven(p);
+    if (isLost(p)) continue; // locked
     if (!given && !isPrinted(p)) { plan.notPrinted.push(p.serial); continue; } // printed first, then given
     (given ? plan.untick : plan.tick).push({ id: p.id, given: !given, expect: { given } });
     (given ? plan.untickSerials : plan.tickSerials).push(p.serial);
@@ -504,7 +510,7 @@ export function planUnprint(sheet: Pass[], from: string, to: string, only?: read
   const r = serialRange(from, to, only);
   if ('err' in r) return { ...plan, err: r.err };
   for (const p of passesIn(sheet, r.serials)) {
-    if (!isPrinted(p)) continue;
+    if (!isPrinted(p) || isLost(p)) continue; // a lost pass is never printed again: its duplicate is
     plan.set.push({ id: p.id, printed: false, expect: { printed: true } });
     plan.serials.push(p.serial);
   }
@@ -527,6 +533,43 @@ export function planDelete(sheet: Pass[], from: string, to: string, only?: reado
   for (const p of passesIn(sheet, r.serials)) {
     if (isPrinted(p)) plan.printed.push(p.serial);
     else { plan.items.push({ id: p.id, rev: p.rev }); plan.serials.push(p.serial); }
+  }
+  return plan;
+}
+
+/* ---------------- lost passes ---------------- */
+
+export interface LostPlan {
+  /** Mark these LOST… */
+  set: SetOp[];
+  /** …and add a duplicate of each, with the same details, at the end of the sheet. */
+  create: CreateOp[];
+  serials: number[];
+  /** The duplicates' serials (another desk may take them first: then they go after the last pass). */
+  to: number[];
+  /** Not printed: nothing to lose (delete or change it instead). */
+  notPrinted: number[];
+  err: string;
+}
+
+/**
+ * Marking the printed passes from–to LOST (stolen or lost, the owner, 2026-11-24): each stays in the register, locked, and a duplicate
+ * with the same details (Issued To and ticks too, not Printed or Given) is added after the sheet's last pass, to print and hand over.
+ */
+export function planLost(sheet: Pass[], type: PassType, from: string, to: string, only?: readonly number[]): LostPlan {
+  const plan: LostPlan = { set: [], create: [], serials: [], to: [], notPrinted: [], err: '' };
+  const r = serialRange(from, to, only);
+  if ('err' in r) return { ...plan, err: r.err };
+  let next = nextSerial(sheet);
+  for (const p of passesIn(sheet, r.serials)) {
+    if (isLost(p)) continue;
+    if (!isPrinted(p)) { plan.notPrinted.push(p.serial); continue; }
+    plan.set.push({ id: p.id, lost: true, expect: { lost: false, printed: true } });
+    const values = Object.fromEntries(fieldsFor(type).filter((k) => p[k]).map((k) => [k, p[k]]));
+    const flags = Object.fromEntries(flagsFor(type).filter((f) => p.meta[f]).map((f) => [f, true]));
+    plan.create.push({ type, serial: next, values, flags, copy_of: p.id });
+    plan.serials.push(p.serial);
+    plan.to.push(next++);
   }
   return plan;
 }

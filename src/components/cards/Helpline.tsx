@@ -4,7 +4,7 @@ import { TYPE_INFO } from '@/shared/types';
 import { KindWord, kindCap, ORG_LOGO, OrgHead } from './Modern';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
-import { T, widthOf } from './v2kit';
+import { Dup, T, widthOf } from './v2kit';
 import { drawHeight, stretchY, VW } from './vehicleBox';
 
 /**
@@ -82,6 +82,7 @@ export function HelplineVehicle({ p, texts, code }: CardProps) {
       {hasSub && <T t={sub} f={HEAVY} cap={scap} x={cx} y={Y(57.5)} align="middle" fill={ink} />}
       {/* Left: the serial, large, and the signature under it. */}
       <T t="Sr. no." f={REG} cap={2.4} x={x0} y={box.top + 2.4} />
+      <Dup p={p} x={x0 + widthOf('Sr. no.', REG, 2.4) + 1.6} y={box.top + 2.4} cap={1.6} />
       <T t={String(p.serial).padStart(3, '0')} f={HEAVY} cap={14} x={x0} y={box.top + 20.5} max={bx - 6 - x0} />
       <SignOff x0={x0} x1={x0 + 36} y={box.bottom - 4} href={texts.signature} />
       {/* Right: who may ride, in a box edged in the colour; the Hindi on two lines (no English under it since 2026-11-16). */}

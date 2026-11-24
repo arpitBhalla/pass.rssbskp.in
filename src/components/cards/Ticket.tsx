@@ -3,7 +3,7 @@ import { type Field, type PassType, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import {
-  A6, A7, BIG, GREY, kindOf, MONO, type Row, serialText, T, tagText, upper, WHITE, widthOf,
+  A6, A7, BIG, Dup, GREY, kindOf, MONO, type Row, serialText, T, tagText, upper, WHITE, widthOf,
 } from './v2kit';
 import { KindWord, kindCap, ORG_LOGO, OrgHead, RegPlate } from './Modern';
 import { GH, stretchY, VW } from './vehicleBox';
@@ -124,6 +124,7 @@ export function TicketVehicle({ p, texts, code }: CardProps) {
       <RegPlate v={p.vehicle_no} x0={55.5 - 38} x1={55.5 + 38} top={Y(80)} bottom={Y(93.6)} />
       <Perforation x={x} y1={Y(6.4)} y2={Y(93.6)} h={h} color={color} />
       {code && <Qr text={code} x={mid - 10} y={Y(8)} size={20} pad={0} />}
+      <Dup p={p} x={mid} y={Y(34.6)} cap={1.6} align="middle" />
       <T t="SR. NO." f={A7} cap={1.6} x={mid} y={Y(38.24)} align="middle" track={caps(1.6)} fill={GREY} />
       <T t={serialText(p.serial, 3)} f={BIG} cap={10.6} scale={1.257} x={mid} y={Y(52)} align="middle" max={25} />
       <TagPill t={tagText(texts.tag)} x={mid} cy={Y(58.6)} cap={1.8} color={color} line={line} />

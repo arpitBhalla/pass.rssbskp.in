@@ -6,27 +6,27 @@ import { btn } from './ui';
 const EVERY_MS = 120;
 const SAME_MS = 2000;
 
-/** A short beep: a code was read. */
-function beep() {
+/** A short tone (`hz`, `ms` long; a beep by default: a code was read). */
+export function beep(hz = 1400, ms = 80) {
   try {
     const a = new AudioContext();
     const o = a.createOscillator();
     const g = a.createGain();
-    o.frequency.value = 1400;
+    o.frequency.value = hz;
     g.gain.value = 0.08;
     o.connect(g).connect(a.destination);
     o.start();
-    o.stop(a.currentTime + 0.08);
+    o.stop(a.currentTime + ms / 1000);
     o.onended = () => void a.close();
-  } catch { /* no sound: the list shows it */ }
+  } catch { /* no sound: the screen shows it */ }
 }
 
 /**
- * Live QR scanning with the camera (the owner, 2026-11-24: "can be scanned actively"): the camera stays on and each QR
- * code held up to it is read (jsQR on the video frames) and passed to `onCode`, with a beep; the same code is read once
- * while it stays in view. The back camera on a phone.
+ * Live QR scanning with the camera (the owner, 2026-11-24: "can be scanned actively"): while `on`, the camera shows in `video` and
+ * each QR code held up to it is read (jsQR on the video frames) and passed to `onCode`, with a beep unless `sound` is off; the same
+ * code is read once while it stays in view. The back camera on a phone. Needs https (or localhost).
  */
-export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
+export function useLiveScan(onCode: (text: string) => void, { sound = true } = {}) {
   const [on, setOn] = useState(false);
   const [error, setError] = useState('');
   const video = useRef<HTMLVideoElement>(null);
@@ -43,6 +43,7 @@ export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
     const g = canvas.getContext('2d', { willReadFrequently: true });
     (async () => {
       try {
+        if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error(''), { name: 'NoMedia' });
         const [{ default: jsQR }, media] = await Promise.all([
           import('jsqr'),
           navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false }),
@@ -62,8 +63,7 @@ export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
             const now = Date.now();
             if (found?.data) {
               if (found.data !== last.code || now - last.at > SAME_MS) {
-                beep();
-                navigator.vibrate?.(60);
+                if (sound) { beep(); navigator.vibrate?.(60); }
                 latest.current(found.data);
               }
               Object.assign(last, { code: found.data, at: now });
@@ -76,7 +76,9 @@ export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
         if (stopped) return;
         const name = (e as Error).name;
         setError(name === 'NotAllowedError' ? 'The camera is blocked: allow it for this site in the browser, then try again.'
-          : name === 'NotFoundError' ? 'No camera found.' : `The camera could not start (${(e as Error).message}).`);
+          : name === 'NotFoundError' ? 'No camera found.'
+          : name === 'NoMedia' ? 'The live camera needs a secure (https) address. Use Photo instead.'
+          : `The camera could not start (${(e as Error).message}).`);
         setOn(false);
       }
     })();
@@ -85,11 +87,18 @@ export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
       window.clearTimeout(timer);
       stream?.getTracks().forEach((t) => t.stop());
     };
-  }, [on]);
+  }, [on, sound]);
 
+  const toggle = () => { setError(''); setOn((x) => !x); };
+  return { on, toggle, error, video };
+}
+
+/** A "Scan with camera" button, and the camera under it while on (Packets page). */
+export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
+  const { on, toggle, error, video } = useLiveScan(onCode);
   return (
     <div className="contents">
-      <button className={btn} onClick={() => { setError(''); setOn((x) => !x); }}>{on ? 'Stop camera' : 'Scan with camera'}</button>
+      <button className={btn} onClick={toggle}>{on ? 'Stop camera' : 'Scan with camera'}</button>
       {error && <span className="text-[14px] font-semibold text-red-700">{error}</span>}
       {on && (
         <div className="basis-full">

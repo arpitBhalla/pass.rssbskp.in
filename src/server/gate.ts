@@ -1,6 +1,6 @@
 import 'server-only';
 import { type Kysely, sql } from 'kysely';
-import { type PassType, TYPE_INFO } from '@/shared/types';
+import { fmtSerial, type PassType, TYPE_INFO } from '@/shared/types';
 import type { Database } from './db/schema';
 import { checkCode, currentKeys, hashOfName, keysFor, makeCode, printedName } from './qr';
 
@@ -19,8 +19,13 @@ export async function passCodes(db: Kysely<Database>, userId: number, type: Pass
   });
 }
 
-/** valid: let in. check: genuine, but the register disagrees with the pass; look closer. invalid: don't let in. */
-export type Verdict = 'valid' | 'check' | 'invalid';
+/**
+ * valid: let in. check: genuine, but the register disagrees with the pass; look closer. invalid: don't let in.
+ * lost: the pass was marked LOST (stolen or lost): don't let in, keep it (the owner, 2026-11-24).
+ */
+export type Verdict = 'valid' | 'check' | 'invalid' | 'lost';
+
+const passLabel = (type: PassType, serial: number) => `${TYPE_INFO[type].label} ${fmtSerial(serial)}`;
 
 /**
  * A gate check: reads the code, checks its secret tag and the register, and records the scan.
@@ -29,12 +34,16 @@ export type Verdict = 'valid' | 'check' | 'invalid';
 export async function checkPass(db: Kysely<Database>, userId: number, code: string) {
   const c = checkCode(await currentKeys(db), code);
   if (c.why === 'unreadable') {
-    return { verdict: 'invalid' as Verdict, reasons: ['This QR code is not an RSSB SKP pass.'], claim: null, pass: null, earlier: [], scans: 0 };
+    return { verdict: 'invalid' as Verdict, reasons: ['This QR code is not an RSSB SKP pass.'], claim: null, pass: null, earlier: [], scans: 0, lost: null, copyOf: null };
   }
 
   const reasons: string[] = [];
   let verdict: Verdict = 'valid';
   let pass = null;
+  /** A lost pass: when, and the duplicate that replaced it. */
+  let lost: { at: string; by: string; replacedBy: string | null } | null = null;
+  /** A duplicate: the lost pass it replaces. */
+  let copyOf: string | null = null;
   if (c.why === 'fake') {
     verdict = 'invalid';
     reasons.push("Fake: the code doesn't match the register's secret.");
@@ -43,7 +52,7 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
     reasons.push('Not made with the current key: a fake, or printed before the key was changed in Settings.');
   } else {
     const row = await db.selectFrom('passes')
-      .select(['name', 'dept', 'area', 'phone', 'incharge', 'issued_to', 'vehicle', 'vehicle_no', 'printed_at', 'given_at', 'meta'])
+      .select(['id', 'name', 'dept', 'area', 'phone', 'incharge', 'issued_to', 'vehicle', 'vehicle_no', 'printed_at', 'given_at', 'meta', 'lost_at', 'copy_of', 'updated_by'])
       .where('type', '=', c.type).where('serial', '=', c.serial).executeTakeFirst();
     if (!row) {
       verdict = 'invalid';
@@ -63,6 +72,19 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
       if (!row.printed_at) reasons.push("The register doesn't show this pass as printed.");
       if (!row.given_at) reasons.push("The register doesn't show this pass as given (Given not ticked).");
       if (reasons.length) verdict = 'check';
+      if (row.copy_of !== null) {
+        const was = await db.selectFrom('passes').select(['type', 'serial']).where('id', '=', row.copy_of).executeTakeFirst();
+        copyOf = was ? passLabel(was.type, was.serial) : 'a lost pass';
+      }
+      if (row.lost_at) {
+        verdict = 'lost';
+        const [dup, by] = await Promise.all([
+          db.selectFrom('passes').select(['type', 'serial']).where('copy_of', '=', row.id).orderBy('id').executeTakeFirst(),
+          db.selectFrom('users').select('name').where('id', '=', row.updated_by).executeTakeFirst(),
+        ]);
+        lost = { at: row.lost_at.toISOString(), by: by?.name ?? '', replacedBy: dup ? passLabel(dup.type, dup.serial) : null };
+        reasons.length = 0; // lost says it all
+      }
     }
   }
 
@@ -81,5 +103,7 @@ export async function checkPass(db: Kysely<Database>, userId: number, code: stri
     pass,
     earlier: earlier.map((e) => ({ at: e.at.toISOString(), result: e.result, by: e.by })),
     scans: n,
+    lost,
+    copyOf,
   };
 }

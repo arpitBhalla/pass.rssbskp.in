@@ -61,7 +61,8 @@ function group(list: readonly Pass[]): Map<string, Pass[]>[] {
 /** Every pass that breaks a rule, by id: the rows are marked. */
 export function findDuplicates(all: readonly Pass[]): Map<number, Duplicate[]> {
   const found = new Map<number, Duplicate[]>();
-  group(all).forEach((groups, r) => {
+  // A lost pass isn't held any more: its duplicate doesn't repeat it.
+  group(all.filter((p) => p.lost_at === null)).forEach((groups, r) => {
     for (const g of groups.values()) {
       if (g.length < 2) continue;
       for (const pass of g) found.set(pass.id, [...(found.get(pass.id) ?? []), { pass, rule: RULES[r], others: g.filter((o) => o !== pass) }]);
@@ -77,7 +78,7 @@ export function findDuplicates(all: readonly Pass[]): Map<number, Duplicate[]> {
 export function duplicatesOf(all: readonly Pass[], changes: readonly { before?: Pass; after: Pass }[]): Duplicate[] {
   if (!changes.length) return [];
   const replaced = new Set(changes.flatMap((c) => (c.before ? [c.before.id] : [])));
-  const groups = group([...all.filter((p) => !replaced.has(p.id)), ...changes.map((c) => c.after)]);
+  const groups = group([...all.filter((p) => !replaced.has(p.id) && p.lost_at === null), ...changes.map((c) => c.after)]);
   const out: Duplicate[] = [];
   for (const { before, after } of changes) {
     RULES.forEach((rule, r) => {
@@ -108,7 +109,7 @@ export function byPhone(all: readonly Pass[]): Map<string, Pass[]> {
   const m = new Map<string, Pass[]>();
   for (const p of all) {
     const key = phoneKey(p.phone);
-    if (!key) continue;
+    if (!key || p.lost_at !== null) continue; // a lost pass isn't held any more
     const g = m.get(key);
     if (g) g.push(p);
     else m.set(key, [p]);

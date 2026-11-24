@@ -11,10 +11,11 @@ import { cardsLabel, isGiven, isPrinted } from './passes';
 export type Scan = { pass: Pass } | { error: string };
 
 /** Only passes printed and not given yet go in a packet (the owner, 2026-11-24). */
-export const canPack = (p: Pass) => isPrinted(p) && !isGiven(p);
+export const canPack = (p: Pass) => isPrinted(p) && !isGiven(p) && p.lost_at === null;
 
 /** Why this pass can't go in a packet: "not printed yet", "given already (to HARJIT)"; '' if it can. */
-const reason = (p: Pass) => (!isPrinted(p) ? 'not printed yet' : isGiven(p) ? `given already${p.issued_to ? ` (to ${p.issued_to})` : ''}` : '');
+const reason = (p: Pass) => (p.lost_at !== null ? 'marked LOST' : !isPrinted(p) ? 'not printed yet'
+  : isGiven(p) ? `given already${p.issued_to ? ` (to ${p.issued_to})` : ''}` : '');
 
 /** What a scanned QR code (or a typed code) is in the register, if it can go in a packet. */
 export function scanOf(text: string, all: readonly Pass[]): Scan {
@@ -80,6 +81,6 @@ export const packOps = (passes: readonly Pass[], tag: string): SetOp[] =>
 
 /** Hands a packet over to `to`: Issued To filled in and Given ticked, on its passes not given yet. */
 export const handOverOps = (passes: readonly Pass[], to: string): SetOp[] =>
-  passes.filter((p) => !isGiven(p)).map((p) => ({
+  passes.filter((p) => !isGiven(p) && p.lost_at === null).map((p) => ({
     id: p.id, values: { issued_to: cleanField('issued_to', to) }, given: true, expect: { issued_to: p.issued_to, given: false },
   }));

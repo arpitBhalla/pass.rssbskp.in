@@ -9,7 +9,7 @@ import { usePaper } from '@/client/paper';
 import { printQueue, usePrintQueue } from '@/client/printQueue';
 import { toast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
-import { nPasses, parseSerial, type Picked, planDelete, planGiven, planPrint, planUnprint, ranges } from '@/lib/passes';
+import { nPasses, parseSerial, type Picked, planDelete, planGiven, planLost, planPrint, planUnprint, ranges } from '@/lib/passes';
 import { pagesFor, PAPER } from '@/lib/sheets';
 import { fmtSerial, layoutOf, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
 import { useMe } from './AppShell';
@@ -149,7 +149,40 @@ export function RangeBar({ type, sheet, range, onClear }: {
     await remove({ summary: `Deleted ${info.label} ${ranges(del.serials)}`, items: del.items });
   };
 
+  /* ----- lost ----- */
+  // A printed pass stolen or lost: marked LOST (kept, locked; the gate refuses it) and a duplicate added at the end, to print (the owner, 2026-11-24).
+  const lost = useMemo(() => (hasRange ? planLost(sheet, type, range.from, range.to, range.only) : null), [hasRange, sheet, type, range]);
+  const [losing, setLosing] = useState(''); // the range whose Mark lost is being confirmed
+  const doLost = async () => {
+    if (!lost?.set.length) return;
+    setLosing('');
+    const r = await apply(
+      { action: 'lost', next: true, summary: `Marked ${info.label} ${ranges(lost.serials)} LOST; duplicate${lost.to.length === 1 ? '' : 's'} added`, set: lost.set, create: lost.create },
+      { toast: false },
+    );
+    if (!r) return;
+    const made = r.rows.filter((p) => r.created.includes(p.id)).map((p) => p.serial);
+    toast(`${ranges(lost.serials)} marked LOST. Duplicate${made.length === 1 ? '' : 's'} added as ${ranges(made)}: print ${made.length === 1 ? 'it' : 'them'} and hand over.`);
+  };
+
   const printView = printing && <PrintView cards={printing.cards} texts={texts} onMark={onMark} onClose={closePrint} />;
+
+  if (losing === rangeKey && lost?.set.length) {
+    return (
+      <div role="alertdialog" aria-label="Confirm lost" className={`${bar} border-destructive/25 bg-red-50 text-[14px]`}>
+        <p className="leading-snug">
+          Mark <b>{info.label} {ranges(lost.serials)}</b> LOST? {lost.set.length === 1 ? 'It stays' : 'They stay'} in the register, locked, and the gate check
+          shows LOST. A duplicate with the same details is added as <b>{ranges(lost.to)}</b>, to print and hand over.
+          {lost.notPrinted.length > 0 && <> {nPasses(lost.notPrinted.length)} not printed {lost.notPrinted.length === 1 ? 'is' : 'are'} left out.</>} <b>Undo</b> takes it all back.
+        </p>
+        <span className="flex-1" />
+        <button className={btn} onClick={() => setLosing('')}>Cancel</button>
+        <button className={`${btnDanger} !border-destructive !bg-destructive !text-white`} onClick={() => void doLost()}>
+          Mark {nPasses(lost.set.length)} lost
+        </button>
+      </div>
+    );
+  }
 
   if (confirming === rangeKey && del?.items.length) {
     return (
@@ -271,6 +304,12 @@ export function RangeBar({ type, sheet, range, onClear }: {
             <span className={note} title={`Not printed yet: ${ranges(given.notPrinted)}`}>print first</span>
           )}
           <span className="flex-1" />
+          <button
+            className={btnDanger} disabled={!lost?.set.length} onClick={() => setLosing(rangeKey)}
+            title={lost?.set.length ? 'Stolen or lost after printing: mark it LOST (kept, the gate refuses it) and add a duplicate to print.' : 'Only a printed pass can be marked lost'}
+          >
+            {lost?.set.length ? `Mark ${lost.set.length} lost` : 'Mark lost'}
+          </button>
           <button
             className={btnDanger} disabled={!del?.items.length} onClick={() => setConfirming(rangeKey)}
             title={del?.printed.length ? `Printed passes aren't deleted (${ranges(del.printed)}): mark them unprinted first.` : 'Remove these passes from the register. Undo brings them back.'}

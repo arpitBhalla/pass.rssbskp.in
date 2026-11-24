@@ -83,3 +83,25 @@ export const widthOf = (t: string, f: Font, cap: number, track = 0) => inkWidth(
 export function Monogram({ x, y, w }: { x: number; y: number; w: number }) {
   return <RssbLogo x0={x} y0={y} x1={x + w} y1={y + w * 1.2} color={INK} />;
 }
+
+/** The red of DUPLICATE. */
+export const DUP_RED = '#c8102e';
+
+/**
+ * On a duplicate of a lost pass (the owner, 2026-11-24): DUPLICATE, white on a small red pill, beside or over the Sr. No.
+ * `x` by `align`: where the pill sits; `y`: the letters' baseline. Nothing on other passes.
+ */
+export function Dup({ p, x, y, cap = 1.9, align = 'start' }: { p: Pick<CardData, 'copy_of'>; x: number; y: number; cap?: number; align?: Align }) {
+  if (p.copy_of === undefined || p.copy_of === null) return null;
+  const t = 'DUPLICATE';
+  const track = cap * 0.14;
+  const w = widthOf(t, C800, cap, track) + cap * 1.7;
+  const h = cap * 2.15;
+  const left = align === 'start' ? x : align === 'middle' ? x - w / 2 : x - w;
+  return (
+    <g>
+      <rect x={mm(left)} y={mm(y - cap / 2 - h / 2)} width={mm(w)} height={mm(h)} rx={mm(h / 2)} fill={DUP_RED} />
+      <T t={t} f={C800} cap={cap} x={left + w / 2} y={y} align="middle" track={track} fill={WHITE} />
+    </g>
+  );
+}

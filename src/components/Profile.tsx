@@ -9,6 +9,24 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-
 const th = 'border-b border-rule px-2 py-1.5 text-left font-condensed text-[14px] font-semibold text-foreground/70';
 const td = 'border-b border-rule px-2 py-1.5 align-top';
 
+/** A person's passes as small tags in their sheet's colour ("Mobile Pandal 0007"), the first few; one breaking a rule in red. */
+export function PassChips({ passes, dupes, max = 6 }: { passes: readonly Pass[]; dupes: ReadonlyMap<number, unknown>; max?: number }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {passes.slice(0, max).map((x) => (
+        <span
+          key={x.id} title={TYPE_INFO[x.type].label}
+          className={`rounded-[3px] border-l-[3px] bg-muted px-1.5 font-condensed text-[13.5px] tabular-nums ${dupes.has(x.id) ? 'font-semibold text-red-700' : ''}`}
+          style={{ borderLeftColor: TYPE_INFO[x.type].color.band }}
+        >
+          {TYPE_INFO[x.type].label} {fmtSerial(x.serial)}
+        </span>
+      ))}
+      {passes.length > max && <span className="text-[13.5px] text-muted-foreground">+{passes.length - max} more</span>}
+    </span>
+  );
+}
+
 /**
  * Everyone with this phone number is one person: every pass they hold, on every sheet, worked out from
  * the register. A pass that breaks a rule says which. Click a pass to go to it.

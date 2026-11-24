@@ -19,6 +19,7 @@ export interface UsersTable {
   name: string;
   password_hash: string;
   is_admin: Generated<boolean>;
+  scan_only: Generated<boolean>;
   active: Generated<boolean>;
   created_at: Generated<Date>;
   created_by: number | null;
@@ -50,6 +51,10 @@ export interface PassesTable {
   meta: Generated<PassMeta>;
   /** The packet it is handed over in ('' for none). */
   packet: Generated<string>;
+  /** When it was marked LOST, or null. */
+  lost_at: Generated<Date | null>;
+  /** On a duplicate: the lost pass it replaces. */
+  copy_of: Generated<number | null>;
   created_at: Generated<Date>;
   created_by: number;
   updated_at: Generated<Date>;
@@ -73,6 +78,9 @@ export type PassRowJson = Omit<PassRow, 'printed_at' | 'given_at' | 'created_at'
   meta?: PassMeta;
   /** Missing in changes saved before packets existed (2026-11-24). */
   packet?: string;
+  /** Missing in changes saved before Lost existed (2026-11-24). */
+  lost_at?: string | null;
+  copy_of?: number | null;
   created_at: string;
   updated_at: string;
 };

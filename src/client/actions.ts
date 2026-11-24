@@ -162,6 +162,7 @@ function preview(req: ApplyRequest) {
     if (op.given !== undefined) q.given_at = op.given ? (p.given_at ?? now) : null;
     if (op.flags) q.meta = withFlags(p.meta, op.flags);
     if (op.packet !== undefined) q.packet = cleanPacket(op.packet);
+    if (op.lost !== undefined) q.lost_at = op.lost ? (p.lost_at ?? now) : null;
     rows.push(q);
   }
   const added: { id: number; type: PassType; serial: number }[] = [];
@@ -169,7 +170,8 @@ function preview(req: ApplyRequest) {
     const id = nextTemp--;
     rows.push({
       ...blankPass(c.type, c.serial), ...clean(c.values), id,
-      printed_at: c.printed ? now : null, given_at: c.given ? now : null, meta: withFlags({}, c.flags), created_at: now, created_by: store.me, updated_by: store.me,
+      printed_at: c.printed ? now : null, given_at: c.given ? now : null, meta: withFlags({}, c.flags), copy_of: c.copy_of ?? null,
+      created_at: now, created_by: store.me, updated_by: store.me,
     });
     added.push({ id, type: c.type, serial: c.serial });
   }

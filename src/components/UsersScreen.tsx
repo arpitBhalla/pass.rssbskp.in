@@ -7,9 +7,19 @@ import type { User } from '@/shared/types';
 import { useMe } from './AppShell';
 import { btn, btnPrimary, card, input, label } from './ui';
 
-const EMPTY = { name: '', username: '', password: '', is_admin: false };
+const EMPTY = { name: '', username: '', password: '', is_admin: false, scan_only: false };
 
-/** Admin only: add people, reset passwords, turn admin on/off, deactivate. */
+/** What a user can do: the desk, the desk and Users / Settings, or only check passes at the gate (the owner, 2026-11-24). */
+type Role = 'desk' | 'admin' | 'scan';
+const ROLES: [Role, string, string][] = [
+  ['desk', 'Desk', 'Fills in, prints and hands over passes'],
+  ['admin', 'Admin', 'The desk, plus Users and Settings'],
+  ['scan', 'Scan only', 'Only checks passes at the gate (/v, verify.rssbskp.in): no sheets'],
+];
+const roleOf = (u: { is_admin: boolean; scan_only: boolean }): Role => (u.is_admin ? 'admin' : u.scan_only ? 'scan' : 'desk');
+const asFlags = (r: Role) => ({ is_admin: r === 'admin', scan_only: r === 'scan' });
+
+/** Admin only: add people, reset passwords, set what they can do (role), deactivate. */
 export function UsersScreen() {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -43,8 +53,11 @@ export function UsersScreen() {
         <label className={`${label} w-44`}>Name<input className={input} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required /></label>
         <label className={`${label} w-36`}>Username<input className={input} value={f.username} autoCapitalize="none" onChange={(e) => setF({ ...f, username: e.target.value })} required /></label>
         <label className={`${label} w-36`}>Password<input className={input} type="password" autoComplete="new-password" minLength={6} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} required /></label>
-        <label className="flex items-center gap-1.5 pb-2 text-[13px]">
-          <input type="checkbox" className="accent-primary" checked={f.is_admin} onChange={(e) => setF({ ...f, is_admin: e.target.checked })} /> Admin
+        <label className={`${label} w-36`}>
+          Role
+          <select className={input} value={roleOf(f)} onChange={(e) => setF({ ...f, ...asFlags(e.target.value as Role) })} title={ROLES.find(([r]) => r === roleOf(f))?.[2]}>
+            {ROLES.map(([r, name, what]) => <option key={r} value={r} title={what}>{name}</option>)}
+          </select>
         </label>
         <button className={btnPrimary} disabled={create.isPending}>Add user</button>
         {create.error && <p className="w-full text-red-700">{errorMessage(create.error)}</p>}
@@ -55,7 +68,7 @@ export function UsersScreen() {
           <tr>
             <th className={cell}>Name</th>
             <th className={cell}>Username</th>
-            <th className={cell}>Admin</th>
+            <th className={cell}>Role</th>
             <th className={cell}>Active</th>
             <th className={cell} />
           </tr>
@@ -66,7 +79,13 @@ export function UsersScreen() {
               <td className={cell}>{u.name}{u.id === me.id && <span className="ml-1 text-xs text-muted-foreground">(you)</span>}</td>
               <td className={cell}>{u.username}</td>
               <td className={cell}>
-                <input type="checkbox" className="accent-primary" checked={u.is_admin} disabled={u.id === me.id} onChange={(e) => update.mutate({ id: u.id, is_admin: e.target.checked })} />
+                <select
+                  className="rounded-[3px] border border-input bg-background px-1 py-0.5 text-[13px] disabled:opacity-60" aria-label={`${u.name}'s role`}
+                  value={roleOf(u)} disabled={u.id === me.id} title={ROLES.find(([r]) => r === roleOf(u))?.[2]}
+                  onChange={(e) => update.mutate({ id: u.id, ...asFlags(e.target.value as Role) })}
+                >
+                  {ROLES.map(([r, name, what]) => <option key={r} value={r} title={what}>{name}</option>)}
+                </select>
               </td>
               <td className={cell}>
                 <input type="checkbox" className="accent-primary" checked={u.active} disabled={u.id === me.id} onChange={(e) => update.mutate({ id: u.id, active: e.target.checked })} title="Untick to stop this person logging in (their past changes keep their name)" />

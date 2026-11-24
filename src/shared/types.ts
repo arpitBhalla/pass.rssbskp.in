@@ -259,6 +259,13 @@ export interface Pass {
    * handed over together (the owner, 2026-11-24). Not printed on the pass.
    */
   packet: string;
+  /**
+   * ISO time it was marked LOST (stolen or lost after printing), or null. A lost pass stays in the register, locked; the gate
+   * check refuses it. Its duplicate is a new pass with the same details (the owner, 2026-11-24).
+   */
+  lost_at: string | null;
+  /** On a duplicate: the id of the lost pass it replaces; null otherwise. The duplicate prints DUPLICATE. */
+  copy_of: number | null;
   /** ISO time the pass entered the register (when its range was given, or it was added). */
   created_at: string;
   /** User id of the last change. */
@@ -274,6 +281,8 @@ export interface User {
   username: string;
   name: string;
   is_admin: boolean;
+  /** Can only check passes at the gate (/v, verify.rssbskp.in): no sheets, no changes (the owner, 2026-11-24). */
+  scan_only: boolean;
   active: boolean;
 }
 
@@ -292,7 +301,9 @@ export interface SetOp {
   flags?: Flags;
   /** Put it in this packet ('' takes it out). */
   packet?: string;
-  expect: Values & { printed?: boolean; given?: boolean; flags?: Flags; packet?: string };
+  /** Mark it LOST (only a printed pass), or not lost any more. */
+  lost?: boolean;
+  expect: Values & { printed?: boolean; given?: boolean; flags?: Flags; packet?: string; lost?: boolean };
 }
 
 /** Create a pass. Fails if that serial already exists in the sheet (unless the request is `next`). */
@@ -303,9 +314,11 @@ export interface CreateOp {
   printed?: boolean;
   given?: boolean;
   flags?: Flags;
+  /** A duplicate of this lost pass (its id). */
+  copy_of?: number;
 }
 
-export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import', 'pack'] as const;
+export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import', 'pack', 'lost'] as const;
 export type Action = (typeof ACTIONS)[number];
 
 /**

@@ -5,7 +5,7 @@ import { type Field, layoutOf, TYPE_INFO } from '@/shared/types';
 import type { CardProps } from './PassCard';
 import { Qr } from './Qr';
 import { RssbLogo } from './rssbLogo';
-import { T, widthOf } from './v2kit';
+import { Dup, T, widthOf } from './v2kit';
 import { drawHeight, stretchY, VW } from './vehicleBox';
 
 /**
@@ -208,6 +208,7 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
       <RegPlate v={p.vehicle_no} x0={plate.x0} x1={plate.x1} top={plate.top} bottom={plate.bottom} label={0} />
       {/* The serial larger, its middle level with the plate's (the owner, 2026-11-16), "Sr. no." over it, level with the plate's top; digits narrowed to 92 % to fit before the plate. */}
       <T t="Sr. no." f={REG} cap={2.4} x={x0} y={plate.top + 2.4} />
+      <Dup p={p} x={x0 + widthOf('Sr. no.', REG, 2.4) + 1.6} y={plate.top + 2.4} cap={1.6} />
       <T t={serialText(p.serial, 3)} f={HEAVY} cap={scap} scale={0.92} x={x0} y={serialY} max={plate.x0 - 4.5 - x0} />
       {/* The signature larger, 15 tall (7.6 before), up to just under the Area / Dept. line (the owner, 2026-11-18). */}
       {texts.signature && (

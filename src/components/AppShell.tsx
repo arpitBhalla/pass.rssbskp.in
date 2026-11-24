@@ -9,6 +9,7 @@ import { dismissToast, useToast } from '@/client/toast';
 import { useTRPC } from '@/client/trpc';
 import { type PassType, SHEETS, TYPE_INFO, type User } from '@/shared/types';
 import { nPasses } from '@/lib/passes';
+import { PersonSearch } from './PersonSearch';
 import { PrintQueueButton } from './PrintQueue';
 
 const MeContext = createContext<User | null>(null);
@@ -101,6 +102,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
               })}
             </nav>
             <span className="flex-1" />
+            <PersonSearch />
             <PrintQueueButton />
             {status.saving && <span role="status" className="text-[13.5px] text-white/75">Saving…</span>}
             <span className="flex items-center gap-2 text-[14.5px] text-white/90">

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ApplyRequest, Pass, Values } from '@/shared/types';
 import { db, ensureDatabase, migrate } from './db';
 import { applyChange, deletePasses, syncSince, undoChange } from './passes';
+import { appRouter } from './routers/_app';
 
 // Runs against TEST_DATABASE_URL (default: postgres://localhost:5432/passes_test), wiped first.
 let ramesh: number;
@@ -164,6 +165,35 @@ describe('apply', () => {
     await applyChange(db, ramesh, pack);
     await expect(applyChange(db, suresh, { action: 'give', summary: 'g', set: [{ id: p.id, claim: true, values: { name: 'A' }, expect: {} }] }))
       .rejects.toThrow(/just changed/);
+  });
+
+  it('a lost pass is kept, locked, with a duplicate of it; Undo takes back both', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
+    await applyChange(db, ramesh, { action: 'edit', summary: 'n', set: [{ id: p.id, values: { name: 'AMIT', issued_to: 'RAJ' }, expect: { name: '', issued_to: '' } }] });
+    const lose = (id: number): ApplyRequest => ({
+      action: 'lost', next: true, summary: 'Lost', set: [{ id, lost: true, expect: { lost: false, printed: true } }],
+      create: [{ type: 'mobile-pandal', serial: 2, values: { name: 'AMIT', incharge: 'GURPREET', area: 'SIRSA', issued_to: 'RAJ' }, copy_of: id }],
+    });
+    await expect(applyChange(db, ramesh, lose(p.id))).rejects.toThrow(/just changed/); // not printed: nothing to lose
+    await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
+    // A duplicate only with its pass being marked lost.
+    await expect(applyChange(db, ramesh, { action: 'lost', summary: 'x', create: [{ type: 'mobile-pandal', serial: 2, values: {}, copy_of: p.id }] }))
+      .rejects.toThrow(/only when its pass is marked lost/);
+    const r = await applyChange(db, ramesh, lose(p.id));
+    const lost = r.rows.find((x) => x.id === p.id)!;
+    const dup = r.rows.find((x) => x.id === r.created[0])!;
+    expect(lost.lost_at).not.toBeNull();
+    expect(dup).toMatchObject({ serial: 2, name: 'AMIT', issued_to: 'RAJ', copy_of: p.id, printed_at: null, given_at: null, lost_at: null });
+    // Locked: nothing changes on it.
+    await expect(applyChange(db, suresh, { action: 'print', summary: 'u', set: [{ id: p.id, printed: false, expect: { printed: true } }] }))
+      .rejects.toThrow(/0001 is marked LOST/);
+    // Sync sends both.
+    const synced = (await syncSince(db, 0)).rows;
+    expect(synced.find((x) => x.id === dup.id)?.copy_of).toBe(p.id);
+    // Undo: not lost, no duplicate.
+    await undoChange(db, ramesh, r.changeId);
+    const back = await db.selectFrom('passes').select(['id', 'lost_at']).execute();
+    expect(back).toEqual([{ id: p.id, lost_at: null }]);
   });
 
   it('Issued To can be filled in on a printed pass, and undone; Reg. No. is written one way', async () => {
@@ -416,5 +446,20 @@ describe('0010_capitals', () => {
     expect(s.rev).toBe(start + 1);
     await migrations['0010_capitals'].up(db); // nothing left to change: no new revision
     expect((await syncSince(db, 0)).rev).toBe(s.rev);
+  });
+});
+
+describe('Scan only users', () => {
+  it('can check passes at the gate and log out, nothing else', async () => {
+    const user = { id: suresh, username: 'suresh', name: 'SURESH', is_admin: false, scan_only: true, active: true };
+    const ctx = { db, req: new Request('http://localhost/api/trpc'), resHeaders: new Headers(), token: undefined, user };
+    const caller = appRouter.createCaller(ctx);
+    await expect(caller.passes.sync({ since: 0 })).rejects.toThrow(/only check passes/);
+    await expect(caller.settings.get()).rejects.toThrow(/only check passes/);
+    await expect(caller.users.list()).rejects.toThrow(/only check passes/);
+    await expect(caller.gate.check({ code: '1234' })).resolves.toMatchObject({ verdict: 'invalid' });
+    // The desk, as before.
+    const desk = appRouter.createCaller({ ...ctx, user: { ...user, scan_only: false } });
+    await expect(desk.passes.sync({ since: 0 })).resolves.toBeTruthy();
   });
 });

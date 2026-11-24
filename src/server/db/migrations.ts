@@ -226,4 +226,14 @@ export const migrations: Record<string, Migration> = {
       `).execute(db);
     },
   },
+  // Lost passes and their duplicates; users who can only check passes at the gate (the owner, 2026-11-24).
+  '0013_lost': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TABLE passes ADD COLUMN lost_at timestamptz, ADD COLUMN copy_of integer;
+        CREATE INDEX passes_copy_of_idx ON passes (copy_of) WHERE copy_of IS NOT NULL;
+        ALTER TABLE users ADD COLUMN scan_only boolean NOT NULL DEFAULT false;
+      `).execute(db);
+    },
+  },
 };

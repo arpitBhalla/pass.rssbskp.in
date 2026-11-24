@@ -14,7 +14,7 @@ import { HELPLINE_FONTS, HelplineVehicle } from './Helpline';
 import { MODERN_FONTS, ModernVehicle } from './Modern';
 import { RssbLogo } from './rssbLogo';
 import { shiftOf, stretchY, VH, VW } from './vehicleBox';
-import { T as Text, V2_FONTS, widthOf } from './v2kit';
+import { Dup, T as Text, V2_FONTS, widthOf } from './v2kit';
 
 /**
  * The three RSSB SKP pass templates (Downloads/passes-template), redrawn as vectors in mm. Every
@@ -75,10 +75,13 @@ import { T as Text, V2_FONTS, widthOf } from './v2kit';
  * plate and the signature in one row. Gate 3 Hospital passes with Ferry Sewa are 204 × 145 mm, the rest 151 × 103 as before, titled ENTRY GATE NO. 3 /
  * HOSPITAL in two lines beside the Gate 3 sign, as Gate 1 & 11's (no VEHICLE PASS rail), and no colour bars at the top and bottom edges;
  * the ones without Ferry Sewa have a strip of the pass colour down the left edge instead, the Ferry Sewa plate in the middle.
+ *
+ * v12 (2026-11-24): a duplicate of a lost pass prints DUPLICATE, white on a small red pill (Dup in v2kit.tsx): beside "Sr. No." on the
+ * vehicle, gate and helpline passes, over it on the Bike, Gate 3 Entry and VIP stubs, and on the bottom band under it on the Mobile passes.
  */
 
 /** The design version, kept here only (not printed). Raise it when the design changes. */
-export const TEMPLATE_VERSION = 'v11';
+export const TEMPLATE_VERSION = 'v12';
 
 /** Shared by every desk: set once in Settings. */
 export interface PrintTexts {
@@ -326,6 +329,8 @@ function MobileCard({ p, texts, code }: CardProps) {
       <rect y={MY(57.17)} width={MW} height={CARD_SIZE.mobile.h - MY(57.17)} fill={c.band} />
       {/* The tab stands on the band in the band's own colour (owner, 2026-11-15: "use same as bottom border"). */}
       <TagTab t={texts.tag} cx={MW / 2} base={MY(57.17)} cap={cap(1.62)} max={cap(12.8)} into={0} fill={c.band} letters="white" />
+      {/* A duplicate of a lost pass: DUPLICATE on the band under the Sr. No. (the owner, 2026-11-24). */}
+      <Dup p={p} x={ML(2)} y={(MY(57.17) + CARD_SIZE.mobile.h) / 2 + cap(1.5) / 2} cap={cap(1.5)} />
     </>
   );
 }
@@ -414,6 +419,7 @@ function BikeCard({ p, texts, code, variant, white = false }: CardProps & { vari
         </g>
       ))}
 
+      <Dup p={p} x={77.43} y={31.6} cap={1.6} align="middle" />
       <Fixed t="Sr. No." f={NARROW} cap={2.6} x0={73.2} x1={81.66} y={35.45} />
       <Value t={serialText(p.serial, 3)} f={NARROW} cap={6.5} x={77.43} y={44.55} align="middle" scale={scaleFor('001', NARROW, 6.5, 10.73)} max={15} />
 

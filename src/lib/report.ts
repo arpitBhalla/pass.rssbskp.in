@@ -73,7 +73,8 @@ function bucket(ps: Pass[], k: ReportBy, labels: Map<string, string>): [string, 
 }
 
 /** Pass counts per sheet, grouped by Area then Dept (or Dept then Area). */
-export function buildReport(passes: Pass[], by: ReportBy): Report {
+export function buildReport(all: Pass[], by: ReportBy): Report {
+  const passes = all.filter((p) => p.lost_at === null); // a lost pass is counted once, as its duplicate
   const labels = { area: spellings(passes, 'area'), dept: spellings(passes, 'dept') };
   return {
     by,

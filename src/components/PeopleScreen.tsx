@@ -3,12 +3,11 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useAllPasses, useStatus } from '@/client/store';
 import { byPhone, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, type PeopleBy, phoneKey } from '@/lib/people';
-import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
-import { ProfileCard } from './Profile';
+import { fmtSerial, type Pass } from '@/shared/types';
+import { PassChips, ProfileCard } from './Profile';
 import { input } from './ui';
 
 const LIMIT = 300; // rows drawn at once: search to find the rest
-const MAX_CHIPS = 6;
 /** The dropdown filters: what each picks by, its name and its "anyone" choice. */
 const BY: readonly [PeopleBy, string, string][] = [
   ['incharge', 'Incharge', 'All incharges'], ['area', 'Area', 'All areas'], ['dept', 'Dept', 'All depts'], ['packet', 'Packet', 'All packets'],
@@ -106,18 +105,7 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
                 <td className={cell}>{p.area}</td>
                 <td className={cell}>{p.dept}</td>
                 <td className={cell}>
-                  <span className="flex flex-wrap gap-1">
-                    {p.passes.slice(0, MAX_CHIPS).map((x) => (
-                      <span
-                        key={x.id} title={TYPE_INFO[x.type].label}
-                        className={`rounded-[3px] border-l-[3px] bg-muted px-1.5 font-condensed text-[13.5px] tabular-nums ${dupes.has(x.id) ? 'font-semibold text-red-700' : ''}`}
-                        style={{ borderLeftColor: TYPE_INFO[x.type].color.band }}
-                      >
-                        {TYPE_INFO[x.type].label} {fmtSerial(x.serial)}
-                      </span>
-                    ))}
-                    {p.passes.length > MAX_CHIPS && <span className="text-[13.5px] text-muted-foreground">+{p.passes.length - MAX_CHIPS} more</span>}
-                  </span>
+                  <PassChips passes={p.passes} dupes={dupes} />
                 </td>
               </tr>
             ))}

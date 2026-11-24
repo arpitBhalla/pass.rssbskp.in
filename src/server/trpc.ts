@@ -37,9 +37,16 @@ const sameOrigin = t.middleware(({ ctx, type, next }) => {
 
 export const publicProcedure = t.procedure.use(sameOrigin);
 
-export const authedProcedure = publicProcedure.use(({ ctx, next }) => {
+/** Anyone logged in, including Scan only users: checking passes at the gate, logging out. */
+export const loggedInProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Please log in again.' });
   return next({ ctx: { ...ctx, user: ctx.user } });
+});
+
+/** The desk: logged in, and not a Scan only user (they can only check passes, the owner, 2026-11-24). */
+export const authedProcedure = loggedInProcedure.use(({ ctx, next }) => {
+  if (ctx.user.scan_only) throw new TRPCError({ code: 'FORBIDDEN', message: 'This user can only check passes.' });
+  return next();
 });
 
 export const adminProcedure = authedProcedure.use(({ ctx, next }) => {
