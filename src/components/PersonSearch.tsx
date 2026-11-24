@@ -3,15 +3,31 @@ import { useRouter } from 'next/navigation';
 import { useDeferredValue, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useAllPasses, useStatus } from '@/client/store';
-import { byPhone, findDuplicates, listPeople, matchesPerson } from '@/lib/people';
+import { byPhone, findDuplicates, listPeople, matchesPerson, phoneLabel, SEARCH_IN, type SearchIn, withoutPhone } from '@/lib/people';
 import { fmtSerial, type Pass } from '@/shared/types';
-import { PassChips, ProfileCard } from './Profile';
+import { PassList, ProfileCard } from './Profile';
 import { card, input } from './ui';
 
 const LIMIT = 50; // people listed: type more to find someone else
 const isFindKey = (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k';
 const onMac = () => /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const never = () => () => {};
+
+/** Tabs over a people search (the owner, 2026-11-24): All, or only the Person (name, phone), Centre, Incharge or Vehicle No. */
+export function SearchTabs({ look, onLook }: { look: SearchIn; onLook: (l: SearchIn) => void }) {
+  return (
+    <span role="group" aria-label="Search in" className="inline-flex overflow-hidden rounded-[3px] border border-input">
+      {SEARCH_IN.map(([k, name]) => (
+        <button
+          key={k} type="button" aria-pressed={k === look} onClick={() => onLook(k)}
+          className={`h-8 px-3 text-[14px] font-semibold whitespace-nowrap ${k === look ? 'bg-foreground text-background' : 'bg-background hover:bg-panel'}`}
+        >
+          {name}
+        </button>
+      ))}
+    </span>
+  );
+}
 
 /**
  * Ctrl+K (⌘K on a Mac) on any page, or the header's Find person: search people as on the People page
@@ -48,12 +64,16 @@ function Finder({ onClose }: { onClose: () => void }) {
   const all = useAllPasses();
   const { loaded } = useStatus();
   const dupes = useMemo(() => findDuplicates(all), [all]);
-  const phones = useMemo(() => byPhone(all), [all]);
+  // Everyone with a phone, and each pass with no full phone number on its own, so a search finds every pass.
+  const phones = useMemo(() => new Map([...byPhone(all), ...withoutPhone(all)]), [all]);
   const people = useMemo(() => listPeople(phones, dupes), [phones, dupes]);
 
   const [q, setQ] = useState('');
   const query = useDeferredValue(q);
-  const found = useMemo(() => (query.trim() ? people.filter((p) => matchesPerson(p, query)) : []), [people, query]);
+  const [look, setLook] = useState<SearchIn>('all');
+  const hint = SEARCH_IN.find(([k]) => k === look)![2];
+  const field = useRef<HTMLInputElement>(null);
+  const found = useMemo(() => (query.trim() ? people.filter((p) => matchesPerson(p, query, look)) : []), [people, query, look]);
   const shown = found.slice(0, LIMIT);
   const [at, setAt] = useState(0); // the highlighted row
   const sel = Math.min(at, shown.length - 1);
@@ -109,21 +129,22 @@ function Finder({ onClose }: { onClose: () => void }) {
         <div className="fixed inset-0 flex items-start justify-center bg-black/30 p-4 pt-[12vh]" onClick={close}>
           <div
             role="dialog" aria-modal aria-label="Find a person"
-            className={`${card} flex max-h-[70vh] w-full max-w-3xl flex-col border-t-4 border-t-primary shadow-[0_12px_40px_rgb(35_31_32/0.25)]`}
+            className={`${card} flex max-h-[70vh] w-full max-w-4xl flex-col border-t-4 border-t-primary shadow-[0_12px_40px_rgb(35_31_32/0.25)]`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="border-b border-border p-3">
               {/* eslint-disable-next-line jsx-a11y/no-autofocus -- opened to type in: Esc leaves it */}
               <input
-                type="search" autoFocus className={`${input} !h-10 !text-[16px]`} placeholder="Name, phone or Reg. No."
+                ref={field} type="search" autoFocus className={`${input} !h-10 !text-[16px]`} placeholder={hint}
                 role="combobox" aria-expanded={shown.length > 0} aria-controls="find-person-list" aria-autocomplete="list"
                 aria-activedescendant={shown[sel] ? `find-person-${shown[sel].key}` : undefined}
                 value={q} onChange={(e) => { setQ(e.target.value); setAt(0); }}
               />
+              <div className="mt-2"><SearchTabs look={look} onLook={(l) => { setLook(l); setAt(0); field.current?.focus(); }} /></div>
             </div>
             {!query.trim() ? (
               <p className="px-4 py-3 text-[14px] text-muted-foreground">
-                {loaded ? 'Type a name, phone or Reg. No. ↑ ↓ to pick, Enter to see their passes, Esc to close.' : 'Loading passes…'}
+                {loaded ? `Type: ${hint.toLowerCase()}. ↑ ↓ to pick, Enter to see their passes, Esc to close.` : 'Loading passes…'}
               </p>
             ) : !shown.length ? (
               <p className="px-4 py-3 text-[14px] text-muted-foreground">No one matches that.</p>
@@ -135,12 +156,12 @@ function Finder({ onClose }: { onClose: () => void }) {
                     className={`flex cursor-pointer items-start gap-3 px-4 py-2 ${i === sel ? 'bg-muted' : ''}`}
                     onMouseMove={() => i !== sel && setAt(i)} onClick={() => setPerson(p.key)}
                   >
-                    <div className="w-72 shrink-0">
+                    <div className="w-60 shrink-0">
                       <span className={`block font-medium ${p.broken ? 'text-red-700' : ''}`}>{p.name || 'No name given'}</span>
-                      <span className="block text-[13px] text-muted-foreground tabular-nums">{[p.phone, p.area, p.dept].filter(Boolean).join(' · ')}</span>
+                      <span className="block text-[13px] text-muted-foreground tabular-nums">{[phoneLabel(p.key, p.phone), p.area, p.dept].filter(Boolean).join(' · ')}</span>
                       {p.aka.length > 0 && <span className="block text-[13px] text-muted-foreground">also {p.aka.join(', ')}</span>}
                     </div>
-                    <div className="min-w-0 flex-1 pt-0.5"><PassChips passes={p.passes} dupes={dupes} max={4} /></div>
+                    <div className="min-w-0 flex-1 pt-0.5"><PassList passes={p.passes} dupes={dupes} max={4} /></div>
                   </li>
                 ))}
                 {found.length > LIMIT && <li className="px-4 py-2 text-[13.5px] text-muted-foreground">{found.length - LIMIT} more: type more to find them.</li>}

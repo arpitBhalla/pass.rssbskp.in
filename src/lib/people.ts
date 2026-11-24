@@ -117,6 +117,20 @@ export function byPhone(all: readonly Pass[]): Map<string, Pass[]> {
   return m;
 }
 
+/**
+ * Passes with a name or Reg. No. but no full phone number, each on its own (keyed "#" and its id), so a search still finds them
+ * (the owner, 2026-11-24): with no phone they can't be matched to anyone's other passes.
+ */
+export function withoutPhone(all: readonly Pass[]): Map<string, Pass[]> {
+  const m = new Map<string, Pass[]>();
+  for (const p of all) if (!phoneKey(p.phone) && p.lost_at === null && (p.name.trim() || p.vehicle_no.trim())) m.set(`#${p.id}`, [p]);
+  return m;
+}
+/** A key from withoutPhone: one pass with no full phone number. */
+export const isPhoneless = (key: string) => key.startsWith('#');
+/** The phone to show for a person (key) or a pass with no full phone: "No phone", or the part written and "(not full)". */
+export const phoneLabel = (key: string, phone: string) => (!isPhoneless(key) ? phone : phone ? `${phone} (not full)` : 'No phone');
+
 export interface Profile {
   phone: string;
   /** As written on their latest pass; other spellings in `aka`. */
@@ -138,7 +152,7 @@ export function profileOf(passes: readonly Pass[], key: string): Profile | null 
   const aka = [...new Set(recent.map((p) => p.name).filter((n) => n && n.toLowerCase() !== name.toLowerCase()))];
   const order = (p: Pass) => PASS_TYPES.indexOf(p.type);
   return {
-    phone: showPhone(key), name, aka, area: latest(recent, 'area'), dept: latest(recent, 'dept'),
+    phone: isPhoneless(key) ? passes[0].phone.trim() : showPhone(key), name, aka, area: latest(recent, 'area'), dept: latest(recent, 'dept'),
     passes: [...passes].sort((a, b) => order(a) - order(b) || a.serial - b.serial),
   };
 }
@@ -172,7 +186,7 @@ export function namePicks(phones: ReadonlyMap<string, Pass[]>): Map<string, Valu
 /** A person in the People list: their profile, with how many of their passes break a rule. */
 export interface Person extends Profile { key: string; broken: number }
 
-/** Everyone with a phone, by name (no name last). */
+/** Everyone with a phone (and passes from withoutPhone, if given), by name (no name last). */
 export function listPeople(phones: ReadonlyMap<string, Pass[]>, dupes: ReadonlyMap<number, unknown>): Person[] {
   const out: Person[] = [];
   for (const [key, passes] of phones) {
@@ -213,13 +227,44 @@ export function filterChoices(people: readonly Person[], k: PeopleBy): { key: st
 /** Someone with a pass whose Incharge (Area, Dept) is this one (a filterChoices key); '' is anyone. */
 export const hasValue = (p: Person, k: PeopleBy, key: string) => !key || p.passes.some((x) => valueOf(x[k]).toLowerCase() === key);
 
-/** Search: a number (3+ digits) finds a phone; otherwise any spelling of the name, or a Reg. No. (`hr26cd` finds HR-26CD-1001). */
-export function matchesPerson(p: Person, query: string): boolean {
+/** What a search looks in (the owner, 2026-11-24): everything, or only the name and phone, Area (centre), Incharge or Reg. No. */
+export type SearchIn = 'all' | 'person' | 'area' | 'incharge' | 'vehicle';
+/** The search tabs: what each looks in, its name, and the hint in the search box. */
+export const SEARCH_IN: readonly (readonly [SearchIn, string, string])[] = [
+  ['all', 'All', 'Name, phone, Reg. No., Incharge or Centre'],
+  ['person', 'Person', 'Name or phone'],
+  ['area', 'Centre', 'Centre (Area)'],
+  ['incharge', 'Incharge', 'Incharge'],
+  ['vehicle', 'Vehicle No.', 'Any part of a Reg. No.: 4417, 26DK, HR26'],
+];
+
+/**
+ * Search: a number (3+ digits) finds a phone; otherwise any spelling of the name, the Incharge or Area (centre) on any of their
+ * passes, or a Reg. No. (`hr26cd` finds HR-26CD-1001). A tab other than All looks only there; Vehicle No. finds any part of a
+ * Reg. No., numbers too (`4417` finds HR-26DK-4417).
+ */
+export function matchesPerson(p: Person, query: string, look: SearchIn = 'all'): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  const digits = q.replace(/\D/g, '');
-  if (/^[\d\s+()-]+$/.test(q)) return digits.length >= 3 && p.key.includes(digits.length > 10 ? digits.slice(-10) : digits);
-  if ([p.name, ...p.aka].some((n) => n.toLowerCase().includes(q))) return true;
-  const plate = regKey(q);
-  return /[a-z]/.test(q) && /\d/.test(q) && p.passes.some((x) => regKey(x.vehicle_no).includes(plate));
+  const isNumber = /^[\d\s+()-]+$/.test(q);
+  const phone = () => {
+    const digits = q.replace(/\D/g, '');
+    const own = isPhoneless(p.key) ? p.phone.replace(/\D/g, '') : p.key; // a pass with part of a phone: those digits
+    return digits.length >= 3 && own.includes(digits.length > 10 ? digits.slice(-10) : digits);
+  };
+  const name = () => [p.name, ...p.aka].some((n) => n.toLowerCase().includes(q));
+  // The Incharge or Area on any of their passes, however it is spaced.
+  const words = q.replace(/\s+/g, ' ');
+  const has = (k: 'incharge' | 'area') => p.passes.some((x) => valueOf(x[k]).toLowerCase().includes(words));
+  const plate = () => {
+    const key = regKey(q);
+    return key !== '' && p.passes.some((x) => regKey(x.vehicle_no).includes(key));
+  };
+  switch (look) {
+    case 'person': return isNumber ? phone() : name();
+    case 'area': return has('area');
+    case 'incharge': return has('incharge');
+    case 'vehicle': return plate();
+    default: return isNumber ? phone() : name() || has('incharge') || has('area') || (/[a-z]/.test(q) && /\d/.test(q) && plate());
+  }
 }

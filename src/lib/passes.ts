@@ -34,7 +34,7 @@ export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
 /** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
 export const blankPass = (type: PassType, serial: number): Pass => ({
   id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '', packet: '',
-  printed_at: null, given_at: null, meta: {}, lost_at: null, copy_of: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
+  printed_at: null, given_at: null, printed_by: null, given_by: null, meta: {}, lost_at: null, copy_of: null, created_at: '', created_by: 0, updated_by: 0, rev: 0,
 });
 
 /** The same yes / no details (FLAGS) ticked. */
@@ -130,26 +130,6 @@ export function hidePasses(view: Pass[], type: PassType, hide: readonly Hide[]):
     (hide.includes('partial') && isPartlyFilled(type, p)) ||
     (hide.includes('empty') && isBlank(type, p))
   ));
-}
-
-/* ---------------- collapsing a series given to someone ---------------- */
-
-/**
- * Splits the visible passes into runs: consecutive serials given to the same incharge with
- * identical details (and printed state) collapse into one run; everything else is a run of one.
- */
-export function groupRuns(view: Pass[]): Pass[][] {
-  const runs: Pass[][] = [];
-  for (const p of view) {
-    const run = runs[runs.length - 1];
-    const prev = run?.[run.length - 1];
-    const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && isGiven(prev) === isGiven(p)
-      && FIELDS.every((k) => prev[k] === p[k]) && sameMeta(prev.meta, p.meta) && prev.packet === p.packet
-      && !isLost(prev) && !isLost(p) && prev.copy_of === null && p.copy_of === null; // lost passes and duplicates show on their own
-    if (joins) run.push(p);
-    else runs.push([p]);
-  }
-  return runs;
 }
 
 /* ---------------- Give / fill a range ---------------- */

@@ -252,6 +252,9 @@ export interface Pass {
   printed_at: string | null;
   /** ISO time Given was ticked (handed over), or null. */
   given_at: string | null;
+  /** User who ticked Printed (Given), or null: not printed (given), or not known (the owner, 2026-11-24). */
+  printed_by: number | null;
+  given_by: number | null;
   /** Yes / no details ticked (FLAGS), e.g. { ferry: true }. */
   meta: PassMeta;
   /**

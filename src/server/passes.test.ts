@@ -196,6 +196,23 @@ describe('apply', () => {
     expect(back).toEqual([{ id: p.id, lost_at: null }]);
   });
 
+  it('keeps who printed and who gave a pass; unticking clears it, Undo puts it back', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
+    expect(p).toMatchObject({ printed_by: null, given_by: null });
+    const printed = await applyChange(db, ramesh, { action: 'print', summary: 'P', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
+    expect(printed.rows[0]).toMatchObject({ printed_by: ramesh, given_by: null });
+    // Another desk ticking it again doesn't change who printed it; giving is theirs.
+    const given = await applyChange(db, suresh, { action: 'given', summary: 'G', set: [{ id: p.id, printed: true, given: true, expect: { printed: true, given: false } }] });
+    expect(given.rows[0]).toMatchObject({ printed_by: ramesh, given_by: suresh });
+    const untick = await applyChange(db, suresh, { action: 'given', summary: 'U', set: [{ id: p.id, given: false, expect: { given: true } }] });
+    expect(untick.rows[0]).toMatchObject({ printed_by: ramesh, given_by: null });
+    await undoChange(db, suresh, untick.changeId);
+    expect((await syncSince(db, 0)).rows[0]).toMatchObject({ printed_by: ramesh, given_by: suresh });
+    // Added already printed (an import): by whoever added it.
+    const added = await applyChange(db, suresh, { action: 'import', summary: 'I', create: [{ type: 'mobile-pandal', serial: 5, values: { name: 'X' }, printed: true }] });
+    expect(added.rows[0]).toMatchObject({ printed_by: suresh, given_by: null });
+  });
+
   it('Issued To can be filled in on a printed pass, and undone; Reg. No. is written one way', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET', 'bike-pandal'))).rows;
     await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });

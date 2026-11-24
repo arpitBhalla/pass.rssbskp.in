@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
 import { handOverOps, nextTag, noteOn, packetNote, packetsOf, packOps, scanOf } from './packets';
-import { blankPass, groupRuns } from './passes';
+import { blankPass } from './passes';
 
 let id = 0;
 const pass = (type: PassType, serial: number, extra: Partial<Pass> = {}): Pass =>
@@ -44,12 +44,10 @@ describe('packets', () => {
     expect(nextTag([a])).toBe('1');
   });
 
-  it('says on hover what is in a packet and who it went to; a run in the sheet is one packet', () => {
+  it('says on hover what is in a packet and who it went to', () => {
     const [two, ten] = packetsOf(all);
     expect(packetNote(two)).toBe('Packet 2: 2 passes (Mobile Pandal 0014, Bike Pandal 0003). 1 of 2 given to HARJIT.');
     expect(packetNote(ten)).toBe('Packet 10: 1 pass (Mobile Pandal 0013). Not handed over yet.');
-    const run = [11, 12, 13].map((s) => pass('mobile-pandal', s, { incharge: 'X', packet: s === 13 ? '1' : '' }));
-    expect(groupRuns(run).map((r) => r.length)).toEqual([2, 1]);
   });
 
   it('tags only the passes not in that packet, and hands over only those not given', () => {

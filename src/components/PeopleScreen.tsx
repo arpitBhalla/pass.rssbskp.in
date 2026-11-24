@@ -2,9 +2,10 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useAllPasses, useStatus } from '@/client/store';
-import { byPhone, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, type PeopleBy, phoneKey } from '@/lib/people';
+import { byPhone, filterChoices, findDuplicates, hasValue, isPhoneless, listPeople, matchesPerson, type PeopleBy, phoneLabel, SEARCH_IN, type SearchIn, withoutPhone } from '@/lib/people';
 import { fmtSerial, type Pass } from '@/shared/types';
-import { PassChips, ProfileCard } from './Profile';
+import { SearchTabs } from './PersonSearch';
+import { PassList, PassListHead, ProfileCard } from './Profile';
 import { input } from './ui';
 
 const LIMIT = 300; // rows drawn at once: search to find the rest
@@ -22,12 +23,17 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
   const all = useAllPasses();
   const status = useStatus();
   const dupes = useMemo(() => findDuplicates(all), [all]);
-  const phones = useMemo(() => byPhone(all), [all]);
-  const people = useMemo(() => listPeople(phones, dupes), [phones, dupes]);
-  const noPhone = useMemo(() => all.filter((p) => p.name && !phoneKey(p.phone)).length, [all]);
+  // Everyone with a phone, and each pass with no full phone number on its own, so a search finds every pass.
+  const loose = useMemo(() => withoutPhone(all), [all]);
+  const phones = useMemo(() => new Map([...byPhone(all), ...loose]), [all, loose]);
+  const everyone = useMemo(() => listPeople(phones, dupes), [phones, dupes]);
+  /** Those with a phone: the list, the counts and the dropdowns; a pass with no phone shows only when searched for. */
+  const people = useMemo(() => everyone.filter((p) => !isPhoneless(p.key)), [everyone]);
+  const noPhone = loose.size;
 
   const [q, setQ] = useState('');
   const query = useDeferredValue(q);
+  const [look, setLook] = useState<SearchIn>('all');
   const [onlyBroken, setOnlyBroken] = useState(false);
   /** Only those with a pass under this Incharge, in this Area or Dept (the owner, 2026-11-24); '' is anyone. */
   // ?packet=1 (a packet clicked on the Packets page) starts with that packet picked.
@@ -35,8 +41,9 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
   useEffect(() => { if (packet) window.history.replaceState(null, '', window.location.pathname); }, [packet]);
   const choices = useMemo(() => Object.fromEntries(BY.map(([k]) => [k, filterChoices(people, k)])) as Record<PeopleBy, ReturnType<typeof filterChoices>>, [people]);
   const shown = useMemo(
-    () => people.filter((p) => (!onlyBroken || p.broken > 0) && BY.every(([k]) => hasValue(p, k, picked[k])) && matchesPerson(p, query)),
-    [people, onlyBroken, picked, query],
+    () => (query.trim() ? everyone : people)
+      .filter((p) => (!onlyBroken || p.broken > 0) && BY.every(([k]) => hasValue(p, k, picked[k])) && matchesPerson(p, query, look)),
+    [everyone, people, onlyBroken, picked, query, look],
   );
   const filtered = !!(query || onlyBroken || BY.some(([k]) => picked[k]));
   const several = people.filter((p) => p.passes.length > 1).length;
@@ -55,8 +62,9 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
         Everyone with a phone number on a pass: the same number on several passes is one person. Click someone to see all their passes.
       </p>
       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <SearchTabs look={look} onLook={setLook} />
         <input
-          type="search" className={`${input} !w-72`} placeholder="Name, phone or Reg. No." aria-label="Search people"
+          type="search" className={`${input} !w-72`} placeholder={SEARCH_IN.find(([k]) => k === look)![2]} aria-label="Search people"
           value={q} onChange={(e) => setQ(e.target.value)}
         />
         {BY.map(([k, label, all]) => (k === 'packet' && !choices.packet.length && !picked.packet ? null : (
@@ -91,7 +99,7 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
           <thead className="sticky -top-4 bg-panel text-left font-condensed text-[14.5px] text-foreground/70">
             <tr>
               <th className={cell}>Name</th><th className={cell}>Phone</th><th className={cell}>Area</th><th className={cell}>Dept</th>
-              <th className={cell}>Passes</th>
+              <th className={cell}><PassListHead /></th>
             </tr>
           </thead>
           <tbody>
@@ -101,11 +109,11 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
                   <button className="text-left font-medium hover:underline" onClick={(e) => { e.stopPropagation(); setOpen(p.key); }}>{p.name || 'No name given'}</button>
                   {p.aka.length > 0 && <span className="block text-[13px] text-muted-foreground">also {p.aka.join(', ')}</span>}
                 </td>
-                <td className={`${cell} whitespace-nowrap tabular-nums`}>{p.phone}</td>
+                <td className={`${cell} whitespace-nowrap tabular-nums ${isPhoneless(p.key) ? 'text-muted-foreground' : ''}`}>{phoneLabel(p.key, p.phone)}</td>
                 <td className={cell}>{p.area}</td>
                 <td className={cell}>{p.dept}</td>
                 <td className={cell}>
-                  <PassChips passes={p.passes} dupes={dupes} />
+                  <PassList passes={p.passes} dupes={dupes} />
                 </td>
               </tr>
             ))}
@@ -114,7 +122,7 @@ export function PeopleScreen({ packet = '' }: { packet?: string }) {
       )}
       {shown.length > LIMIT && <p className="mt-2 text-[13.5px] text-muted-foreground">Showing the first {LIMIT} of {shown.length}: search to find someone else.</p>}
       {status.loaded && noPhone > 0 && (
-        <p className="mt-3 text-[13.5px] text-muted-foreground">{noPhone} {noPhone === 1 ? 'pass has' : 'passes have'} a name but no full phone number, so {noPhone === 1 ? "it isn't" : "they aren't"} matched to anyone.</p>
+        <p className="mt-3 text-[13.5px] text-muted-foreground">{noPhone} {noPhone === 1 ? 'pass has' : 'passes have'} no full phone number, so {noPhone === 1 ? "it isn't" : "they aren't"} matched to anyone: a search finds {noPhone === 1 ? 'it' : 'them'} on {noPhone === 1 ? 'its' : 'their'} own.</p>
       )}
       {open && <ProfileCard phone={open} passes={phones.get(open) ?? []} dupes={dupes} onJump={goTo} onClose={close} />}
     </div>

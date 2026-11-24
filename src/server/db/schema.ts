@@ -47,6 +47,9 @@ export interface PassesTable {
   issued_to: Generated<string>;
   printed_at: Date | null;
   given_at: Generated<Date | null>;
+  /** Who ticked Printed (Given): a user id, or null if not printed (given) or not known. */
+  printed_by: Generated<number | null>;
+  given_by: Generated<number | null>;
   /** Yes / no details ticked (FLAGS), e.g. { ferry: true }. */
   meta: Generated<PassMeta>;
   /** The packet it is handed over in ('' for none). */
@@ -81,6 +84,9 @@ export type PassRowJson = Omit<PassRow, 'printed_at' | 'given_at' | 'created_at'
   /** Missing in changes saved before Lost existed (2026-11-24). */
   lost_at?: string | null;
   copy_of?: number | null;
+  /** Missing in changes saved before Printed by existed (2026-11-24). */
+  printed_by?: number | null;
+  given_by?: number | null;
   created_at: string;
   updated_at: string;
 };

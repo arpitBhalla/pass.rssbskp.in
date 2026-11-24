@@ -236,4 +236,15 @@ export const migrations: Record<string, Migration> = {
       `).execute(db);
     },
   },
+  // Who ticked Printed and Given (the owner, 2026-11-24). Passes printed or given before: the user of the History entry that
+  // did it (its done_at is the same now() as the pass's printed_at / given_at, one transaction); none if History can't tell.
+  '0014_printed_by': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TABLE passes ADD COLUMN printed_by integer REFERENCES users (id), ADD COLUMN given_by integer REFERENCES users (id);
+        UPDATE passes p SET printed_by = c.done_by FROM changes c WHERE c.done_at = p.printed_at AND c.undone_at IS NULL;
+        UPDATE passes p SET given_by = c.done_by FROM changes c WHERE c.done_at = p.given_at AND c.undone_at IS NULL;
+      `).execute(db);
+    },
+  },
 };

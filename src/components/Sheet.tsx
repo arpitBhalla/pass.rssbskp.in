@@ -6,13 +6,14 @@ import { addedBy, useUserNames } from '@/client/users';
 import {
   type ClipboardEvent, type FocusEvent, type FormEvent, type KeyboardEvent, memo, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { blankPass, groupRuns, isGiven, isLost, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
+import { blankPass, isGiven, isLost, isMultiCell, isPrinted, planClear, ranges } from '@/lib/passes';
 import { packetNote, packetsOf } from '@/lib/packets';
 import { alsoHeld, detailsFor, type Duplicate, passLabel, phoneKey } from '@/lib/people';
 import {
   cleanField, cleanText, type Field, FIELD_LABELS, fieldLabel, fieldsFor, type Flag, FLAG_LABELS, flagsFor, fmtSerial, locksWhenPrinted, type Pass, type PassType,
   TYPE_INFO, type Values,
 } from '@/shared/types';
+import { PacketIcon } from './icons';
 
 /** Ticks (`on`) or unticks yes / no detail `f` (Ferry Sewa) of these passes. */
 export type FlagFn = (passes: Pass[], f: Flag, on: boolean) => void;
@@ -43,12 +44,11 @@ const inSpanSerial = (s: Span | null, serial: number) => !!s && serial >= s.lo &
 const inSpan = (s: Span | null, p: Pass) => inSpanSerial(s, p.serial);
 
 /**
- * One on-screen row: a pass, a collapsed series given to one incharge, an unfilled serial (not in
- * the register yet), or the blank row for the next serial.
+ * One on-screen row: a pass (each its own row: a series given to one incharge isn't folded into one, the owner,
+ * 2026-11-24), an unfilled serial (not in the register yet), or the blank row for the next serial.
  */
 type Item =
   | { kind: 'row'; key: string; p: Pass }
-  | { kind: 'group'; key: string; passes: Pass[]; open: boolean }
   | { kind: 'empty'; key: string; serial: number }
   | { kind: 'new'; key: string; serial: number };
 
@@ -95,7 +95,7 @@ const trimLines = (t: string) => t.replace(/\r/g, '').replace(/\n+$/, '');
 
 /** The passes behind a row. An unfilled row stands for a pass that doesn't exist yet. */
 const itemPasses = (type: PassType, it: Item): Pass[] =>
-  it.kind === 'row' ? [it.p] : it.kind === 'group' ? it.passes : it.kind === 'empty' ? [blankPass(type, it.serial)] : [];
+  it.kind === 'row' ? [it.p] : it.kind === 'empty' ? [blankPass(type, it.serial)] : [];
 
 /** Saves one cell for these passes. `saved` is the value the user started from. Resolves false if nothing was saved. */
 export type EditFn = (target: Pass[], key: Field, value: string, saved: string) => Promise<boolean>;
@@ -151,7 +151,6 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
   const cols = 5 + fields.length + flags.length;
   const tableMin = Object.values(COL).reduce((a, b) => a + b, 0) + fields.reduce((sum, k) => sum + (WIDTH[k] ?? FLEX_MIN), 0) + flags.length * FLAG_W;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
 
   const items = useMemo(() => {
     const out: Item[] = [];
@@ -159,13 +158,9 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     const emptiesBefore = (serial: number) => {
       for (; m < missing.length && missing[m] < serial; m++) out.push({ kind: 'empty', key: `e${missing[m]}`, serial: missing[m] });
     };
-    for (const run of groupRuns(view)) {
-      emptiesBefore(run[0].serial);
-      if (run.length === 1) { out.push({ kind: 'row', key: String(run[0].id), p: run[0] }); continue; }
-      const key = `g${run[0].id}`;
-      const open = opened.has(key);
-      out.push({ kind: 'group', key, passes: run, open });
-      if (open) for (const p of run) out.push({ kind: 'row', key: String(p.id), p });
+    for (const p of view) {
+      emptiesBefore(p.serial);
+      out.push({ kind: 'row', key: String(p.id), p });
     }
     emptiesBefore(Infinity);
     if (canAdd) {
@@ -173,15 +168,10 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       if (blankRows) for (let s = next + 1; s < next + BLANK_ROWS; s++) out.push({ kind: 'empty', key: `e${s}`, serial: s });
     }
     return out;
-  }, [view, opened, canAdd, blankRows, missing, next]);
+  }, [view, canAdd, blankRows, missing, next]);
   /** Every row's passes, an entry per row (the "+" row's pass-to-be too), for a paste or fill from row `i`. */
   const pasteRows = () => items.map((it) => (it.kind === 'new' ? [blankPass(type, it.serial)] : itemPasses(type, it)));
 
-  const toggle = (key: string) => setOpened((s) => {
-    const nextSet = new Set(s);
-    if (!nextSet.delete(key)) nextSet.add(key);
-    return nextSet;
-  });
 
   const [active, setActive] = useState<Cell | null>(null); // the cell with the cursor
   const indexOf = useMemo(() => new Map(items.map((it, i) => [it.key, i])), [items]);
@@ -213,7 +203,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     openedAt.current = type;
     if (!canAdd || !view.length) return;
     const newest = view.reduce((a, p) => (p.id > a.id ? p : a));
-    const i = items.findIndex((it) => (it.kind === 'row' ? it.p.id === newest.id : it.kind === 'group' && it.passes.includes(newest)));
+    const i = items.findIndex((it) => it.kind === 'row' && it.p.id === newest.id);
     if (i >= 0) virtualizer.scrollToIndex(i, { align: 'center' });
   }, [type, total, canAdd, view, items, virtualizer]);
 
@@ -656,7 +646,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     e.preventDefault();
     setBlock(null);
     const i = Number(el.closest('tr')!.dataset.i);
-    if (!isMultiCell(text) && items[i].kind !== 'row' && items[i].kind !== 'group') {
+    if (!isMultiCell(text) && items[i].kind !== 'row') {
       if (startEdit(el, undefined, true)) { el.value = cleanText(text); el.setSelectionRange(el.value.length, el.value.length); }
       return;
     }
@@ -703,16 +693,6 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
           dupePhone={alsoHeld(ds, 'phone') || undefined} dupeReg={alsoHeld(ds, 'vehicle_no') || undefined}
           held={isLost(it.p) ? 0 : phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
           packet={packetNotes.get(it.p.packet)} lostNote={lostNotes.get(it.p.id)}
-        />
-      );
-    }
-    if (it.kind === 'group') {
-      return (
-        <GroupRow
-          key={v.key} passes={it.passes} i={i} open={it.open} fields={fields} mark={mark}
-          selected={it.passes.every((p) => inSpan(selection, p))}
-          onToggle={() => toggle(it.key)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven} flags={flags} onFlag={onFlag}
-          queued={it.passes.every((p) => queued.has(p.serial))} packet={packetNotes.get(it.passes[0].packet)}
         />
       );
     }
@@ -829,9 +809,7 @@ const lostRow = '[&>td]:!bg-red-50/80 [&>td]:text-foreground/50';
 /** A box beside the Sr. No. of a pass in a packet (the owner, 2026-11-24); on hover, the packet: its passes and who it went to. */
 const PacketMark = ({ note }: { note: string }) => (
   <span role="img" aria-label={note} title={note} className="ml-1 inline-flex align-[-1px] text-amber-700">
-    <svg aria-hidden width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round">
-      <path d="M2 4.8 8 2l6 2.8v6.4L8 14l-6-2.8z" /><path d="m2 4.8 6 2.8 6-2.8M8 7.6V14" />
-    </svg>
+    <PacketIcon size={13} />
   </span>
 );
 const serialCls = 'font-condensed text-[16px] font-semibold tabular-nums tracking-[0.02em]';
@@ -856,6 +834,8 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
   const printed = isPrinted(p);
   const given = isGiven(p);
   const lost = isLost(p); // locked: nothing changes on it (Undo in History takes the Lost back)
+  const names = useUserNames();
+  const by = (id: number | null) => (id !== null && names.get(id) ? ` by ${names.get(id)}` : '');
   const cell = (k: Field) => {
     const c = fields.indexOf(k);
     const warn = k === 'phone' ? dupePhone : k === 'vehicle_no' ? dupeReg : undefined;
@@ -881,13 +861,13 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
       <td className={`${td} text-center`}>
         <TickBox
           col="printed" checked={printed} disabled={lost} onChange={(v) => onPrinted([p], v)}
-          title={lost ? 'LOST: locked. Its duplicate is printed instead.' : printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}. Locked. Untick to change it or print it again.` : 'Not printed yet'}
+          title={lost ? 'LOST: locked. Its duplicate is printed instead.' : printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}${by(p.printed_by)}. Locked. Untick to change it or print it again.` : 'Not printed yet'}
         />
       </td>
       <td className={`${td} text-center`}>
         <TickBox
           col="given" checked={given} disabled={lost || (!given && !printed)} onChange={(v) => onGiven([p], v)}
-          title={given ? `Given ${new Date(p.given_at!).toLocaleString()}. Untick if it wasn't handed over.` : printed ? 'Not given yet: tick when the pass is handed over' : 'Not printed yet: print it first, then tick Given when it is handed over'}
+          title={given ? `Given ${new Date(p.given_at!).toLocaleString()}${by(p.given_by)}. Untick if it wasn't handed over.` : printed ? 'Not given yet: tick when the pass is handed over' : 'Not printed yet: print it first, then tick Given when it is handed over'}
         />
       </td>
       {after(fields).map(cell)}
@@ -916,63 +896,6 @@ const HeldCount = ({ n, warn, onClick }: { n: number; warn: boolean; onClick: ()
 );
 
 /** "0500–04", "0598–603": the second serial without the digits it shares with the first (at least two kept). */
-function shortRange(lo: number, hi: number) {
-  const a = fmtSerial(lo), b = fmtSerial(hi);
-  let same = 0;
-  while (same < a.length && a.length === b.length && a[same] === b[same]) same++;
-  return `${a}–${b.slice(Math.min(same, b.length - 2))}`;
-}
-
-/** A series given to one incharge, shown as "0003–17". Edits apply to every pass in it. */
-function GroupRow({ passes, i, open, fields, mark, selected, onToggle, onEdit, onPrinted, onGiven, flags, onFlag, queued, packet }: {
-  passes: Pass[]; i: number; open: boolean; fields: readonly Field[]; mark?: Mark; selected: boolean; onToggle: () => void;
-  onEdit: EditFn; onPrinted: SheetProps['onPrinted']; onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; queued: boolean; packet?: string;
-}) {
-  const first = passes[0];
-  const printed = isPrinted(first);
-  const given = isGiven(first);
-  const cell = (k: Field) => {
-    const c = fields.indexOf(k);
-    return (
-      <td key={k} data-c={c} className={cellTd(c, mark)}>
-        <CellInput key={first[k]} target={passes} k={k} saved={first[k]} locked={printed && locksWhenPrinted(k)} onEdit={onEdit} />
-        {mark?.handle === c && <FillHandle />}
-      </td>
-    );
-  };
-  return (
-    <tr data-i={i} className={rowCls(selected, queued ? inQueue : '[&>td]:bg-sand-50')}>
-      <td
-        data-pick className={`${td} ${margin} ${serialCls} ${rowHead} relative !pr-1 !pl-0 cursor-pointer select-none ${selected ? picked : ''}`}
-        title={`${fmtSerial(first.serial)}–${fmtSerial(passes[passes.length - 1].serial)}: ${passes.length} passes. Click to select them.`}
-      >
-        <button
-          className="w-4 text-center text-[13px] text-primary hover:bg-primary/10" onClick={onToggle}
-          title={open ? 'Collapse' : `Show each of the ${passes.length} passes`}
-        >
-          {open ? '▾' : '▸'}
-        </button>
-        {queued && <QueuedMark />}<span className="text-[14px]">{shortRange(first.serial, passes[passes.length - 1].serial)}</span>
-        {packet && <PacketMark note={packet} />}
-      </td>
-      {before(fields).map(cell)}
-      {flags.map((f) => <FlagCell key={f} f={f} passes={passes} printed={printed} onFlag={onFlag} />)}
-      <td className={`${td} text-center`}>
-        <TickBox col="printed" checked={printed} onChange={(v) => onPrinted(passes, v)} title={printed ? 'Printed: locked. Untick to change them or print them again.' : 'Not printed yet'} />
-      </td>
-      <td className={`${td} text-center`}>
-        <TickBox
-          col="given" checked={given} disabled={!given && !printed} onChange={(v) => onGiven(passes, v)}
-          title={given ? 'Given. Untick if they weren\'t handed over.' : printed ? 'Not given yet: tick when these passes are handed over' : 'Not printed yet: print them first, then tick Given when they are handed over'}
-        />
-      </td>
-      {after(fields).map(cell)}
-      <td className={`${td} text-[13.5px] text-muted-foreground`}>{addedSpan(passes)}</td>
-      <AddedBy ids={passes.map((p) => p.created_by)} />
-    </tr>
-  );
-}
-
 /**
  * A serial not in the register yet: an unfilled row, or (`last`) the row for the next serial at the
  * bottom. Type across it (Tab between cells); the pass is added when you leave the row, with
@@ -1088,18 +1011,6 @@ const shortDate = (iso: string) => dayFmt.format(new Date(iso));
 function AddedBy({ ids }: { ids: number[] }) {
   const who = addedBy(ids, useUserNames());
   return <td className={`${td} text-[13.5px] text-muted-foreground`} title={who}>{who}</td>;
-}
-
-function addedSpan(passes: Pass[]) {
-  let lo = passes[0].created_at;
-  let hi = lo;
-  for (const p of passes) {
-    if (p.created_at < lo) lo = p.created_at;
-    if (p.created_at > hi) hi = p.created_at;
-  }
-  const a = shortDate(lo);
-  const b = shortDate(hi);
-  return a === b ? a : `${a}–${b}`;
 }
 
 /** A yes / no detail (Ferry Sewa) of a pass, or of every pass in a series. Printed on the pass, so locked once printed. */

@@ -2,7 +2,7 @@ import { describe as group, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
 import { blankPass } from './passes';
 import {
-  alsoHeld, byPhone, describe, detailsFor, duplicatesOf, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey,
+  alsoHeld, byPhone, describe, detailsFor, duplicatesOf, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey, type SearchIn, withoutPhone,
 } from './people';
 
 let nextId = 1;
@@ -99,7 +99,7 @@ group('the People list', () => {
   const navneet = [
     pass('mobile-pandal', 12, { name: 'Navneet Gumber', phone: '9810007919' }),
     pass('mobile-non-pandal', 2, { name: 'N. Gumber', phone: '+91 98100 07919' }),
-    pass('bike-pandal', 3, { name: 'Navneet Gumber', phone: '9810007919', vehicle_no: 'HR-26CD-1001' }),
+    pass('bike-pandal', 3, { name: 'Navneet Gumber', phone: '9810007919', vehicle_no: 'HR-26CD-1001', incharge: 'Raj  Kumar Arora', area: 'Sirsa' }),
   ];
   const all = [...navneet, pass('mobile-pandal', 1, { name: 'Amrit Kaur', phone: '9000000001' }), pass('mobile-pandal', 2, { phone: '9000000002' }), pass('mobile-pandal', 3, { name: 'No Phone' })];
   const people = listPeople(byPhone(all), findDuplicates(all));
@@ -116,6 +116,31 @@ group('the People list', () => {
     expect(find('hr26cd')).toEqual(['Navneet Gumber']);
     expect(find('90000')).toEqual(['Amrit Kaur', '90000 00002']);
     expect(find('')).toHaveLength(3);
+    // The Incharge or Area (centre) on any of their passes.
+    expect(find('raj kumar')).toEqual(['Navneet Gumber']);
+    expect(find('SIRSA')).toEqual(['Navneet Gumber']);
+  });
+  it('finds a pass with no full phone number too, on its own', () => {
+    const nophone = [...all, pass('gate3-entry', 5, { name: 'Aarti Kamra', phone: '92551', vehicle_no: 'HR-26AB-1234' }), pass('gate3-entry', 6, {})];
+    const everyone = listPeople(new Map([...byPhone(nophone), ...withoutPhone(nophone)]), findDuplicates(nophone));
+    const find = (q: string, look?: SearchIn) => everyone.filter((p) => matchesPerson(p, q, look)).map((p) => p.name);
+    expect(find('kamra')).toEqual(['Aarti Kamra']);
+    expect(find('925')).toEqual(['Aarti Kamra']); // the digits it has
+    expect(find('1234', 'vehicle')).toEqual(['Aarti Kamra']);
+    expect(everyone).toHaveLength(5); // the blank pass isn't listed
+    expect(everyone.find((p) => p.name === 'Aarti Kamra')).toMatchObject({ phone: '92551', passes: [{ serial: 5 }] });
+  });
+  it('a search tab looks only there; Vehicle No. finds any part of a Reg. No.', () => {
+    const find = (q: string, look: SearchIn) => people.filter((p) => matchesPerson(p, q, look)).map((p) => p.name || p.phone);
+    expect(find('1001', 'vehicle')).toEqual(['Navneet Gumber']); // a number: the phone under All
+    expect(find('26 cd', 'vehicle')).toEqual(['Navneet Gumber']);
+    expect(find('gumber', 'vehicle')).toEqual([]);
+    expect(find('sirsa', 'area')).toEqual(['Navneet Gumber']);
+    expect(find('sirsa', 'person')).toEqual([]);
+    expect(find('raj', 'incharge')).toEqual(['Navneet Gumber']);
+    expect(find('raj', 'area')).toEqual([]);
+    expect(find('07919', 'person')).toEqual(['Navneet Gumber']);
+    expect(find('amrit', 'person')).toEqual(['Amrit Kaur']);
   });
   it('filters by Incharge or Area: any of their passes, however it is written', () => {
     const list = [

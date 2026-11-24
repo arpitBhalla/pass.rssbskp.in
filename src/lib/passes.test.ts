@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cleanField, formatPhone, formatRegNo, type Pass, type PassType } from '@/shared/types';
 import { exportCSV, exportTable, planImport } from './csv';
 import {
-  blankPass, cleanFill, filterPasses, groupRuns, hidePasses, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
+  blankPass, cleanFill, filterPasses, hidePasses, isMultiCell, missingSerials, NO_FILTERS, planClear, planDelete, planFill, planGiven, planPaste, planUnprint,
   cardsLabel, forPrint, planLost, planPrint, planQueue, ranges, readyToPrint, unfilledOf,
 } from './passes';
 import { findDuplicates } from './people';
@@ -12,7 +12,7 @@ let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
   return {
     id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '', packet: '',
-    printed_at: null, given_at: null, meta: {}, lost_at: null, copy_of: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
+    printed_at: null, given_at: null, printed_by: null, given_by: null, meta: {}, lost_at: null, copy_of: null, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
   };
 }
 const sheet = (from: number, to: number, extra: Partial<Pass> = {}) =>
@@ -34,10 +34,9 @@ describe('lost passes', () => {
     expect(plan.set).toEqual([{ id: s[0].id, lost: true, expect: { lost: false, printed: true } }]);
     expect(plan.create).toEqual([{ type: 'mobile-pandal', serial: 6, values: { name: 'AMIT', phone: '9000000011', issued_to: 'RAJ' }, flags: {}, copy_of: s[0].id }]);
   });
-  it('a lost pass shows on its own, and its duplicate does not repeat its phone', () => {
+  it("a lost pass's duplicate does not repeat its phone", () => {
     const a = pass(1, { name: 'A', phone: '9000000011', printed_at: printed, lost_at: printed, incharge: 'X' });
     const b = pass(2, { name: 'A', phone: '9000000011', copy_of: a.id, incharge: 'X' });
-    expect(groupRuns([a, pass(2, { name: 'A', phone: '9000000011', incharge: 'X', printed_at: printed })]).map((r) => r.length)).toEqual([1, 1]);
     expect(findDuplicates([a, b]).size).toBe(0);
     expect(findDuplicates([{ ...a, lost_at: null }, b]).size).toBe(2);
   });
@@ -59,8 +58,6 @@ describe('Ferry Sewa (Gate 3 Hospital)', () => {
     // A sheet without it: nothing to tick.
     expect(planFill([pass(1)], 'mobile-pandal', '1', '1', { name: 'A' }, undefined, { ferry: true }).set[0]).not.toHaveProperty('flags');
     expect(hidePasses([pass(5, { meta: { ferry: true } }, H)], H, ['empty'])).toHaveLength(1);
-    // A series with and without it doesn't collapse into one row.
-    expect(groupRuns([pass(7, { incharge: 'X' }, H), pass(8, { incharge: 'X', meta: { ferry: true } }, H)])).toHaveLength(2);
   });
   it('prints with the pass and is checked when marking printed; exported as a column', () => {
     const p = pass(1, { name: 'A', dept: 'D', area: 'R', phone: '9', vehicle_no: 'HR-26DK-4417', meta: { ferry: true } }, H);
@@ -215,14 +212,6 @@ describe('paste from Excel', () => {
 });
 
 describe('sheet', () => {
-  it('groups a series given to one incharge; a name or printing breaks it', () => {
-    const s = sheet(1, 6, { incharge: 'RAMESH' });
-    s[2] = { ...s[2], name: 'AMIT' };
-    s[5] = { ...s[5], printed_at: '2026-01-01T00:00:00Z' };
-    expect(groupRuns(s).map((r) => r.length)).toEqual([2, 1, 2, 1]);
-    expect(groupRuns(sheet(1, 3)).every((r) => r.length === 1)).toBe(true); // nobody given: no groups
-  });
-
   it('search: a number finds that serial, text finds names', () => {
     const s = [pass(105, { name: 'AMIT' }), pass(5, { phone: '9810512345' })];
     expect(filterPasses(s, { ...NO_FILTERS, q: '105' }).map((p) => p.serial)).toEqual([105]);
