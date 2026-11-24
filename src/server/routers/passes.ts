@@ -26,7 +26,8 @@ const applyInput = z.object({
     given: z.boolean().optional(),
     claim: z.boolean().optional(),
     flags,
-    expect: values.extend({ printed: z.boolean().optional(), given: z.boolean().optional(), flags }),
+    packet: z.string().max(200).optional(),
+    expect: values.extend({ printed: z.boolean().optional(), given: z.boolean().optional(), flags, packet: z.string().max(200).optional() }),
   })).max(MAX_BATCH).optional(),
   create: z.array(z.object({
     type: z.enum(PASS_TYPES),

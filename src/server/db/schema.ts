@@ -48,6 +48,8 @@ export interface PassesTable {
   given_at: Generated<Date | null>;
   /** Yes / no details ticked (FLAGS), e.g. { ferry: true }. */
   meta: Generated<PassMeta>;
+  /** The packet it is handed over in ('' for none). */
+  packet: Generated<string>;
   created_at: Generated<Date>;
   created_by: number;
   updated_at: Generated<Date>;
@@ -69,6 +71,8 @@ export type PassRowJson = Omit<PassRow, 'printed_at' | 'given_at' | 'created_at'
   given_at?: string | null;
   /** Missing in changes saved before meta existed (2026-11-22). */
   meta?: PassMeta;
+  /** Missing in changes saved before packets existed (2026-11-24). */
+  packet?: string;
   created_at: string;
   updated_at: string;
 };

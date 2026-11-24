@@ -3,7 +3,7 @@ import { useCallback, useEffect } from 'react';
 import { blankPass, ranges } from '@/lib/passes';
 import {
   type ApplyRequest, type ApplyResult, cleanField, type DeleteRequest, type DeleteResult, type Field, fmtSerial, type Pass, type PassType, TYPE_INFO, type Values,
-  withFlags,
+  withFlags, cleanPacket,
 } from '@/shared/types';
 import { FIRST_TEMP_ID, store, type UndoEntry } from './store';
 import { toast } from './toast';
@@ -161,6 +161,7 @@ function preview(req: ApplyRequest) {
     if (op.printed !== undefined) q.printed_at = op.printed ? (p.printed_at ?? now) : null;
     if (op.given !== undefined) q.given_at = op.given ? (p.given_at ?? now) : null;
     if (op.flags) q.meta = withFlags(p.meta, op.flags);
+    if (op.packet !== undefined) q.packet = cleanPacket(op.packet);
     rows.push(q);
   }
   const added: { id: number; type: PassType; serial: number }[] = [];

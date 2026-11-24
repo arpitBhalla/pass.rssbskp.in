@@ -181,8 +181,8 @@ export function listPeople(phones: ReadonlyMap<string, Pass[]>, dupes: ReadonlyM
   return out.sort((a, b) => (!a.name ? 1 : 0) - (!b.name ? 1 : 0) || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.key.localeCompare(b.key));
 }
 
-/** The People page's other filters (the owner, 2026-11-24: "filter by in charge or area", "also add department dropdown"). */
-export type PeopleBy = 'incharge' | 'area' | 'dept';
+/** The People page's other filters (the owner, 2026-11-24: "filter by in charge or area", "also add department dropdown", and packet). */
+export type PeopleBy = 'incharge' | 'area' | 'dept' | 'packet';
 const valueOf = (v: string) => v.trim().replace(/\s+/g, ' ');
 
 /**
@@ -206,7 +206,7 @@ export function filterChoices(people: readonly Person[], k: PeopleBy): { key: st
   }
   return [...count]
     .map(([key, n]) => ({ key, label: [...spellings.get(key)!].sort((a, b) => b[1] - a[1])[0][0], people: n }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true }));
 }
 
 /** Someone with a pass whose Incharge (Area, Dept) is this one (a filterChoices key); '' is anyone. */

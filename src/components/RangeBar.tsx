@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
+import { packetScan } from '@/client/packetScan';
+import { canPack } from '@/lib/packets';
 import { usePaper } from '@/client/paper';
 import { printQueue, usePrintQueue } from '@/client/printQueue';
 import { toast } from '@/client/toast';
@@ -75,6 +77,30 @@ export function RangeBar({ type, sheet, range, onClear }: {
     const have = new Set(queued.map((x) => x.serial));
     return nCards && print ? print.cards.filter((c) => !have.has(c.serial)) : [];
   }, [queued, nCards, print]);
+  /* ----- packet ----- */
+  // The picked passes printed and not given yet, for the next packet (Packets page), like the print queue (the owner, 2026-11-24).
+  const packetList = packetScan.use();
+  const inRegister = useMemo(() => {
+    if (!hasRange) return [];
+    const lo = parseSerial(range.from);
+    const hi = Number.isNaN(parseSerial(range.to)) ? lo : parseSerial(range.to);
+    const only = range.only && new Set(range.only);
+    return sheet.filter((p) => p.serial >= Math.min(lo, hi) && p.serial <= Math.max(lo, hi) && (!only || only.has(p.serial)) && canPack(p));
+  }, [sheet, hasRange, range]);
+  const inPacket = useMemo(() => {
+    const have = new Set(packetList.filter((x) => x.type === type).map((x) => x.serial));
+    return inRegister.filter((p) => have.has(p.serial));
+  }, [packetList, inRegister, type]);
+  const toPacket = inRegister.filter((p) => !inPacket.includes(p));
+  const addToPacket = useCallback(() => {
+    const added = packetScan.add(toPacket);
+    if (added) toast(`Added ${nPasses(added)} to the next packet: ${packetScan.get().length} in it. Tag them on the Packets page.`);
+  }, [toPacket]);
+  const removeFromPacket = useCallback(() => {
+    packetScan.remove(inPacket);
+    toast(`Took ${nPasses(inPacket.length)} out of the next packet: ${packetScan.get().length} in it.`);
+  }, [inPacket]);
+
   /** Keeps them for the print queue (top right), to print with passes of the same size from other sheets. */
   const addToQueue = useCallback(() => {
     const added = printQueue.add(toQueue.map((c) => ({ type: c.type, serial: c.serial })));
@@ -191,6 +217,21 @@ export function RangeBar({ type, sheet, range, onClear }: {
               {toQueue.length > 0 && queued.length > 0 && (
                 <button className="text-[13.5px] text-primary hover:underline" onClick={removeFromQueue} title={`Take the ${queued.length} already queued out of the print queue`}>
                   {queued.length} queued: remove
+                </button>
+              )}
+              {/* For the next packet (Packets page): tagged there, then handed over together. */}
+              {toPacket.length || !inPacket.length ? (
+                <button
+                  className={btn} disabled={!toPacket.length} onClick={addToPacket}
+                  title={toPacket.length
+                    ? 'Put them in the next packet: tag it on the Packets page, then hand it over (Issued To and Given on all at once). Only printed passes not given yet go in.'
+                    : 'Only printed passes not given yet go in a packet: none of these is.'}
+                >
+                  {toPacket.length ? `Add ${toPacket.length} to packet` : 'Add to packet'}
+                </button>
+              ) : (
+                <button className={btn} onClick={removeFromPacket} title="Take them out of the next packet (not tagged yet).">
+                  Remove {inPacket.length} from packet
                 </button>
               )}
               {print && !nCards && !print.unfilled.length && print.printed.length > 0 && (

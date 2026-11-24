@@ -10,7 +10,7 @@ import { buildReport, reportCSV } from './report';
 let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
   return {
-    id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '',
+    id: ++id, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '', packet: '',
     printed_at: null, given_at: null, meta: {}, created_at: '2026-11-10T06:00:00.000Z', created_by: 1, updated_by: 1, rev: 1, ...extra,
   };
 }

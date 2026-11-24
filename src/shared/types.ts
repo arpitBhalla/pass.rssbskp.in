@@ -227,6 +227,11 @@ export function cleanField(k: Field, v: string): string {
   return (k === 'vehicle_no' ? formatRegNo(s) : k === 'phone' ? formatPhone(s) : s).slice(0, MAX_TEXT);
 }
 
+/** A packet tag is at most this long. */
+export const MAX_PACKET = 40;
+/** A packet tag as saved: like a detail, in capitals with spaces tidied ("p 12 " is "P 12"). */
+export const cleanPacket = (v: string) => cleanText(v).replace(/\s+/g, ' ').toUpperCase().slice(0, MAX_PACKET);
+
 /** A pass as the browser sees it. */
 export interface Pass {
   id: number;
@@ -249,6 +254,11 @@ export interface Pass {
   given_at: string | null;
   /** Yes / no details ticked (FLAGS), e.g. { ferry: true }. */
   meta: PassMeta;
+  /**
+   * The packet it is handed over in ('' for none): passes for one incharge, scanned into a packet on the Packets page and
+   * handed over together (the owner, 2026-11-24). Not printed on the pass.
+   */
+  packet: string;
   /** ISO time the pass entered the register (when its range was given, or it was added). */
   created_at: string;
   /** User id of the last change. */
@@ -280,7 +290,9 @@ export interface SetOp {
   /** Filling in a completely empty pass (Give with no range): Added by becomes whoever saves it. Refused unless it is still empty. */
   claim?: boolean;
   flags?: Flags;
-  expect: Values & { printed?: boolean; given?: boolean; flags?: Flags };
+  /** Put it in this packet ('' takes it out). */
+  packet?: string;
+  expect: Values & { printed?: boolean; given?: boolean; flags?: Flags; packet?: string };
 }
 
 /** Create a pass. Fails if that serial already exists in the sheet (unless the request is `next`). */
@@ -293,7 +305,7 @@ export interface CreateOp {
   flags?: Flags;
 }
 
-export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import'] as const;
+export const ACTIONS = ['give', 'given', 'edit', 'paste', 'print', 'import', 'pack'] as const;
 export type Action = (typeof ACTIONS)[number];
 
 /**

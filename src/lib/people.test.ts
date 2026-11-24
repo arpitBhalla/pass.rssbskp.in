@@ -134,4 +134,14 @@ group('the People list', () => {
     expect(ps.filter((p) => hasValue(p, 'area', ''))).toHaveLength(3);
     expect(filterChoices(ps, 'dept')).toEqual([]);
   });
+  it('filters by packet: "2" before "10"', () => {
+    const list = [
+      pass('mobile-pandal', 1, { name: 'A', phone: '9000000011', packet: '10' }),
+      pass('bike-pandal', 1, { name: 'A', phone: '9000000011', packet: '2' }),
+      pass('mobile-pandal', 2, { name: 'B', phone: '9000000012', packet: '2' }),
+    ];
+    const ps = listPeople(byPhone(list), findDuplicates(list));
+    expect(filterChoices(ps, 'packet').map((c) => [c.label, c.people])).toEqual([['2', 2], ['10', 1]]);
+    expect(ps.filter((p) => hasValue(p, 'packet', '10')).map((p) => p.name)).toEqual(['A']);
+  });
 });

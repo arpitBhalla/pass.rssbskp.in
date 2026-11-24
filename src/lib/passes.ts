@@ -31,7 +31,7 @@ export const passRanges = (list: Pass[]) => ranges(list.map((p) => p.serial));
 
 /** Stands in for a serial that isn't in the register yet (an unfilled row). Its id is negative. */
 export const blankPass = (type: PassType, serial: number): Pass => ({
-  id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '',
+  id: -serial, type, serial, name: '', dept: '', area: '', phone: '', vehicle: '', vehicle_no: '', incharge: '', issued_to: '', packet: '',
   printed_at: null, given_at: null, meta: {}, created_at: '', created_by: 0, updated_by: 0, rev: 0,
 });
 
@@ -142,7 +142,7 @@ export function groupRuns(view: Pass[]): Pass[][] {
     const run = runs[runs.length - 1];
     const prev = run?.[run.length - 1];
     const joins = prev && p.incharge && p.serial === prev.serial + 1 && isPrinted(prev) === isPrinted(p) && isGiven(prev) === isGiven(p)
-      && FIELDS.every((k) => prev[k] === p[k]) && sameMeta(prev.meta, p.meta);
+      && FIELDS.every((k) => prev[k] === p[k]) && sameMeta(prev.meta, p.meta) && prev.packet === p.packet;
     if (joins) run.push(p);
     else runs.push([p]);
   }

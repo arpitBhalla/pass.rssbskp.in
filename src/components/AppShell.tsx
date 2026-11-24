@@ -72,6 +72,7 @@ export function AppShell({ user, children }: { user: User; children: ReactNode }
   const logout = useMutation(trpc.auth.logout.mutationOptions({ onSettled: () => window.location.assign('/login') }));
   const pages = [
     { href: '/people', label: 'People' },
+    { href: '/packets', label: 'Packets' },
     { href: '/report', label: 'Report' },
     { href: '/history', label: 'History' },
     ...(user.is_admin ? [{ href: '/users', label: 'Users' }, { href: '/settings', label: 'Settings' }] : []),

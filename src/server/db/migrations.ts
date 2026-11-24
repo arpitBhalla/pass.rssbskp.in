@@ -217,4 +217,13 @@ export const migrations: Record<string, Migration> = {
       `).execute(db);
     },
   },
+  // Packets (the owner, 2026-11-24): the passes for one incharge, scanned into a packet and handed over together.
+  '0012_packet': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`
+        ALTER TABLE passes ADD COLUMN packet text NOT NULL DEFAULT '' CHECK (length(packet) <= 40);
+        CREATE INDEX passes_packet_idx ON passes (packet) WHERE packet <> '';
+      `).execute(db);
+    },
+  },
 };

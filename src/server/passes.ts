@@ -4,21 +4,21 @@ import { type Kysely, type Transaction, sql } from 'kysely';
 import {
   type ApplyRequest, type ApplyResult, type Change, type CreateOp, type Field, FIELD_LABELS, FIELDS, fieldsFor, fmtSerial, cleanField,
   type DeleteRequest, type DeleteResult, FLAG_LABELS, FLAGS, type Flags, flagsFor, locksWhenPrinted, MAX_BATCH, MAX_SERIAL, type Pass, type PassMeta,
-  type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values, withFlags,
+  type PassType, type SetOp, type SyncResult, TYPE_INFO, type UndoResult, type Values, withFlags, cleanPacket,
 } from '@/shared/types';
 import type { ChangeBefore, Database, PassRow, PassRowJson } from './db/schema';
 
 const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message });
 const conflict = (message: string) => new TRPCError({ code: 'CONFLICT', message });
 
-const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to', 'printed_at', 'given_at', 'meta', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
+const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to', 'printed_at', 'given_at', 'meta', 'packet', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
 
 export function toPass(r: Pick<PassRow, (typeof PASS_COLUMNS)[number]>): Pass {
   return {
     id: r.id, type: r.type, serial: r.serial, name: r.name, dept: r.dept, area: r.area, phone: r.phone,
-    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, issued_to: r.issued_to, printed_at: iso(r.printed_at), given_at: iso(r.given_at), meta: r.meta ?? {}, created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
+    vehicle: r.vehicle, vehicle_no: r.vehicle_no, incharge: r.incharge, issued_to: r.issued_to, printed_at: iso(r.printed_at), given_at: iso(r.given_at), meta: r.meta ?? {}, packet: r.packet ?? '', created_at: iso(r.created_at)!, created_by: r.created_by, updated_by: r.updated_by, rev: r.rev,
   };
 }
 
@@ -102,7 +102,7 @@ const ticked = (meta: PassMeta | null | undefined, f: string) => !!meta?.[f as k
  * pass to create already exists.
  */
 export async function applyChange(db: Kysely<Database>, userId: number, req: ApplyRequest): Promise<ApplyResult> {
-  const set: SetOp[] = (req.set ?? []).map((o) => ({ ...o, values: cleanValues(o.values) }));
+  const set: SetOp[] = (req.set ?? []).map((o) => ({ ...o, values: cleanValues(o.values), ...(o.packet !== undefined && { packet: cleanPacket(o.packet) }) }));
   const create: CreateOp[] = (req.create ?? []).map((o) => ({ ...o, values: cleanValues(o.values) }));
   if (!set.length && !create.length) throw bad('Nothing to save.');
   if (set.length + create.length > MAX_BATCH) throw bad(`Please do at most ${MAX_BATCH} passes at a time.`);
@@ -128,16 +128,19 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       const stale: PassRow[] = [];
       const locked: PassRow[] = [];
       const unprinted: PassRow[] = [];
+      const unpackable: PassRow[] = [];
       const updates: Record<string, unknown>[] = [];
       for (const op of set) {
         const row = byId.get(op.id);
         if (!row) throw conflict('Some of these passes were removed meanwhile. The sheet has been refreshed.');
         const isStale = Object.entries(op.expect).some(([k, v]) =>
           k === 'printed' ? (row.printed_at !== null) !== v : k === 'given' ? (row.given_at !== null) !== v
-            : k === 'flags' ? Object.entries(v as Flags).some(([f, on]) => ticked(row.meta, f) !== on) : row[k as Field] !== v,
+            : k === 'flags' ? Object.entries(v as Flags).some(([f, on]) => ticked(row.meta, f) !== on)
+              : k === 'packet' ? row.packet !== cleanPacket(v as string) : row[k as Field] !== v,
         );
         // Taking a completely empty pass: someone may have started filling it in meanwhile.
-        const filled = row.printed_at !== null || row.given_at !== null || FIELDS.some((k) => row[k] !== '') || Object.keys(row.meta ?? {}).length > 0;
+        const filled = row.printed_at !== null || row.given_at !== null || FIELDS.some((k) => row[k] !== '') || Object.keys(row.meta ?? {}).length > 0
+          || row.packet !== '';
         if (isStale || (op.claim && filled)) { stale.push(row); continue; }
         const values = op.values ?? {};
         // A printed pass can't change until Printed is unticked (in a separate step), except who it was issued to.
@@ -145,10 +148,13 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         const differs = (Object.keys(values) as Field[]).some((k) => locksWhenPrinted(k) && row[k] !== values[k])
           || FLAGS.some((f) => ticked(row.meta, f) !== ticked(meta, f)); // a tick prints on the pass
         if (row.printed_at !== null && differs) { locked.push(row); continue; }
+        // Only a printed pass not given yet goes in a packet (the owner, 2026-11-24); taking one out is always allowed.
+        if (op.packet && op.packet !== row.packet && (row.printed_at === null || row.given_at !== null)) { unpackable.push(row); continue; }
         // A pass is printed first, then handed over: Given needs Printed (unticking either is always allowed).
         if (op.given && row.given_at === null && !(op.printed ?? row.printed_at !== null)) { unprinted.push(row); continue; }
         checkFields(row.type, values, op.flags);
-        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null, claim: !!op.claim, meta };
+        // The packet a pass goes in may change once printed: packing comes after printing.
+        const merged: Record<string, unknown> = { id: row.id, printed: op.printed ?? null, given: op.given ?? null, claim: !!op.claim, meta, packet: op.packet ?? row.packet };
         for (const k of FIELDS) merged[k] = values[k] ?? row[k];
         updates.push(merged);
       }
@@ -158,6 +164,9 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       }
       if (locked.length) {
         throw bad(`${serialList(locked.map((r) => r.serial))} ${locked.length === 1 ? 'is' : 'are'} printed and can't be changed. Untick Printed first.`);
+      }
+      if (unpackable.length) {
+        throw bad(`${serialList(unpackable.map((r) => r.serial))} can't go in a packet: only printed passes not given yet do.`);
       }
       const unprintedNew = create.filter((c) => c.given && !c.printed);
       if (unprinted.length || unprintedNew.length) {
@@ -172,10 +181,10 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
               issued_to = v.issued_to,
               printed_at = CASE WHEN v.printed IS NULL THEN p.printed_at WHEN v.printed THEN coalesce(p.printed_at, now()) ELSE NULL END,
               given_at = CASE WHEN v.given IS NULL THEN p.given_at WHEN v.given THEN coalesce(p.given_at, now()) ELSE NULL END,
-              created_by = CASE WHEN v.claim THEN ${userId} ELSE p.created_by END, meta = v.meta,
+              created_by = CASE WHEN v.claim THEN ${userId} ELSE p.created_by END, meta = v.meta, packet = v.packet,
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(updates)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean, claim boolean, meta jsonb)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed boolean, given boolean, claim boolean, meta jsonb, packet text)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -307,9 +316,10 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
               incharge = v.incharge, issued_to = coalesce(v.issued_to, ''), -- empty in changes saved before Issued To existed
               printed_at = v.printed_at, given_at = v.given_at, created_by = coalesce(v.created_by, p.created_by),
               meta = coalesce(v.meta, p.meta), -- kept in changes saved before meta existed
+              packet = coalesce(v.packet, p.packet), -- and before packets existed
               updated_at = now(), updated_by = ${userId}, rev = ${rev}
             FROM jsonb_to_recordset(${JSON.stringify(beforeRows)}::jsonb)
-              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz, created_by int, meta jsonb)
+              AS v(id int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text, printed_at timestamptz, given_at timestamptz, created_by int, meta jsonb, packet text)
             WHERE p.id = v.id
             RETURNING p.*`.execute(trx)).rows
         : [];
@@ -389,13 +399,13 @@ async function putBack(trx: Transaction<Database>, userId: number, rev: number, 
     throw conflict(`Can't undo: ${TYPE_INFO[taken[0].type].label} ${serialList(taken.map((t) => t.serial))} ${taken.length === 1 ? 'was' : 'were'} added again since.`);
   }
   const back = (await sql<PassRow>`
-    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, meta, created_at, created_by, updated_by, rev)
+    INSERT INTO passes (id, type, serial, name, dept, area, phone, vehicle, vehicle_no, incharge, issued_to, printed_at, given_at, meta, packet, created_at, created_by, updated_by, rev)
     OVERRIDING SYSTEM VALUE
     SELECT v.id, v.type::pass_type, v.serial, v.name, v.dept, v.area, v.phone, v.vehicle, v.vehicle_no, v.incharge, coalesce(v.issued_to, ''),
-           v.printed_at, v.given_at, coalesce(v.meta, '{}'), v.created_at, v.created_by, ${userId}, ${rev}
+           v.printed_at, v.given_at, coalesce(v.meta, '{}'), coalesce(v.packet, ''), v.created_at, v.created_by, ${userId}, ${rev}
     FROM jsonb_to_recordset(${json}::jsonb)
       AS v(id int, type text, serial int, name text, dept text, area text, phone text, vehicle text, vehicle_no text, incharge text, issued_to text,
-           printed_at timestamptz, given_at timestamptz, meta jsonb, created_at timestamptz, created_by int)
+           printed_at timestamptz, given_at timestamptz, meta jsonb, packet text, created_at timestamptz, created_by int)
     RETURNING *`.execute(trx)).rows;
   await trx.deleteFrom('deleted_passes').where('id', 'in', rows.map((r) => r.id)).execute();
   return back;

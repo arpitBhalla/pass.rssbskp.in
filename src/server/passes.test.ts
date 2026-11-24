@@ -135,6 +135,37 @@ describe('apply', () => {
     expect(after).toMatchObject({ name: 'AMIT', printed_at: null });
   });
 
+  it('packets: printed passes are tagged, handed over together (Issued To and Given), and each step undone', async () => {
+    const made = (await applyChange(db, ramesh, give(1, 3, 'GURPREET'))).rows;
+    await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: made.map((p) => ({ id: p.id, printed: true, expect: { printed: false } })) });
+    const pack = await applyChange(db, ramesh, {
+      action: 'pack', summary: 'Packet 1', set: made.map((p) => ({ id: p.id, packet: ' p 1 ', expect: { packet: '' } })),
+    });
+    expect(pack.rows.map((p) => p.packet)).toEqual(['P 1', 'P 1', 'P 1']);
+    expect((await syncSince(db, 0)).rows.every((p) => p.packet === 'P 1')).toBe(true);
+    // Another desk moved one meanwhile: refused.
+    await expect(applyChange(db, suresh, { action: 'pack', summary: 'Packet 2', set: [{ id: made[0].id, packet: '2', expect: { packet: '' } }] }))
+      .rejects.toThrow(/just changed/);
+    const handed = await applyChange(db, ramesh, {
+      action: 'given', summary: 'Packet 1 handed over',
+      set: made.map((p) => ({ id: p.id, values: { issued_to: 'Harjit' }, given: true, expect: { issued_to: '', given: false } })),
+    });
+    expect(handed.rows.every((p) => p.issued_to === 'HARJIT' && p.given_at !== null && p.packet === 'P 1')).toBe(true);
+    await undoChange(db, ramesh, handed.changeId);
+    const back = (await undoChange(db, ramesh, pack.changeId)).rows;
+    expect(back.map((p) => [p.packet, p.issued_to, p.given_at])).toEqual([['', '', null], ['', '', null], ['', '', null]]);
+  });
+
+  it('only printed passes not given yet go in a packet; a pass in one is not empty', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, ''))).rows;
+    const pack: ApplyRequest = { action: 'pack', summary: 'Packet 1', set: [{ id: p.id, packet: '1', expect: { packet: '' } }] };
+    await expect(applyChange(db, ramesh, pack)).rejects.toThrow(/0001 can't go in a packet/);
+    await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
+    await applyChange(db, ramesh, pack);
+    await expect(applyChange(db, suresh, { action: 'give', summary: 'g', set: [{ id: p.id, claim: true, values: { name: 'A' }, expect: {} }] }))
+      .rejects.toThrow(/just changed/);
+  });
+
   it('Issued To can be filled in on a printed pass, and undone; Reg. No. is written one way', async () => {
     const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET', 'bike-pandal'))).rows;
     await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
