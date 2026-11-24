@@ -99,7 +99,7 @@ group('the People list', () => {
   const navneet = [
     pass('mobile-pandal', 12, { name: 'Navneet Gumber', phone: '9810007919' }),
     pass('mobile-non-pandal', 2, { name: 'N. Gumber', phone: '+91 98100 07919' }),
-    pass('bike-pandal', 3, { name: 'Navneet Gumber', phone: '9810007919', vehicle_no: 'HR-26CD-1001', incharge: 'Raj  Kumar Arora', area: 'Sirsa' }),
+    pass('bike-pandal', 3, { name: 'Navneet Gumber', phone: '9810007919', vehicle_no: 'HR-26CD-1001', incharge: 'Raj  Kumar Arora', area: 'Sirsa', dept: 'Langar' }),
   ];
   const all = [...navneet, pass('mobile-pandal', 1, { name: 'Amrit Kaur', phone: '9000000001' }), pass('mobile-pandal', 2, { phone: '9000000002' }), pass('mobile-pandal', 3, { name: 'No Phone' })];
   const people = listPeople(byPhone(all), findDuplicates(all));
@@ -137,9 +137,13 @@ group('the People list', () => {
     expect(find('gumber', 'vehicle')).toEqual([]);
     expect(find('sirsa', 'area')).toEqual(['Navneet Gumber']);
     expect(find('sirsa', 'person')).toEqual([]);
+    expect(find('07919', 'phone')).toEqual(['Navneet Gumber']);
+    expect(find('gumber', 'phone')).toEqual([]);
+    expect(find('langar', 'dept')).toEqual(['Navneet Gumber']);
+    expect(find('langar', 'area')).toEqual([]);
     expect(find('raj', 'incharge')).toEqual(['Navneet Gumber']);
     expect(find('raj', 'area')).toEqual([]);
-    expect(find('07919', 'person')).toEqual(['Navneet Gumber']);
+    expect(find('07919', 'person')).toEqual([]); // Name: names only
     expect(find('amrit', 'person')).toEqual(['Amrit Kaur']);
   });
   it('filters by Incharge or Area: any of their passes, however it is written', () => {

@@ -33,6 +33,18 @@ describe('lost passes', () => {
     expect(plan.to).toEqual([6]);
     expect(plan.set).toEqual([{ id: s[0].id, lost: true, expect: { lost: false, printed: true } }]);
     expect(plan.create).toEqual([{ type: 'mobile-pandal', serial: 6, values: { name: 'AMIT', phone: '9000000011', issued_to: 'RAJ' }, flags: {}, copy_of: s[0].id }]);
+    // 0003 is lost already, with no duplicate: one can be added (asked for separately, never with the above).
+    expect(plan.againSerials).toEqual([3]);
+  });
+  it('a lost pass with no duplicate can get one later, once', () => {
+    const s = sheet(1, 3);
+    s[0] = { ...s[0], name: 'AMIT', printed_at: printed, lost_at: printed };
+    s[1] = { ...s[1], name: 'B', printed_at: printed, lost_at: printed };
+    s[2] = { ...s[2], copy_of: s[1].id };
+    const plan = planLost(s, 'mobile-pandal', '1', '3');
+    expect(plan.set).toEqual([]);
+    expect(plan.again).toEqual([{ type: 'mobile-pandal', serial: 4, values: { name: 'AMIT' }, flags: {}, copy_of: s[0].id }]);
+    expect([plan.againSerials, plan.againTo]).toEqual([[1], [4]]);
   });
   it("a lost pass's duplicate does not repeat its phone", () => {
     const a = pass(1, { name: 'A', phone: '9000000011', printed_at: printed, lost_at: printed, incharge: 'X' });

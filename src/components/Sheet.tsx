@@ -13,6 +13,7 @@ import {
   cleanField, cleanText, type Field, FIELD_LABELS, fieldLabel, fieldsFor, type Flag, FLAG_LABELS, flagsFor, fmtSerial, locksWhenPrinted, type Pass, type PassType,
   TYPE_INFO, type Values,
 } from '@/shared/types';
+import { useMe } from './AppShell';
 import { PacketIcon } from './icons';
 
 /** Ticks (`on`) or unticks yes / no detail `f` (Ferry Sewa) of these passes. */
@@ -670,7 +671,7 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
       notes.set(d.id, `Duplicate of ${was ? `${TYPE_INFO[was.type].label} ${fmtSerial(was.serial)}` : 'a lost pass'}, which was lost${was?.lost_at ? ` (${day(was.lost_at)})` : ''}.`);
       if (was?.lost_at) notes.set(was.id, `LOST (marked ${day(was.lost_at)}): the gate check refuses it. Duplicate: ${TYPE_INFO[d.type].label} ${fmtSerial(d.serial)}.`);
     }
-    for (const p of all) if (p.lost_at && !notes.has(p.id)) notes.set(p.id, `LOST (marked ${day(p.lost_at)}): the gate check refuses it.`);
+    for (const p of all) if (p.lost_at && !notes.has(p.id)) notes.set(p.id, `LOST (marked ${day(p.lost_at)}): the gate check refuses it. No duplicate: select it, Add duplicate.`);
     return notes;
   }, [all]);
   /** Room by the Sr. No. for the LOST / DUP marks, on a sheet that has a lost pass or a duplicate. */
@@ -835,6 +836,7 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
   const given = isGiven(p);
   const lost = isLost(p); // locked: nothing changes on it (Undo in History takes the Lost back)
   const names = useUserNames();
+  const admin = useMe().is_admin; // only an admin unticks Printed (the owner, 2026-11-24)
   const by = (id: number | null) => (id !== null && names.get(id) ? ` by ${names.get(id)}` : '');
   const cell = (k: Field) => {
     const c = fields.indexOf(k);
@@ -860,8 +862,10 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
       {flags.map((f) => <FlagCell key={f} f={f} passes={[p]} printed={printed} onFlag={onFlag} />)}
       <td className={`${td} text-center`}>
         <TickBox
-          col="printed" checked={printed} disabled={lost} onChange={(v) => onPrinted([p], v)}
-          title={lost ? 'LOST: locked. Its duplicate is printed instead.' : printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}${by(p.printed_by)}. Locked. Untick to change it or print it again.` : 'Not printed yet'}
+          col="printed" checked={printed} disabled={lost || (printed && !admin)} onChange={(v) => onPrinted([p], v)}
+          title={lost ? 'LOST: locked. A duplicate is printed instead.'
+            : printed ? `Printed ${new Date(p.printed_at!).toLocaleString()}${by(p.printed_by)}. Locked. ${admin ? 'Untick to change it or print it again.' : 'Only an admin can untick it.'}`
+            : 'Not printed yet'}
         />
       </td>
       <td className={`${td} text-center`}>
@@ -1021,7 +1025,7 @@ function FlagCell({ f, passes, printed, onFlag }: { f: Flag; passes: Pass[]; pri
     <td className={`${td} text-center`}>
       <TickBox
         col={f} checked={on} disabled={printed} onChange={(v) => onFlag(passes, f, v)}
-        title={printed ? `${on ? label : `Not ${label}`}: printed, so locked. Untick Printed first to change it.` : on ? `${label}: printed on the pass. Untick if not.` : `Tick if ${label}: printed on the pass`}
+        title={printed ? `${on ? label : `Not ${label}`}: printed, so locked. An admin can untick Printed first.` : on ? `${label}: printed on the pass. Untick if not.` : `Tick if ${label}: printed on the pass`}
       />
     </td>
   );
@@ -1050,7 +1054,7 @@ function TickBox({ col, checked, disabled, onChange, title }: {
  */
 function startEdit(el: HTMLInputElement, caret?: number | 'end', typing = false): boolean {
   if (el.dataset.locked) {
-    toast('This pass is printed, so this cell is locked. Untick Printed first to change it.', 'error');
+    toast('This pass is printed, so this cell is locked. An admin can untick Printed first.', 'error');
     return false;
   }
   el.readOnly = false;
@@ -1067,7 +1071,7 @@ function stopEdit(el: HTMLInputElement) {
   el.setSelectionRange(0, 0);
 }
 const refuseLocked = (locked: number[], what: string) =>
-  toast(`${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed, so nothing was ${what}. Untick Printed first.`, 'error');
+  toast(`${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed, so nothing was ${what}. An admin can untick Printed first.`, 'error');
 
 let ruler: CanvasRenderingContext2D | null = null;
 /** Where in the box's text a click at `x` falls: the nearest place for the caret. */
@@ -1156,7 +1160,7 @@ function CellInput({ target, k, saved, locked, warn, onEdit, pick }: {
       data-locked={locked || undefined}
       list={locked || (k === 'name' && !pick) ? undefined : SUGGEST[k]}
       onInput={pick && pickPerson}
-      title={locked ? (target.some((p) => p.lost_at !== null) ? 'LOST: locked. Undo the Lost in History to change it.' : 'Printed: locked. Untick Printed to change it.') : undefined}
+      title={locked ? (target.some((p) => p.lost_at !== null) ? 'LOST: locked. Undo the Lost in History to change it.' : 'Printed: locked. An admin can untick Printed to change it.') : undefined}
       onBlur={(e) => save(e.target.value)}
       className={cellCls(locked, k, warn)}
     />

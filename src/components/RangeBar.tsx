@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useActions } from '@/client/actions';
+import { useLost } from '@/client/lost';
 import { packetScan } from '@/client/packetScan';
 import { canPack } from '@/lib/packets';
 import { usePaper } from '@/client/paper';
@@ -125,6 +126,7 @@ export function RangeBar({ type, sheet, range, onClear }: {
 
   /** Unticks Printed (to print them again), like unticking it in the sheet; Undo reverses it. */
   const unprint = useMemo(() => (hasRange ? planUnprint(sheet, range.from, range.to, range.only) : null), [hasRange, sheet, range]);
+  const admin = useMe().is_admin; // only an admin unticks Printed (the owner, 2026-11-24)
   const markUnprinted = async () => {
     if (!unprint?.set.length) return;
     await apply({ action: 'print', summary: `Marked ${info.label} ${ranges(unprint.serials)} unprinted`, set: unprint.set });
@@ -150,20 +152,18 @@ export function RangeBar({ type, sheet, range, onClear }: {
   };
 
   /* ----- lost ----- */
-  // A printed pass stolen or lost: marked LOST (kept, locked; the gate refuses it) and a duplicate added at the end, to print (the owner, 2026-11-24).
+  // A printed pass stolen or lost: marked LOST (kept, locked; the gate refuses it), and, if asked for, a duplicate added at the end to
+  // print (the owner, 2026-11-24: ask first). A lost pass with no duplicate can get one later (Add duplicate).
   const lost = useMemo(() => (hasRange ? planLost(sheet, type, range.from, range.to, range.only) : null), [hasRange, sheet, type, range]);
   const [losing, setLosing] = useState(''); // the range whose Mark lost is being confirmed
-  const doLost = async () => {
-    if (!lost?.set.length) return;
+  const { markLost, addCopies } = useLost();
+  const doLost = async (withCopies: boolean) => {
+    if (!lost) return;
     setLosing('');
-    const r = await apply(
-      { action: 'lost', next: true, summary: `Marked ${info.label} ${ranges(lost.serials)} LOST; duplicate${lost.to.length === 1 ? '' : 's'} added`, set: lost.set, create: lost.create },
-      { toast: false },
-    );
-    if (!r) return;
-    const made = r.rows.filter((p) => r.created.includes(p.id)).map((p) => p.serial);
-    toast(`${ranges(lost.serials)} marked LOST. Duplicate${made.length === 1 ? '' : 's'} added as ${ranges(made)}: print ${made.length === 1 ? 'it' : 'them'} and hand over.`);
+    await markLost(type, lost, withCopies);
   };
+  /** A duplicate of each lost pass that has none yet. */
+  const doCopies = async () => { if (lost) await addCopies(type, lost); };
 
   const printView = printing && <PrintView cards={printing.cards} texts={texts} onMark={onMark} onClose={closePrint} />;
 
@@ -172,13 +172,16 @@ export function RangeBar({ type, sheet, range, onClear }: {
       <div role="alertdialog" aria-label="Confirm lost" className={`${bar} border-destructive/25 bg-red-50 text-[14px]`}>
         <p className="leading-snug">
           Mark <b>{info.label} {ranges(lost.serials)}</b> LOST? {lost.set.length === 1 ? 'It stays' : 'They stay'} in the register, locked, and the gate check
-          shows LOST. A duplicate with the same details is added as <b>{ranges(lost.to)}</b>, to print and hand over.
-          {lost.notPrinted.length > 0 && <> {nPasses(lost.notPrinted.length)} not printed {lost.notPrinted.length === 1 ? 'is' : 'are'} left out.</>} <b>Undo</b> takes it all back.
+          shows LOST. <b>Add {lost.set.length === 1 ? 'a duplicate' : 'duplicates'}</b> with the same details, as <b>{ranges(lost.to)}</b>, to print and hand over?
+          {lost.notPrinted.length > 0 && <> {nPasses(lost.notPrinted.length)} not printed {lost.notPrinted.length === 1 ? 'is' : 'are'} left out.</>} <b>Undo</b> takes it back.
         </p>
         <span className="flex-1" />
         <button className={btn} onClick={() => setLosing('')}>Cancel</button>
-        <button className={`${btnDanger} !border-destructive !bg-destructive !text-white`} onClick={() => void doLost()}>
-          Mark {nPasses(lost.set.length)} lost
+        <button className={btnDanger} onClick={() => void doLost(false)} title="Mark lost; a duplicate can be added later (select it, Add duplicate)">
+          Lost, no duplicate
+        </button>
+        <button className={`${btnDanger} !border-destructive !bg-destructive !text-white`} onClick={() => void doLost(true)}>
+          Lost + add duplicate{lost.set.length === 1 ? '' : 's'}
         </button>
       </div>
     );
@@ -268,7 +271,7 @@ export function RangeBar({ type, sheet, range, onClear }: {
                 </button>
               )}
               {print && !nCards && !print.unfilled.length && print.printed.length > 0 && (
-                <span className={note} title="Mark them unprinted to print them again.">all printed</span>
+                <span className={note} title="An admin can mark them unprinted to print them again.">all printed</span>
               )}
               {print && print.unfilled.length > 0 && (
                 <span className="text-[13.5px] leading-snug text-amber-800" title={`Not printed until every detail is filled in (Incharge and Issued To don't count): ${ranges(print.unfilled)}`}>
@@ -285,8 +288,9 @@ export function RangeBar({ type, sheet, range, onClear }: {
             </button>
           )}
           <button
-            className={btn} disabled={!unprint?.set.length} onClick={() => void markUnprinted()}
-            title={unprint?.set.length ? `Untick Printed for ${ranges(unprint.serials)}, to change or print them again. Undo reverses it.` : 'None of these are printed'}
+            className={btn} disabled={!unprint?.set.length || !admin} onClick={() => void markUnprinted()}
+            title={!unprint?.set.length ? 'None of these are printed' : !admin ? 'Only an admin can untick Printed'
+              : `Untick Printed for ${ranges(unprint.serials)}, to change or print them again. Undo reverses it.`}
           >
             {unprint?.set.length ? `Mark ${unprint.set.length} unprinted` : 'Mark unprinted'}
           </button>
@@ -304,15 +308,20 @@ export function RangeBar({ type, sheet, range, onClear }: {
             <span className={note} title={`Not printed yet: ${ranges(given.notPrinted)}`}>print first</span>
           )}
           <span className="flex-1" />
+          {lost && lost.again.length > 0 && (
+            <button className={btn} onClick={() => void doCopies()} title={`Lost with no duplicate: add a new pass with the same details, as ${ranges(lost.againTo)}, to print`}>
+              Add {lost.again.length === 1 ? 'duplicate' : `${lost.again.length} duplicates`}
+            </button>
+          )}
           <button
             className={btnDanger} disabled={!lost?.set.length} onClick={() => setLosing(rangeKey)}
-            title={lost?.set.length ? 'Stolen or lost after printing: mark it LOST (kept, the gate refuses it) and add a duplicate to print.' : 'Only a printed pass can be marked lost'}
+            title={lost?.set.length ? 'Stolen or lost after printing: mark it LOST (kept, the gate refuses it); asks whether to add a duplicate to print.' : 'Only a printed pass can be marked lost'}
           >
             {lost?.set.length ? `Mark ${lost.set.length} lost` : 'Mark lost'}
           </button>
           <button
             className={btnDanger} disabled={!del?.items.length} onClick={() => setConfirming(rangeKey)}
-            title={del?.printed.length ? `Printed passes aren't deleted (${ranges(del.printed)}): mark them unprinted first.` : 'Remove these passes from the register. Undo brings them back.'}
+            title={del?.printed.length ? `Printed passes aren't deleted (${ranges(del.printed)}): an admin can mark them unprinted first.` : 'Remove these passes from the register. Undo brings them back.'}
           >
             {del?.items.length ? `Delete ${nPasses(del.items.length)}…` : 'Delete'}
           </button>

@@ -18,7 +18,7 @@ beforeAll(async () => {
   const users = await db
     .insertInto('users')
     .values([
-      { username: 'ramesh', name: 'RAMESH', password_hash: 'x', created_by: null },
+      { username: 'ramesh', name: 'RAMESH', password_hash: 'x', created_by: null, is_admin: true }, // an admin; suresh at a desk
       { username: 'suresh', name: 'SURESH', password_hash: 'x', created_by: null },
     ])
     .returning('id')
@@ -178,7 +178,7 @@ describe('apply', () => {
     await applyChange(db, ramesh, { action: 'print', summary: 'Printed', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
     // A duplicate only with its pass being marked lost.
     await expect(applyChange(db, ramesh, { action: 'lost', summary: 'x', create: [{ type: 'mobile-pandal', serial: 2, values: {}, copy_of: p.id }] }))
-      .rejects.toThrow(/only when its pass is marked lost/);
+      .rejects.toThrow(/only for a pass marked lost/);
     const r = await applyChange(db, ramesh, lose(p.id));
     const lost = r.rows.find((x) => x.id === p.id)!;
     const dup = r.rows.find((x) => x.id === r.created[0])!;
@@ -194,6 +194,12 @@ describe('apply', () => {
     await undoChange(db, ramesh, r.changeId);
     const back = await db.selectFrom('passes').select(['id', 'lost_at']).execute();
     expect(back).toEqual([{ id: p.id, lost_at: null }]);
+    // Lost with no duplicate; the duplicate added later, once.
+    await applyChange(db, ramesh, { action: 'lost', summary: 'L', set: [{ id: p.id, lost: true, expect: { lost: false, printed: true } }] });
+    const later = (): ApplyRequest => ({ action: 'lost', next: true, summary: 'D', create: [{ type: 'mobile-pandal', serial: 2, values: { name: 'AMIT' }, copy_of: p.id }] });
+    const again = await applyChange(db, ramesh, later());
+    expect(again.rows[0]).toMatchObject({ serial: 2, copy_of: p.id });
+    await expect(applyChange(db, ramesh, later())).rejects.toThrow(/already has its duplicate: Mobile Pandal 0002/);
   });
 
   it('keeps who printed and who gave a pass; unticking clears it, Undo puts it back', async () => {
@@ -211,6 +217,22 @@ describe('apply', () => {
     // Added already printed (an import): by whoever added it.
     const added = await applyChange(db, suresh, { action: 'import', summary: 'I', create: [{ type: 'mobile-pandal', serial: 5, values: { name: 'X' }, printed: true }] });
     expect(added.rows[0]).toMatchObject({ printed_by: suresh, given_by: null });
+  });
+
+  it('only an admin unticks Printed, by hand or by Undo', async () => {
+    const [p] = (await applyChange(db, ramesh, give(1, 1, 'GURPREET'))).rows;
+    const printed = await applyChange(db, suresh, { action: 'print', summary: 'P', set: [{ id: p.id, printed: true, expect: { printed: false } }] });
+    const untick: ApplyRequest = { action: 'print', summary: 'U', set: [{ id: p.id, printed: false, expect: { printed: true } }] };
+    await expect(applyChange(db, suresh, untick)).rejects.toThrow(/0001 is printed: only an admin can untick Printed/);
+    await expect(undoChange(db, suresh, printed.changeId)).rejects.toThrow(/0001 is printed, so this can't be undone: only an admin/);
+    // Added already printed: Undo would remove a printed pass.
+    const added = await applyChange(db, suresh, { action: 'import', summary: 'I', create: [{ type: 'mobile-pandal', serial: 5, values: { name: 'X' }, printed: true }] });
+    await expect(undoChange(db, suresh, added.changeId)).rejects.toThrow(/0005 is printed/);
+    await undoChange(db, ramesh, added.changeId);
+    // Ticking Given and other changes stay for anyone; the admin can untick.
+    await applyChange(db, suresh, { action: 'given', summary: 'G', set: [{ id: p.id, given: true, expect: { given: false } }] });
+    const r = await applyChange(db, ramesh, untick);
+    expect(r.rows[0]).toMatchObject({ printed_at: null, printed_by: null });
   });
 
   it('Issued To can be filled in on a printed pass, and undone; Reg. No. is written one way', async () => {

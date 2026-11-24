@@ -94,11 +94,11 @@ export function useLiveScan(onCode: (text: string) => void, { sound = true } = {
 }
 
 /** A "Scan with camera" button, and the camera under it while on (Packets page). */
-export function LiveScan({ onCode }: { onCode: (text: string) => void }) {
+export function LiveScan({ onCode, buttonClass = btn }: { onCode: (text: string) => void; buttonClass?: string }) {
   const { on, toggle, error, video } = useLiveScan(onCode);
   return (
     <div className="contents">
-      <button className={btn} onClick={toggle}>{on ? 'Stop camera' : 'Scan with camera'}</button>
+      <button className={buttonClass} onClick={toggle}>{on ? 'Stop camera' : 'Scan with camera'}</button>
       {error && <span className="text-[14px] font-semibold text-red-700">{error}</span>}
       {on && (
         <div className="basis-full">

@@ -1,14 +1,16 @@
 'use client';
 import Link from 'next/link';
-import { type ChangeEvent, type FormEvent, type KeyboardEvent, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
 import { packetScan as scanned } from '@/client/packetScan';
 import { readPhoto } from '@/client/readPhoto';
 import { useAllPasses, useStatus } from '@/client/store';
+import { useUserNames } from '@/client/users';
 import { type Packet, handOverOps, nextTag, noteOn, packetsOf, packOps, scanOf } from '@/lib/packets';
 import { cardsLabel, isGiven, isPrinted, nPasses } from '@/lib/passes';
 import { cleanPacket, fmtSerial, MAX_PACKET, type Pass, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
+import { GivenIcon, PacketIcon, PrinterIcon } from './icons';
 import { LiveScan } from './LiveScan';
 import { btn, btnPrimary, card, heading, input } from './ui';
 
@@ -36,6 +38,8 @@ export function PacketsScreen() {
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLInputElement>(null);
+  // Ready for a handheld scanner at a desk; not on a phone, where it would only bring up the keyboard (scan with the camera there).
+  useEffect(() => { if (window.matchMedia('(min-width: 768px)').matches) box.current?.focus(); }, []);
 
   /** Adds what was scanned (several codes at once when pasted). */
   const take = (text: string) => {
@@ -78,6 +82,12 @@ export function PacketsScreen() {
   const done = packets.filter((k) => k.given === k.passes.length);
   const onAddTo = (k: Packet) => { setTag(k.tag); box.current?.focus(); };
 
+  // The packets list: a tab (to hand over first) and a search.
+  const [show, setShow] = useState<Show>('waiting');
+  const [q, setQ] = useState('');
+  const query = useDeferredValue(q.trim().toLowerCase());
+  const shown = (show === 'waiting' ? waiting : show === 'done' ? done : packets).filter((k) => !query || haystack(k).includes(query));
+
   return (
     <div className="min-w-0 flex-1 overflow-auto bg-background p-4">
       <div className="mb-1 flex flex-wrap items-baseline gap-x-3">
@@ -100,17 +110,17 @@ export function PacketsScreen() {
             <h2 className={heading}>New packet</h2>
             {list.length > 0 && <span className="text-[13.5px] text-muted-foreground tabular-nums">{nPasses(list.length)} in the list</span>}
           </div>
-          <input
-            ref={box} autoFocus className={input} placeholder="Scan a pass QR code here (or paste codes, then Enter)" aria-label="Scan a pass"
-            value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={onKey}
-          />
           <div className="flex flex-wrap items-center gap-2">
-            <LiveScan onCode={take} />
-            <label className={`${btn} cursor-pointer`}>
+            <LiveScan onCode={take} buttonClass={`${btnPrimary} max-md:h-11 max-md:flex-1 max-md:text-[16px]`} />
+            <label className={`${btn} cursor-pointer max-md:h-11`}>
               Photo
               <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={onPhoto} />
             </label>
           </div>
+          <input
+            ref={box} className={input} placeholder="Or a handheld scanner here (or paste codes, then Enter)" aria-label="Scan a pass"
+            value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={onKey}
+          />
           {note && <p aria-live="polite" className={`text-[14px] ${note.bad ? 'font-semibold text-red-700' : 'text-muted-foreground'}`}>{note.text}</p>}
 
           {list.length === 0 ? (
@@ -163,31 +173,54 @@ export function PacketsScreen() {
           )}
         </section>
 
-        {/* ----- the packets: those still to hand over first ----- */}
-        <div className="space-y-5">
+        {/* ----- the packets: a table, those still to hand over first ----- */}
+        <section className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span role="group" aria-label="Show" className="inline-flex overflow-hidden rounded-[3px] border border-input">
+              {([['waiting', 'To hand over', waiting.length], ['done', 'Handed over', done.length], ['all', 'All', packets.length]] as const).map(([k, name, n]) => (
+                <button
+                  key={k} type="button" aria-pressed={k === show} onClick={() => setShow(k)}
+                  className={`h-8 px-3 text-[14px] font-semibold whitespace-nowrap ${k === show ? 'bg-foreground text-background' : 'bg-background hover:bg-panel'}`}
+                >
+                  {name} <span className={`font-normal tabular-nums ${k === show ? 'text-background/70' : 'text-muted-foreground'}`}>{n}</span>
+                </button>
+              ))}
+            </span>
+            <input
+              type="search" className={`${input} !w-72 max-md:!w-full`} placeholder="Packet, pass no., name or Issued To" aria-label="Search packets"
+              value={q} onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
           {!status.loaded ? <p className="text-muted-foreground">Loading…</p> : !packets.length ? (
             <p className="text-muted-foreground">No packets yet: put passes in the list and tag them.</p>
+          ) : !shown.length ? (
+            <p className="text-muted-foreground">{query ? 'No packet matches that.' : show === 'waiting' ? 'Every packet is handed over.' : 'None handed over yet.'}</p>
           ) : (
-            <>
-              {waiting.length > 0 && (
-                <section>
-                  <h2 className={`${heading} mb-2`}>To hand over <span className="font-normal text-muted-foreground">({waiting.length})</span></h2>
-                  <ul className="space-y-2">{waiting.map((k) => <PacketItem key={k.tag} k={k} onAddTo={() => onAddTo(k)} />)}</ul>
-                </section>
-              )}
-              {done.length > 0 && (
-                <section>
-                  <h2 className={`${heading} mb-2`}>Handed over <span className="font-normal text-muted-foreground">({done.length})</span></h2>
-                  <ul className={`${card} divide-y divide-border`}>{done.map((k) => <GivenItem key={k.tag} k={k} />)}</ul>
-                </section>
-              )}
-            </>
+            <table className={`${card} w-full border-separate border-spacing-0 overflow-hidden text-[14.5px] max-md:block max-md:overflow-visible max-md:border-0 max-md:bg-transparent`}>
+              <thead className="bg-panel text-left font-condensed text-[14px] text-foreground/70 max-md:hidden">
+                <tr>
+                  <th className={th}><span className="flex items-center gap-1"><PacketIcon size={13} />Packet</span></th>
+                  <th className={`${th} text-right`}>Passes</th>
+                  <th className={th}>Which</th>
+                  <th className={th}><span className="flex items-center gap-1"><GivenIcon size={13} />Hand over</span></th>
+                </tr>
+              </thead>
+              <tbody className="max-md:block max-md:space-y-2">{shown.map((k) => <PacketRow key={k.tag} k={k} onAddTo={() => onAddTo(k)} />)}</tbody>
+            </table>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );
 }
+
+type Show = 'waiting' | 'done' | 'all';
+const th = 'border-b border-border px-3 py-1.5 font-semibold';
+const td = 'border-b border-border px-3 py-2 align-middle max-md:block max-md:border-0 max-md:p-0';
+/** What a search looks in: the tag, who it went to, its passes ("Mobile Pandal 0558") and their names. */
+const haystack = (k: Packet) =>
+  [k.tag, ...k.issuedTo, cardsLabel(k.passes), ...k.passes.map((p) => `${passName(p)} ${p.name}`)].join(' ').toLowerCase();
+const day = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 /** The packet's tag: opens the People page with only its people (the owner, 2026-11-24). */
 const TagLink = ({ tag }: { tag: string }) => (
@@ -196,13 +229,20 @@ const TagLink = ({ tag }: { tag: string }) => (
   </Link>
 );
 
-/** A packet still to hand over: its passes, and Issued To + Hand over (Given on the passes not given yet). */
-function PacketItem({ k, onAddTo }: { k: Packet; onAddTo: () => void }) {
+/**
+ * A packet, one table row: its tag (to the People page), how many passes and which, and either Issued To + Hand over
+ * (Given on the passes not given yet) or who it went to, when and by whom.
+ */
+function PacketRow({ k, onAddTo }: { k: Packet; onAddTo: () => void }) {
   const { apply } = useActions();
+  const names = useUserNames();
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   const left = k.passes.filter((p) => !isGiven(p));
   const unprinted = left.filter((p) => !isPrinted(p));
+  const given = k.passes.filter(isGiven);
+  const at = given.reduce((m, p) => (p.given_at! > m ? p.given_at! : m), '');
+  const by = [...new Set(given.map((p) => (p.given_by === null ? '' : names.get(p.given_by) ?? '')).filter(Boolean))].join(', ');
   const onHandOver = async (e: FormEvent) => {
     e.preventDefault();
     if (busy || !to.trim() || unprinted.length) return;
@@ -212,38 +252,39 @@ function PacketItem({ k, onAddTo }: { k: Packet; onAddTo: () => void }) {
     if (r) setTo('');
   };
   return (
-    <li className={`${card} flex flex-wrap items-center gap-x-4 gap-y-2 border-l-4 border-l-amber-500 px-3 py-2.5`}>
-      <div className="min-w-0 flex-1 basis-60">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <TagLink tag={k.tag} />
-          <span className="text-[14px] font-semibold">{nPasses(k.passes.length)}</span>
-          <button className="text-[13px] text-primary hover:underline" onClick={onAddTo} title="Put more passes in this packet: scan them, then Tag">Add more</button>
-        </div>
-        <p className="text-[13px] text-muted-foreground tabular-nums">{cardsLabel(k.passes)}</p>
-        {k.given > 0 && <p className="text-[13px]">{k.given} given to <b className="font-semibold">{k.issuedTo.join(', ') || 'no one named'}</b></p>}
-        {unprinted.length > 0 && <p className="text-[13px] font-semibold text-red-700">Not printed: {cardsLabel(unprinted)}. Print first.</p>}
-      </div>
-      <form onSubmit={onHandOver} className="flex items-center gap-2">
-        <input className={`${input} !w-52`} placeholder="Issued To" aria-label={`Packet ${k.tag} issued to`} value={to} onChange={(e) => setTo(e.target.value)} />
-        <button type="submit" className={btnPrimary} disabled={busy || !to.trim() || unprinted.length > 0}>Hand over {nPasses(left.length)}</button>
-      </form>
-    </li>
-  );
-}
-
-/** A packet handed over: who to, and when. */
-function GivenItem({ k }: { k: Packet }) {
-  const at = k.passes.reduce((m, p) => (p.given_at && p.given_at > m ? p.given_at : m), '');
-  return (
-    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2">
-      <TagLink tag={k.tag} />
-      <span className="text-[14px] font-semibold">{nPasses(k.passes.length)}</span>
-      <span className="min-w-0 flex-1 basis-48 text-[13px] text-muted-foreground tabular-nums">{cardsLabel(k.passes)}</span>
-      <span className="text-[14px]">
-        <span aria-hidden className="mr-1 font-bold text-emerald-700">✓</span>
-        Given to <b className="font-semibold">{k.issuedTo.join(', ') || 'no one named'}</b>
-        {at && <span className="text-muted-foreground" title={new Date(at).toLocaleString()}>, {new Date(at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>}
-      </span>
-    </li>
+    <tr
+      className={`max-md:block max-md:rounded-[3px] max-md:border max-md:border-border max-md:bg-background max-md:px-3 max-md:py-2.5 ${left.length
+        ? 'md:[&>td:first-child]:shadow-[inset_3px_0_0] md:[&>td:first-child]:shadow-amber-500 max-md:border-l-4 max-md:border-l-amber-500' : ''}`}
+    >
+      <td className={`${td} min-w-48`}>
+        <TagLink tag={k.tag} /><span className="ml-2 text-[14px] font-semibold md:hidden">{nPasses(k.passes.length)}</span>
+      </td>
+      <td className={`${td} text-right font-semibold tabular-nums max-md:!hidden`}>{k.passes.length}</td>
+      <td className={`${td} text-[13.5px] text-muted-foreground tabular-nums max-md:mt-0.5`}>
+        {cardsLabel(k.passes)}
+        {unprinted.length > 0 && <span className="flex items-center gap-1 font-semibold text-red-700"><PrinterIcon size={13} />Not printed: {cardsLabel(unprinted)}. Print first.</span>}
+      </td>
+      <td className={`${td} md:whitespace-nowrap max-md:mt-2`}>
+        {given.length > 0 && (
+          <span className="flex items-center gap-1 text-[14px]" title={at ? new Date(at).toLocaleString() : undefined}>
+            <span className="text-emerald-700"><GivenIcon size={14} /></span>
+            {left.length > 0 && <span className="tabular-nums">{given.length} given to </span>}
+            <b className="font-semibold">{k.issuedTo.join(', ') || 'no one named'}</b>
+            {at && <span className="text-muted-foreground">· {day(at)}{by && ` · by ${by}`}</span>}
+          </span>
+        )}
+        {left.length > 0 && (
+          <form onSubmit={onHandOver} className="flex items-center gap-2 py-0.5">
+            <input className={`${input} !h-8 !w-48 max-md:!h-10 max-md:!w-auto max-md:min-w-0 max-md:flex-1`} placeholder="Issued To" aria-label={`Packet ${k.tag} issued to`} value={to} onChange={(e) => setTo(e.target.value)} />
+            <button type="submit" className={`${btnPrimary} !h-8 max-md:!h-10`} disabled={busy || !to.trim() || unprinted.length > 0}>
+              Hand over{left.length < k.passes.length ? ` ${left.length}` : ''}
+            </button>
+            <button type="button" className="text-[13px] font-semibold text-primary hover:underline" onClick={onAddTo} title="Put more passes in this packet: scan them, then Tag">
+              + Add
+            </button>
+          </form>
+        )}
+      </td>
+    </tr>
   );
 }

@@ -285,7 +285,7 @@ export function planPaste(opts: {
       });
     }
   });
-  if (locked.length) plan.error = `${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed. Untick Printed first, or paste somewhere else.`;
+  if (locked.length) plan.error = `${ranges(locked)} ${locked.length === 1 ? 'is' : 'are'} printed. An admin can untick Printed first; or paste somewhere else.`;
   else if (nextSerial + made - 1 > MAX_SERIAL) plan.error = `Serial numbers go up to ${MAX_SERIAL}.`;
   else if (plan.set.length + plan.create.length > MAX_BATCH) plan.error = `Please paste at most ${MAX_BATCH} rows at a time.`;
   return plan;
@@ -347,7 +347,7 @@ export interface PrintPlan {
   /** Saving these marks the cards printed (on a helpline sheet, serials not in the register yet are added). */
   set: SetOp[];
   create: CreateOp[];
-  /** Already printed: left out (untick Printed in the sheet to print again). */
+  /** Already printed: left out (an admin unticks Printed to print again). */
   printed: number[];
   /** Not filled in (a detail empty, or not in the register yet): left out. */
   unfilled: number[];
@@ -529,6 +529,10 @@ export interface LostPlan {
   to: number[];
   /** Not printed: nothing to lose (delete or change it instead). */
   notPrinted: number[];
+  /** Lost already, with no duplicate yet: a duplicate of each to add now (`againSerials` → `againTo`). */
+  again: CreateOp[];
+  againSerials: number[];
+  againTo: number[];
   err: string;
 }
 
@@ -537,19 +541,34 @@ export interface LostPlan {
  * with the same details (Issued To and ticks too, not Printed or Given) is added after the sheet's last pass, to print and hand over.
  */
 export function planLost(sheet: Pass[], type: PassType, from: string, to: string, only?: readonly number[]): LostPlan {
-  const plan: LostPlan = { set: [], create: [], serials: [], to: [], notPrinted: [], err: '' };
+  const plan: LostPlan = { set: [], create: [], serials: [], to: [], notPrinted: [], again: [], againSerials: [], againTo: [], err: '' };
   const r = serialRange(from, to, only);
   if ('err' in r) return { ...plan, err: r.err };
   let next = nextSerial(sheet);
-  for (const p of passesIn(sheet, r.serials)) {
+  const copied = new Set(sheet.flatMap((p) => (p.copy_of === null ? [] : [p.copy_of])));
+  const inRange = passesIn(sheet, r.serials);
+  for (const p of inRange) {
     if (isLost(p)) continue;
     if (!isPrinted(p)) { plan.notPrinted.push(p.serial); continue; }
     plan.set.push({ id: p.id, lost: true, expect: { lost: false, printed: true } });
-    const values = Object.fromEntries(fieldsFor(type).filter((k) => p[k]).map((k) => [k, p[k]]));
-    const flags = Object.fromEntries(flagsFor(type).filter((f) => p.meta[f]).map((f) => [f, true]));
-    plan.create.push({ type, serial: next, values, flags, copy_of: p.id });
+    plan.create.push(duplicateOf(p, type, next));
     plan.serials.push(p.serial);
     plan.to.push(next++);
   }
+  // Lost with no duplicate yet: one can be added now. Numbered after the ones above, never both offered at once though.
+  let later = nextSerial(sheet);
+  for (const p of inRange) {
+    if (!isLost(p) || copied.has(p.id)) continue;
+    plan.again.push(duplicateOf(p, type, later));
+    plan.againSerials.push(p.serial);
+    plan.againTo.push(later++);
+  }
   return plan;
+}
+
+/** A new pass with the same details as `p` (a lost pass), at `serial`. */
+function duplicateOf(p: Pass, type: PassType, serial: number): CreateOp {
+  const values = Object.fromEntries(fieldsFor(type).filter((k) => p[k]).map((k) => [k, p[k]]));
+  const flags = Object.fromEntries(flagsFor(type).filter((f) => p.meta[f]).map((f) => [f, true]));
+  return { type, serial, values, flags, copy_of: p.id };
 }

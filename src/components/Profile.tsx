@@ -1,11 +1,13 @@
 'use client';
-import { Fragment, type ReactNode, useEffect } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
+import { useLost } from '@/client/lost';
+import { useAllPasses } from '@/client/store';
 import { useUserNames } from '@/client/users';
-import { isGiven, isPrinted } from '@/lib/passes';
+import { isGiven, isLost, isPrinted, planLost } from '@/lib/passes';
 import { type Duplicate, isPhoneless, phoneLabel, profileOf } from '@/lib/people';
 import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
 import { GivenIcon, PacketIcon, PrinterIcon } from './icons';
-import { btn, card } from './ui';
+import { btn, btnDanger, card } from './ui';
 
 const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -84,8 +86,13 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
   const names = useUserNames();
+  const all = useAllPasses();
+  const { markLost } = useLost();
+  const [losing, setLosing] = useState<number | null>(null); // the pass whose Mark lost is being confirmed
   const profile = profileOf(passes, phone);
   if (!profile) return null;
+  /** Marking one pass lost: its sheet's plan (the duplicate goes at the end of that sheet). */
+  const lostPlan = (p: Pass) => planLost(all.filter((x) => x.type === p.type), p.type, fmtSerial(p.serial), fmtSerial(p.serial));
   const who = (id: number | null) => (id !== null && names.get(id) ? <span className="block text-[13px] text-muted-foreground">by {names.get(id)}</span> : null);
   const broken = profile.passes.filter((p) => dupes.has(p.id)).length;
   const about = [phoneLabel(phone, profile.phone), profile.area, profile.dept].filter(Boolean).join(', ');
@@ -120,13 +127,16 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
               <th className={th}><span className="flex items-center gap-1"><GivenIcon size={13} />Given</span></th>
               <th className={th}>Issued to</th>
               <th className={th}><span className="flex items-center gap-1"><PacketIcon size={13} />Packet</span></th>
+              <th className={th}><span className="sr-only">Lost</span></th>
             </tr>
           </thead>
           <tbody>
             {profile.passes.map((p) => {
               const notes = [...new Set((dupes.get(p.id) ?? []).map((d) => d.rule.text))];
+              const plan = losing === p.id ? lostPlan(p) : null;
               return (
-                <tr key={p.id} className={`cursor-pointer hover:bg-muted/60 ${notes.length ? 'bg-red-50' : ''}`} onClick={() => onJump(p)}>
+                <Fragment key={p.id}>
+                <tr className={`cursor-pointer hover:bg-muted/60 ${notes.length ? 'bg-red-50' : ''}`} onClick={() => onJump(p)}>
                   <td className={`${td} whitespace-nowrap`}>
                     <span aria-hidden className="mr-1.5 inline-block size-2.5 rounded-[2px] align-[0px]" style={{ background: TYPE_INFO[p.type].color.band }} />
                     {TYPE_INFO[p.type].label}
@@ -146,7 +156,35 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
                   <td className={`${td} whitespace-nowrap tabular-nums`}>{isGiven(p) ? <>{when(p.given_at)}{who(p.given_by)}</> : <span className="text-muted-foreground">No</span>}</td>
                   <td className={td}>{p.issued_to}</td>
                   <td className={`${td} whitespace-nowrap`}>{p.packet || <span className="text-muted-foreground">–</span>}</td>
+                  <td className={`${td} whitespace-nowrap text-right`}>
+                    {isPrinted(p) && !isLost(p) && (
+                      <button
+                        className="text-[13px] font-semibold text-destructive hover:underline" title="Stolen or lost after printing: mark it LOST (the gate check refuses it)"
+                        onClick={(e) => { e.stopPropagation(); setLosing(losing === p.id ? null : p.id); }}
+                      >
+                        Mark lost
+                      </button>
+                    )}
+                  </td>
                 </tr>
+                {plan && plan.set.length > 0 && (
+                  <tr role="alertdialog" aria-label={`Confirm ${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)} lost`} className="bg-red-50">
+                    <td colSpan={10} className={`${td} !py-2.5`}>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <p className="min-w-0 flex-1 basis-80 leading-snug">
+                          Mark <b>{TYPE_INFO[p.type].label} {fmtSerial(p.serial)}</b> LOST? It stays in the register, locked, and the gate check shows LOST.{' '}
+                          <b>Add a duplicate</b> with the same details, as <b>{fmtSerial(plan.to[0])}</b>, to print and hand over? <b>Undo</b> takes it back.
+                        </p>
+                        <button className={btn} onClick={() => setLosing(null)}>Cancel</button>
+                        <button className={btnDanger} onClick={() => { setLosing(null); void markLost(p.type, plan, false); }}>Lost, no duplicate</button>
+                        <button className={`${btnDanger} !border-destructive !bg-destructive !text-white`} onClick={() => { setLosing(null); void markLost(p.type, plan, true); }}>
+                          Lost + add duplicate
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

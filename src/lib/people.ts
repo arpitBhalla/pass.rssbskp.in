@@ -227,21 +227,23 @@ export function filterChoices(people: readonly Person[], k: PeopleBy): { key: st
 /** Someone with a pass whose Incharge (Area, Dept) is this one (a filterChoices key); '' is anyone. */
 export const hasValue = (p: Person, k: PeopleBy, key: string) => !key || p.passes.some((x) => valueOf(x[k]).toLowerCase() === key);
 
-/** What a search looks in (the owner, 2026-11-24): everything, or only the name and phone, Area (centre), Incharge or Reg. No. */
-export type SearchIn = 'all' | 'person' | 'area' | 'incharge' | 'vehicle';
+/** What a search looks in (the owner, 2026-11-24): everything, or only the name, phone, Area (centre), Dept, Incharge or Reg. No. */
+export type SearchIn = 'all' | 'person' | 'phone' | 'area' | 'dept' | 'incharge' | 'vehicle';
 /** The search tabs: what each looks in, its name, and the hint in the search box. */
 export const SEARCH_IN: readonly (readonly [SearchIn, string, string])[] = [
-  ['all', 'All', 'Name, phone, Reg. No., Incharge or Centre'],
-  ['person', 'Person', 'Name or phone'],
+  ['all', 'All', 'Name, phone, Reg. No., Centre, Dept or Incharge'],
+  ['person', 'Name', 'Any spelling of the name'],
+  ['phone', 'Phone', 'Any part of the phone number'],
   ['area', 'Centre', 'Centre (Area)'],
+  ['dept', 'Dept', 'Dept'],
   ['incharge', 'Incharge', 'Incharge'],
   ['vehicle', 'Vehicle No.', 'Any part of a Reg. No.: 4417, 26DK, HR26'],
 ];
 
 /**
- * Search: a number (3+ digits) finds a phone; otherwise any spelling of the name, the Incharge or Area (centre) on any of their
- * passes, or a Reg. No. (`hr26cd` finds HR-26CD-1001). A tab other than All looks only there; Vehicle No. finds any part of a
- * Reg. No., numbers too (`4417` finds HR-26DK-4417).
+ * Search: a number (3+ digits) finds a phone; otherwise any spelling of the name, the Incharge, Area (centre) or Dept on any of
+ * their passes, or a Reg. No. (`hr26cd` finds HR-26CD-1001). A tab other than All looks only there; Vehicle No. finds any part
+ * of a Reg. No., numbers too (`4417` finds HR-26DK-4417).
  */
 export function matchesPerson(p: Person, query: string, look: SearchIn = 'all'): boolean {
   const q = query.trim().toLowerCase();
@@ -255,16 +257,18 @@ export function matchesPerson(p: Person, query: string, look: SearchIn = 'all'):
   const name = () => [p.name, ...p.aka].some((n) => n.toLowerCase().includes(q));
   // The Incharge or Area on any of their passes, however it is spaced.
   const words = q.replace(/\s+/g, ' ');
-  const has = (k: 'incharge' | 'area') => p.passes.some((x) => valueOf(x[k]).toLowerCase().includes(words));
+  const has = (k: 'incharge' | 'area' | 'dept') => p.passes.some((x) => valueOf(x[k]).toLowerCase().includes(words));
   const plate = () => {
     const key = regKey(q);
     return key !== '' && p.passes.some((x) => regKey(x.vehicle_no).includes(key));
   };
   switch (look) {
-    case 'person': return isNumber ? phone() : name();
+    case 'person': return name();
+    case 'phone': return phone();
     case 'area': return has('area');
+    case 'dept': return has('dept');
     case 'incharge': return has('incharge');
     case 'vehicle': return plate();
-    default: return isNumber ? phone() : name() || has('incharge') || has('area') || (/[a-z]/.test(q) && /\d/.test(q) && plate());
+    default: return isNumber ? phone() : name() || has('incharge') || has('area') || has('dept') || (/[a-z]/.test(q) && /\d/.test(q) && plate());
   }
 }

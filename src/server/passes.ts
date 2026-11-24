@@ -11,6 +11,15 @@ import type { ChangeBefore, Database, PassRow, PassRowJson } from './db/schema';
 const bad = (message: string) => new TRPCError({ code: 'BAD_REQUEST', message });
 const conflict = (message: string) => new TRPCError({ code: 'CONFLICT', message });
 
+/** Only an admin unticks Printed on a printed pass, by hand or by Undo (the owner, 2026-11-24). */
+async function onlyAdminUnprints(trx: Transaction<Database>, userId: number, serials: number[], how = '') {
+  if (!serials.length) return;
+  const me = await trx.selectFrom('users').select('is_admin').where('id', '=', userId).executeTakeFirst();
+  if (!me?.is_admin) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: `${serialList(serials)} ${serials.length === 1 ? 'is' : 'are'} printed${how}: only an admin can untick Printed.` });
+  }
+}
+
 const PASS_COLUMNS = ['id', 'type', 'serial', 'name', 'dept', 'area', 'phone', 'vehicle', 'vehicle_no', 'incharge', 'issued_to', 'printed_at', 'given_at', 'printed_by', 'given_by', 'meta', 'packet', 'lost_at', 'copy_of', 'created_at', 'created_by', 'updated_by', 'rev'] as const;
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
@@ -108,12 +117,13 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
   if (set.length + create.length > MAX_BATCH) throw bad(`Please do at most ${MAX_BATCH} passes at a time.`);
   if (new Set(set.map((o) => o.id)).size !== set.length) throw bad('The same pass appears twice.');
   if (new Set(create.map((o) => `${o.type}|${o.serial}`)).size !== create.length) throw bad('The same serial appears twice.');
-  // A duplicate is added only with its pass being marked lost, in the same change (Undo takes back both).
+  // A duplicate is added with its pass being marked lost, in the same change (Undo takes back both), or later for a pass
+  // already lost (the owner, 2026-11-24: Mark lost asks first); one duplicate a pass.
   const losing = new Set(set.filter((o) => o.lost).map((o) => o.id));
-  for (const c of create) {
-    checkFields(c.type, c.values, c.flags);
-    if (c.copy_of !== undefined && !losing.has(c.copy_of)) throw bad('A duplicate is added only when its pass is marked lost.');
-  }
+  for (const c of create) checkFields(c.type, c.values, c.flags);
+  const copies = create.flatMap((c) => (c.copy_of === undefined ? [] : [c.copy_of]));
+  if (new Set(copies).size !== copies.length) throw bad('A pass gets one duplicate.');
+  const lostBefore = copies.filter((id) => !losing.has(id));
 
   try {
     return await db.transaction().execute(async (trx) => {
@@ -124,6 +134,15 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       }
       const rev = await bump(trx);
 
+      if (lostBefore.length) {
+        const was = await trx.selectFrom('passes').select(['id', 'lost_at']).where('id', 'in', lostBefore).forUpdate().execute();
+        if (was.length < lostBefore.length || was.some((r) => r.lost_at === null)) throw bad('A duplicate is added only for a pass marked lost.');
+      }
+      if (copies.length) {
+        const [has] = await trx.selectFrom('passes').select(['type', 'serial']).where('copy_of', 'in', copies).limit(1).execute();
+        if (has) throw conflict(`That lost pass already has its duplicate: ${TYPE_INFO[has.type].label} ${fmtSerial(has.serial)}.`);
+      }
+
       const current = set.length
         ? await trx.selectFrom('passes').selectAll().where('id', 'in', set.map((o) => o.id)).forUpdate().execute()
         : [];
@@ -133,6 +152,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       const unprinted: PassRow[] = [];
       const unpackable: PassRow[] = [];
       const lostLocked: PassRow[] = [];
+      const unprinting: PassRow[] = [];
       const updates: Record<string, unknown>[] = [];
       for (const op of set) {
         const row = byId.get(op.id);
@@ -150,6 +170,7 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
         // A lost pass is locked: nothing changes on it but Lost itself. Only a printed pass can be lost.
         if (row.lost_at !== null && op.lost !== false) { lostLocked.push(row); continue; }
         if (op.lost && row.printed_at === null && !op.printed) { unprinted.push(row); continue; }
+        if (op.printed === false && row.printed_at !== null) unprinting.push(row);
         const values = op.values ?? {};
         // A printed pass can't change until Printed is unticked (in a separate step), except who it was issued to.
         const meta = withFlags(row.meta ?? {}, op.flags);
@@ -175,8 +196,9 @@ export async function applyChange(db: Kysely<Database>, userId: number, req: App
       if (lostLocked.length) {
         throw bad(`${serialList(lostLocked.map((r) => r.serial))} ${lostLocked.length === 1 ? 'is' : 'are'} marked LOST and can't be changed. Undo the Lost in History first.`);
       }
+      await onlyAdminUnprints(trx, userId, unprinting.map((r) => r.serial));
       if (locked.length) {
-        throw bad(`${serialList(locked.map((r) => r.serial))} ${locked.length === 1 ? 'is' : 'are'} printed and can't be changed. Untick Printed first.`);
+        throw bad(`${serialList(locked.map((r) => r.serial))} ${locked.length === 1 ? 'is' : 'are'} printed and can't be changed. An admin can untick Printed first.`);
       }
       if (unpackable.length) {
         throw bad(`${serialList(unpackable.map((r) => r.serial))} can't go in a packet: only printed passes not given yet do.`);
@@ -299,10 +321,15 @@ export async function undoChange(db: Kysely<Database>, userId: number, changeId:
       const { rows: beforeRows, created, deleted = [] } = ch.before;
       const ids = [...beforeRows.map((r) => r.id), ...created];
       const current = ids.length
-        ? await trx.selectFrom('passes').select(['id', 'serial', 'rev', 'updated_by']).where('id', 'in', ids).forUpdate().execute()
+        ? await trx.selectFrom('passes').select(['id', 'serial', 'rev', 'updated_by', 'printed_at']).where('id', 'in', ids).forUpdate().execute()
         : [];
       const byId = new Map(current.map((r) => [r.id, r]));
       if (ids.some((id) => !byId.has(id))) throw conflict("Can't undo: some of these passes were removed since.");
+      // Undo unticks Printed (or removes a printed pass it added): admins only, as by hand.
+      await onlyAdminUnprints(trx, userId, [
+        ...beforeRows.filter((r) => r.printed_at === null && byId.get(r.id)!.printed_at !== null).map((r) => r.serial),
+        ...created.filter((id) => byId.get(id)!.printed_at !== null).map((id) => byId.get(id)!.serial),
+      ], ', so this can\'t be undone');
       const moved = current.filter((r) => r.rev !== ch.rev);
       // Changed since only by changes that were undone since (Undo pressed twice): they are back as
       // this change left them, so it can be undone too.
