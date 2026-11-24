@@ -1,5 +1,6 @@
 'use client';
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual';
+import { openPacket } from '@/client/packetScan';
 import { isUnsaved, useAllPasses } from '@/client/store';
 import { toast } from '@/client/toast';
 import { addedBy, useUserNames } from '@/client/users';
@@ -815,11 +816,17 @@ const LostMark = ({ dup, note }: { dup: boolean; note: string }) => (
 );
 /** A lost pass's row: faded on a pale red, its details kept. */
 const lostRow = '[&>td]:!bg-red-50/80 [&>td]:text-foreground/50';
-/** A box beside the Sr. No. of a pass in a packet (the owner, 2026-11-24); on hover, the packet: its passes and who it went to. */
-const PacketMark = ({ note }: { note: string }) => (
-  <span role="img" aria-label={note} title={note} className="ml-1 inline-flex align-[-1px] text-amber-700">
+/**
+ * A box beside the Sr. No. of a pass in a packet (the owner, 2026-11-24); on hover, the packet: its passes and who it went to.
+ * Click it: the packet opens bottom right.
+ */
+const PacketMark = ({ tag, note }: { tag: string; note: string }) => (
+  <button
+    type="button" tabIndex={-1} aria-label={note} title={`${note} Click to open it.`} onClick={() => openPacket(tag)}
+    className="ml-1 inline-flex rounded-[2px] p-px align-[-2px] text-amber-700 hover:bg-amber-100 hover:text-amber-900"
+  >
     <PacketIcon size={13} />
-  </span>
+  </button>
 );
 const serialCls = 'font-condensed text-[16px] font-semibold tabular-nums tracking-[0.02em]';
 const rowCls = (selected: boolean, extra = '') =>
@@ -874,7 +881,7 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
   return (
     <tr data-i={i} className={rowCls(selected, lost ? lostRow : queued ? inQueue : '')}>
       <td data-pick className={`${td} ${margin} ${serialCls} ${rowHead} relative cursor-pointer select-none ${selected ? picked : ''}`} title={queued ? 'In the print queue. Click to select. Shift+click or drag for more.' : 'Click to select. Shift+click or drag for more.'}>
-        {queued && <QueuedMark />}{fmtSerial(p.serial)}{lostNote && <LostMark dup={!lost} note={lostNote} />}{packet && <PacketMark note={packet} />}{isUnsaved(p) && <NotSaved />}
+        {queued && <QueuedMark />}{fmtSerial(p.serial)}{lostNote && <LostMark dup={!lost} note={lostNote} />}{packet && <PacketMark tag={p.packet} note={packet} />}{isUnsaved(p) && <NotSaved />}
         {held > 0 && <HeldCount n={held} warn={!!(dupePhone || dupeReg)} onClick={() => onPerson(phoneKey(p.phone))} />}
       </td>
       {before(fields).map(cell)}

@@ -3,10 +3,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { type FormEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useActions } from '@/client/actions';
-import { packetName, packetScan } from '@/client/packetScan';
+import { openPacket, packetName, packetScan, tray } from '@/client/packetScan';
+import { useUserNames } from '@/client/users';
 import { useAllPasses } from '@/client/store';
-import { canPack, handOverOps, noteOn, packetsOf, packOps, suggestTag } from '@/lib/packets';
-import { cardsLabel, nPasses } from '@/lib/passes';
+import { canPack, handOverOps, noteOn, type Packet, packetsOf, packOps, retagOps, suggestTag } from '@/lib/packets';
+import { cardsLabel, isGiven, isPrinted, nPasses } from '@/lib/passes';
 import { cleanField, cleanPacket, fmtSerial, MAX_PACKET, type Pass, TYPE_INFO } from '@/shared/types';
 import { PassMark, useMe } from './AppShell';
 import { GivenIcon, PacketIcon } from './icons';
@@ -140,42 +141,135 @@ export function NextPacket({ onDone, listClass = 'max-h-[45vh]' }: { onDone?: ()
 
 /**
  * The Next packet box, docked bottom right on every page but Packets (the owner, 2026-11-24): how many passes are in the next packet;
- * open it to see them, tag them or hand them over. Shown once a pass is in it.
+ * open it to see them, tag them or hand them over. Shown once a pass is in it, or a packet is opened (its mark in a sheet clicked):
+ * then that packet.
  */
 export function PacketTray() {
   const path = usePathname();
   const me = useMe();
-  const { list, gone } = useNextPacket();
+  const { all, list, gone } = useNextPacket();
   const n = list.length + gone.length;
-  const [open, setOpen] = useState(false);
-  // Opens by itself when a pass is added (not when one is taken out).
+  const view = tray.use();
+  const packets = useMemo(() => packetsOf(all), [all]);
+  const k = view.packet ? packets.find((x) => x.tag === view.packet) : undefined;
+  // Opens by itself on the next packet when a pass is added to it (not when one is taken out).
   const was = useRef(n);
   useEffect(() => {
-    if (n > was.current) setOpen(true);
+    if (n > was.current) tray.set({ open: true, packet: '' });
     was.current = n;
   }, [n]);
-  if (me.scan_only || path === '/packets' || !n) return null;
+  if (me.scan_only || path === '/packets' || (!n && !k)) return null;
+  const open = view.open;
+  const toggle = () => tray.set({ ...view, open: !open });
   return (
     <section
-      aria-label="Next packet"
+      aria-label={k ? `Packet ${k.tag}` : 'Next packet'}
       className="fixed right-4 bottom-0 z-40 flex max-h-[80vh] w-[25rem] flex-col rounded-t-[4px] border border-b-0 border-border bg-background shadow-[0_-4px_24px_rgb(35_31_32/0.18)] print:hidden max-md:inset-x-0 max-md:w-auto"
     >
-      <button
-        className="flex h-10 shrink-0 items-center gap-2 rounded-t-[4px] border-t-[3px] border-t-primary px-3 text-left hover:bg-muted/60"
-        onClick={() => setOpen((x) => !x)} aria-expanded={open}
-      >
-        <PacketIcon size={15} />
-        <span className="font-condensed text-[16px] font-bold">Next packet</span>
-        <span className="rounded-full bg-primary px-1.5 text-[12.5px] leading-[18px] font-semibold text-white tabular-nums">{n}</span>
-        <span className="ml-auto text-[13px] text-muted-foreground">{open ? 'Hide ▾' : 'Show ▴'}</span>
-      </button>
+      <div className={`flex h-10 shrink-0 items-center gap-2 rounded-t-[4px] border-t-[3px] pr-1 ${k ? 'border-t-amber-500' : 'border-t-primary'}`}>
+        <button className="flex h-full min-w-0 flex-1 items-center gap-2 pl-3 text-left hover:bg-muted/60" onClick={toggle} aria-expanded={open}>
+          <span className={k ? 'text-amber-700' : ''}><PacketIcon size={15} /></span>
+          <span className="truncate font-condensed text-[16px] font-bold">{k ? `Packet ${k.tag}` : 'Next packet'}</span>
+          <span className={`rounded-full px-1.5 text-[12.5px] leading-[18px] font-semibold text-white tabular-nums ${k ? 'bg-amber-600' : 'bg-primary'}`}>{k ? k.passes.length : n}</span>
+          <span className="ml-auto shrink-0 pr-1 text-[13px] text-muted-foreground">{open ? 'Hide ▾' : 'Show ▴'}</span>
+        </button>
+        {k && (
+          <button
+            className="h-8 shrink-0 rounded-[3px] px-2 text-[13px] font-semibold text-primary hover:bg-muted" onClick={() => tray.set({ open: n > 0, packet: '' })}
+            title={n ? 'Back to the next packet' : 'Close'}
+          >
+            {n ? `← Next packet ${n}` : '✕'}
+          </button>
+        )}
+      </div>
       {open && (
         <div className="min-h-0 overflow-auto border-t border-border p-3">
-          <NextPacket listClass="max-h-[35vh]" />
-          <Link href="/packets" className="mt-3 block text-[13.5px] font-semibold text-primary hover:underline">Scan more on the Packets page →</Link>
+          {k ? <PacketView k={k} packets={packets} /> : (
+            <>
+              <NextPacket listClass="max-h-[35vh]" />
+              <Link href="/packets" className="mt-3 block text-[13.5px] font-semibold text-primary hover:underline">Scan more on the Packets page →</Link>
+            </>
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * A packet in the box (the owner, 2026-11-24): its passes (click one to go to it, × takes it out of the packet), whether it is handed
+ * over, Hand over, + Add more (the next packet, named this one), Rename / move.
+ */
+function PacketView({ k, packets }: { k: Packet; packets: readonly Packet[] }) {
+  const { apply } = useActions();
+  const names = useUserNames();
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const left = k.passes.filter((p) => !isGiven(p) && p.lost_at === null);
+  const unprinted = left.filter((p) => !isPrinted(p));
+  const given = k.passes.filter(isGiven);
+  const at = given.reduce((m, p) => (p.given_at! > m ? p.given_at! : m), '');
+  const by = [...new Set(given.map((p) => (p.given_by === null ? '' : names.get(p.given_by) ?? '')).filter(Boolean))].join(', ');
+  const takeOut = (p: Pass) =>
+    apply({ action: 'pack', summary: `${passName(p)} taken out of packet ${k.tag}`, set: [{ id: p.id, packet: '', expect: { packet: k.tag } }] });
+  const onHandOver = async (e: FormEvent) => {
+    e.preventDefault();
+    const who = cleanField('issued_to', to);
+    if (busy || !who || !left.length || unprinted.length) return;
+    setBusy(true);
+    const r = await apply({ action: 'given', summary: `Packet ${k.tag} handed over to ${who}: ${cardsLabel(left)}`, set: handOverOps(k.passes, who) });
+    setBusy(false);
+    if (r) setTo('');
+  };
+  const addMore = () => { packetName.set(k.tag); tray.set({ open: true, packet: '' }); };
+
+  return (
+    <div className="space-y-3">
+      {renaming && <Rename k={k} tags={packets} onClose={() => setRenaming(false)} onDone={(tag) => tray.set({ open: true, packet: tag })} />}
+      {given.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1 text-[14px]" title={at ? new Date(at).toLocaleString() : undefined}>
+          <span className="text-emerald-700"><GivenIcon size={14} /></span>
+          {left.length > 0 && <span className="tabular-nums">{given.length} given to </span>}
+          <b className="font-semibold">{k.issuedTo.join(', ') || 'no one named'}</b>
+          {at && <span className="text-muted-foreground">· {new Date(at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}{by && ` · by ${by}`}</span>}
+        </p>
+      )}
+      <ol className="max-h-[35vh] divide-y divide-border overflow-auto rounded-[3px] border border-border">
+        {k.passes.map((p, i) => (
+          <li key={p.id} className={`flex items-center gap-x-2 px-2 py-1.5 ${p.lost_at ? 'bg-red-50 text-foreground/55' : ''}`}>
+            <span className="w-5 text-right text-[13px] text-muted-foreground tabular-nums">{i + 1}</span>
+            <PassMark type={p.type} />
+            <Link href={`/s/${p.type}?q=${fmtSerial(p.serial)}`} className="whitespace-nowrap text-[14px] font-semibold hover:text-primary hover:underline" title="Go to it in its sheet">
+              {passName(p)}
+            </Link>
+            <span className="min-w-0 flex-1 truncate text-[13.5px]" title={[p.name, p.vehicle_no, p.incharge].filter(Boolean).join(', ')}>
+              {p.name}{p.lost_at ? <b className="ml-1 text-[12px] text-red-700">LOST</b> : isGiven(p) ? <span className="ml-1 text-emerald-700"><GivenIcon size={12} /></span> : null}
+            </span>
+            {!p.lost_at && (
+              <button className="px-1 text-[16px] leading-none text-muted-foreground hover:text-destructive" onClick={() => takeOut(p)} title={`Take it out of packet ${k.tag} (Undo puts it back)`} aria-label={`Take ${passName(p)} out of the packet`}>
+                ×
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+      {unprinted.length > 0 && <p className="text-[13.5px] font-semibold text-red-700">Not printed: {cardsLabel(unprinted)}. Print first.</p>}
+      {left.length > 0 && (
+        <form onSubmit={onHandOver} className="space-y-1.5 border-t border-border pt-3">
+          <span className="flex items-center gap-1.5 text-[14px] font-semibold"><GivenIcon size={14} />Hand over{left.length < k.passes.length ? ` the ${left.length} not given` : ''}</span>
+          <div className="flex items-center gap-2">
+            <input className={`${input} min-w-0 flex-1`} placeholder="Issued To" aria-label={`Packet ${k.tag} issued to`} value={to} onChange={(e) => setTo(e.target.value)} />
+            <button type="submit" className={btnPrimary} disabled={busy || !to.trim() || unprinted.length > 0}>Hand over {left.length}</button>
+          </div>
+        </form>
+      )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-2.5 text-[13.5px] font-semibold">
+        <button className="text-primary hover:underline" onClick={addMore} title="Pick or scan more passes into the next packet, named this one: Tag puts them in it">+ Add more</button>
+        <button className="text-primary hover:underline" onClick={() => setRenaming(true)}>Rename / move</button>
+        <Link href={`/people?packet=${encodeURIComponent(k.tag)}`} className="text-primary hover:underline">Its people</Link>
+      </div>
+    </div>
   );
 }
 
@@ -187,7 +281,14 @@ export function PacketCell({ p, none = '' }: { p: Pass; none?: string }) {
   const items = packetScan.use();
   const me = useMe();
   if (p.packet) {
-    return <span className="flex min-w-0 items-center gap-1 text-amber-800" title={`In packet ${p.packet}`}><PacketIcon size={13} /><span className="truncate">{p.packet}</span></span>;
+    return (
+      <button
+        className="flex min-w-0 items-center gap-1 text-left text-amber-800 hover:underline" title={`In packet ${p.packet}: click to open it (bottom right)`}
+        onClick={(e) => { e.stopPropagation(); openPacket(p.packet); }} onMouseDown={(e) => e.stopPropagation()}
+      >
+        <PacketIcon size={13} /><span className="truncate">{p.packet}</span>
+      </button>
+    );
   }
   if (me.scan_only || !canPack(p)) return <span className="text-muted-foreground">{none}</span>;
   const inList = items.some((x) => x.type === p.type && x.serial === p.serial);
@@ -204,5 +305,41 @@ export function PacketCell({ p, none = '' }: { p: Pass; none?: string }) {
     >
       <PacketIcon size={13} />{inList ? '✓ Next packet' : '+ Add'}
     </button>
+  );
+}
+
+/**
+ * Renames a packet, or moves all its passes into another (the name of one there already), given and lost passes too
+ * (the owner, 2026-11-24). One change in History: Undo puts it back.
+ */
+export function Rename({ k, tags, onClose, onDone }: { k: Packet; tags: readonly Packet[]; onClose: () => void; onDone?: (tag: string) => void }) {
+  const { apply } = useActions();
+  const [name, setName] = useState(k.tag);
+  const [busy, setBusy] = useState(false);
+  const to = cleanPacket(name);
+  const into = tags.find((o) => o.tag === to && o.tag !== k.tag);
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy || !to || to === k.tag) return;
+    setBusy(true);
+    const summary = into ? `Packet ${k.tag} moved into ${to}: ${cardsLabel(k.passes)}` : `Packet ${k.tag} renamed ${to}`;
+    const r = await apply({ action: 'pack', summary, set: retagOps(k.passes, to) });
+    setBusy(false);
+    if (!r) return;
+    onClose();
+    onDone?.(to);
+  };
+  return (
+    <form onSubmit={onSubmit} onKeyDown={(e) => e.key === 'Escape' && onClose()} className="flex flex-wrap items-center gap-2 py-0.5">
+      <input
+        autoFocus className={`${input} !h-8 !w-56 max-md:!h-10 max-md:!w-full`} maxLength={MAX_PACKET} list="packet-tags-all" aria-label={`New name for packet ${k.tag}`}
+        value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()}
+      />
+      <button type="submit" className={`${btnPrimary} !h-8 max-md:!h-10`} disabled={busy || !to || to === k.tag}>
+        {into ? `Move ${k.passes.length} into ${to}` : 'Rename'}
+      </button>
+      <button type="button" className="text-[13px] font-semibold text-primary hover:underline" onClick={onClose}>Cancel</button>
+      {into && <span className="basis-full text-[13px] text-muted-foreground">{to} has {nPasses(into.passes.length)}: all of {k.tag} joins it, and {k.tag} is gone.</span>}
+    </form>
   );
 }

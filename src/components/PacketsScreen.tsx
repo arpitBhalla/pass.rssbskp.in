@@ -6,12 +6,12 @@ import { packetName, packetScan as scanned } from '@/client/packetScan';
 import { readPhoto } from '@/client/readPhoto';
 import { useAllPasses, useStatus } from '@/client/store';
 import { useUserNames } from '@/client/users';
-import { type Packet, handOverOps, packetsOf, retagOps, scanOf } from '@/lib/packets';
+import { type Packet, handOverOps, packetsOf, scanOf } from '@/lib/packets';
 import { cardsLabel, isGiven, isPrinted, nPasses } from '@/lib/passes';
-import { cleanPacket, fmtSerial, MAX_PACKET, type Pass, TYPE_INFO } from '@/shared/types';
+import { fmtSerial, type Pass, TYPE_INFO } from '@/shared/types';
 import { GivenIcon, PacketIcon, PrinterIcon } from './icons';
 import { LiveScan } from './LiveScan';
-import { NextPacket, useNextPacket } from './NextPacket';
+import { NextPacket, Rename, useNextPacket } from './NextPacket';
 import { btn, btnPrimary, card, heading, input } from './ui';
 
 const passName = (p: Pass) => `${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)}`;
@@ -231,36 +231,3 @@ function PacketRow({ k, tags, onAddTo }: { k: Packet; tags: readonly Packet[]; o
   );
 }
 
-/**
- * Renames a packet, or moves all its passes into another (the name of one there already), given and lost passes too
- * (the owner, 2026-11-24). One change in History: Undo puts it back.
- */
-function Rename({ k, tags, onClose }: { k: Packet; tags: readonly Packet[]; onClose: () => void }) {
-  const { apply } = useActions();
-  const [name, setName] = useState(k.tag);
-  const [busy, setBusy] = useState(false);
-  const to = cleanPacket(name);
-  const into = tags.find((o) => o.tag === to && o.tag !== k.tag);
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (busy || !to || to === k.tag) return;
-    setBusy(true);
-    const summary = into ? `Packet ${k.tag} moved into ${to}: ${cardsLabel(k.passes)}` : `Packet ${k.tag} renamed ${to}`;
-    const r = await apply({ action: 'pack', summary, set: retagOps(k.passes, to) });
-    setBusy(false);
-    if (r) onClose();
-  };
-  return (
-    <form onSubmit={onSubmit} onKeyDown={(e) => e.key === 'Escape' && onClose()} className="flex flex-wrap items-center gap-2 py-0.5">
-      <input
-        autoFocus className={`${input} !h-8 !w-56 max-md:!h-10 max-md:!w-full`} maxLength={MAX_PACKET} list="packet-tags-all" aria-label={`New name for packet ${k.tag}`}
-        value={name} onChange={(e) => setName(e.target.value)} onFocus={(e) => e.target.select()}
-      />
-      <button type="submit" className={`${btnPrimary} !h-8 max-md:!h-10`} disabled={busy || !to || to === k.tag}>
-        {into ? `Move ${k.passes.length} into ${to}` : 'Rename'}
-      </button>
-      <button type="button" className="text-[13px] font-semibold text-primary hover:underline" onClick={onClose}>Cancel</button>
-      {into && <span className="basis-full text-[13px] text-muted-foreground">{to} has {nPasses(into.passes.length)}: all of {k.tag} joins it, and {k.tag} is gone.</span>}
-    </form>
-  );
-}

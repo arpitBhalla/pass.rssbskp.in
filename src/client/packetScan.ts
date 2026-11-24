@@ -27,3 +27,15 @@ export const packetName = (() => {
   };
   return { get, set, use: () => useSyncExternalStore(subscribe, get, () => '') };
 })();
+
+/** The Next packet box (bottom right): open or not, and the packet it shows ('' for the next packet). On this page only. */
+export const tray = (() => {
+  let view: { open: boolean; packet: string } = { open: false, packet: '' };
+  const listeners = new Set<() => void>();
+  const set = (v: typeof view) => { view = v; for (const fn of listeners) fn(); };
+  const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
+  const get = () => view;
+  return { get, set, use: () => useSyncExternalStore(subscribe, get, get) };
+})();
+/** Opens the box on a packet (its mark in a sheet clicked, the owner, 2026-11-24). */
+export const openPacket = (tag: string) => tray.set({ open: true, packet: tag });
