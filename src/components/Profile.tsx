@@ -77,8 +77,10 @@ export function PassList({ passes, dupes, max = 6 }: { passes: readonly Pass[]; 
  * Everyone with this phone number is one person: every pass they hold, on every sheet, worked out from
  * the register. A pass that breaks a rule says which. Click a pass to go to it.
  */
-export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
+export function ProfileCard({ phone, passes, dupes, onJump, onClose, same }: {
   phone: string; passes: Pass[]; dupes: ReadonlyMap<number, Duplicate[]>; onJump: (p: Pass) => void; onClose: () => void;
+  /** Not a person: the passes sharing a phone or Reg. No. (a red cell clicked), with its own heading, and each pass's phone. */
+  same?: { title: string; about: string; holds: string };
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -106,23 +108,23 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
       >
         <div className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
-            <h2 id="profile-name" className="font-condensed text-[22px] leading-tight font-bold">{profile.name || 'No name given'}</h2>
-            <p className="text-[14.5px] text-muted-foreground tabular-nums">{about}</p>
-            {profile.aka.length > 0 && <p className="text-[13.5px] text-muted-foreground">Also written {profile.aka.map((n) => `"${n}"`).join(', ')}</p>}
+            <h2 id="profile-name" className="font-condensed text-[22px] leading-tight font-bold tabular-nums">{same?.title ?? (profile.name || 'No name given')}</h2>
+            <p className={`text-[14.5px] tabular-nums ${same ? 'font-semibold text-red-700' : 'text-muted-foreground'}`}>{same?.about ?? about}</p>
+            {!same && profile.aka.length > 0 && <p className="text-[13.5px] text-muted-foreground">Also written {profile.aka.map((n) => `"${n}"`).join(', ')}</p>}
           </div>
           {/* eslint-disable-next-line jsx-a11y/no-autofocus -- a dialog: Esc or Close leaves it */}
           <button className={btn} autoFocus onClick={onClose}>Close</button>
         </div>
         <p className="mt-3 mb-1.5 text-[14px]">
-          Holds <b>{profile.passes.length} {profile.passes.length === 1 ? 'pass' : 'passes'}</b>
-          {broken > 0 && <span className="font-semibold text-red-700">, {broken} breaking a rule</span>}
-          {isPhoneless(phone) && <span className="text-muted-foreground">. With no full phone number it isn&apos;t matched to their other passes</span>}
+          {same ? <b>{same.holds}</b> : <>Holds <b>{profile.passes.length} {profile.passes.length === 1 ? 'pass' : 'passes'}</b></>}
+          {!same && broken > 0 && <span className="font-semibold text-red-700">, {broken} breaking a rule</span>}
+          {!same && isPhoneless(phone) && <span className="text-muted-foreground">. With no full phone number it isn&apos;t matched to their other passes</span>}
           <span className="text-muted-foreground">. Click one to go to it.</span>
         </p>
         <table className="w-full border-collapse text-[14px]">
           <thead>
             <tr>
-              <th className={th}>Sheet</th><th className={th}>Sr. No.</th><th className={th}>Name</th><th className={th}>Vehicle</th>
+              <th className={th}>Sheet</th><th className={th}>Sr. No.</th><th className={th}>Name</th>{same && <th className={th}>Phone</th>}<th className={th}>Vehicle</th>
               <th className={th}>Incharge / Referred by</th><th className={th}><span className="flex items-center gap-1"><PrinterIcon size={13} />Printed</span></th>
               <th className={th}><span className="flex items-center gap-1"><GivenIcon size={13} />Given</span></th>
               <th className={th}>Issued to</th>
@@ -148,8 +150,9 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
                   </td>
                   <td className={td}>
                     <span className="font-medium">{p.name}</span>
-                    {notes.map((n) => <span key={n} className="block text-[13px] font-semibold text-red-700">{n}</span>)}
+                    {!same && notes.map((n) => <span key={n} className="block text-[13px] font-semibold text-red-700">{n}</span>)}
                   </td>
+                  {same && <td className={`${td} whitespace-nowrap tabular-nums`}>{p.phone}</td>}
                   <td className={`${td} tabular-nums`}>{[p.vehicle, p.vehicle_no].filter(Boolean).join(' ')}</td>
                   <td className={td}>{p.incharge}</td>
                   <td className={`${td} whitespace-nowrap tabular-nums`}>{isPrinted(p) ? <>{when(p.printed_at)}{who(p.printed_by)}</> : <span className="text-muted-foreground">No</span>}</td>
@@ -169,7 +172,7 @@ export function ProfileCard({ phone, passes, dupes, onJump, onClose }: {
                 </tr>
                 {plan && plan.set.length > 0 && (
                   <tr role="alertdialog" aria-label={`Confirm ${TYPE_INFO[p.type].label} ${fmtSerial(p.serial)} lost`} className="bg-red-50">
-                    <td colSpan={10} className={`${td} !py-2.5`}>
+                    <td colSpan={11} className={`${td} !py-2.5`}>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                         <p className="min-w-0 flex-1 basis-80 leading-snug">
                           Mark <b>{TYPE_INFO[p.type].label} {fmtSerial(p.serial)}</b> LOST? It stays in the register, locked, and the gate check shows LOST.{' '}

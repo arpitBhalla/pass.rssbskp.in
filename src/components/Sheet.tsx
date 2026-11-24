@@ -139,6 +139,8 @@ export interface SheetProps {
   /** Everyone's passes by phone: a phone on more passes shows how many, and opens them (`onPerson`). */
   phones: ReadonlyMap<string, Pass[]>;
   onPerson: (phoneKey: string) => void;
+  /** A marked phone / Reg. No. clicked: show every pass sharing it (the owner, 2026-11-24). */
+  onSame: (p: Pass, by: 'phone' | 'vehicle_no') => void;
   /** The Name suggestions (`namePicks`): picking one fills in the person's phone, dept and area too. */
   picks: ReadonlyMap<string, Values>;
   onPick: PickFn;
@@ -146,7 +148,7 @@ export interface SheetProps {
 
 /** Only the rows in view (plus a few either side) are drawn, so thousands of passes stay fast. */
 export const Sheet = memo(function Sheet(props: SheetProps) {
-  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onFlag, queued, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, picks, onPick } = props;
+  const { type, view, total, selection, canAdd, blankRows, next, missing, onEdit, onCreate, onPaste, onClear, onPrinted, onGiven, onFlag, queued, onSelect, onSelectEnd, onClearSelection, dupes, phones, onPerson, onSame, picks, onPick } = props;
   const flags = flagsFor(type);
   const fields = fieldsFor(type);
   const cols = 5 + fields.length + flags.length;
@@ -687,11 +689,17 @@ export const Sheet = memo(function Sheet(props: SheetProps) {
     if (source && i === source.r1) mark = { ...mark, handle: source.c1 };
     if (it.kind === 'row') {
       const ds = dupes.get(it.p.id);
+      /** How many passes share its phone (Reg. No.) under the rules it breaks, itself too. */
+      const sharing = (by: 'phone' | 'vehicle_no') => {
+        const ids = new Set((ds ?? []).filter((d) => d.rule.by === by).flatMap((d) => d.others.map((o) => o.id)));
+        return ids.size ? ids.size + 1 : 0;
+      };
       return (
         <Row
           key={v.key} p={it.p} i={i} fields={fields} mark={mark} selected={inSpan(selection, it.p)} onEdit={onEdit} onPrinted={onPrinted} onGiven={onGiven}
           flags={flags} onFlag={onFlag} queued={queued.has(it.p.serial)}
           dupePhone={alsoHeld(ds, 'phone') || undefined} dupeReg={alsoHeld(ds, 'vehicle_no') || undefined}
+          samePhone={sharing('phone')} sameReg={sharing('vehicle_no')} onSame={onSame}
           held={isLost(it.p) ? 0 : phones.get(phoneKey(it.p.phone))?.length ?? 0} onPerson={onPerson} pickOf={pickOf} onPick={onPick}
           packet={packetNotes.get(it.p.packet)} lostNote={lostNotes.get(it.p.id)}
         />
@@ -827,9 +835,10 @@ const picked = '!bg-sand-200 !text-sand-900';
  * on hover). `held`: passes on its phone, on every sheet. The Sr. No. shows a person icon that opens them all
  * (with the count from 2; for one, only while the row is pointed at or has the cursor).
  */
-const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, queued, dupePhone, dupeReg, held, onPerson, pickOf, onPick, packet, lostNote }: {
+const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted, onGiven, flags, onFlag, queued, dupePhone, dupeReg, samePhone, sameReg, onSame, held, onPerson, pickOf, onPick, packet, lostNote }: {
   p: Pass; i: number; fields: readonly Field[]; mark?: Mark; selected: boolean; onEdit: EditFn; onPrinted: SheetProps['onPrinted'];
-  onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; queued: boolean; dupePhone?: string; dupeReg?: string; held: number; onPerson: SheetProps['onPerson'];
+  onGiven: SheetProps['onGiven']; flags: readonly Flag[]; onFlag: FlagFn; queued: boolean; dupePhone?: string; dupeReg?: string;
+  samePhone: number; sameReg: number; onSame: SheetProps['onSame']; held: number; onPerson: SheetProps['onPerson'];
   pickOf: PickOf; onPick: PickFn; packet?: string; lostNote?: string;
 }) {
   const printed = isPrinted(p);
@@ -841,9 +850,19 @@ const Row = memo(function Row({ p, i, fields, mark, selected, onEdit, onPrinted,
   const cell = (k: Field) => {
     const c = fields.indexOf(k);
     const warn = k === 'phone' ? dupePhone : k === 'vehicle_no' ? dupeReg : undefined;
+    const sharing = k === 'phone' ? samePhone : k === 'vehicle_no' ? sameReg : 0;
     return (
       <td key={k} data-c={c} className={`${cellTd(c, mark)} ${warn ? 'relative' : ''}`} title={warn}>
         {warn && <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-red-600" />}
+        {warn && sharing > 0 && (
+          <button
+            className="absolute top-1/2 right-1 z-[1] -translate-y-1/2 rounded-full bg-red-600 px-1.5 text-[12px] leading-[17px] font-semibold text-white tabular-nums hover:bg-red-700"
+            title={`${sharing} passes with this ${k === 'phone' ? 'phone number' : 'Reg. No.'}: click to see them`}
+            onClick={(e) => { e.stopPropagation(); onSame(p, k as 'phone' | 'vehicle_no'); }}
+          >
+            {sharing}
+          </button>
+        )}
         <CellInput
           key={p[k]} target={[p]} k={k} saved={p[k]} locked={lost || (printed && locksWhenPrinted(k))} warn={!!warn} onEdit={onEdit}
           pick={k === 'name' ? { of: pickOf, save: (v) => onPick(p, v) } : undefined}
@@ -1093,7 +1112,7 @@ function caretAt(el: HTMLInputElement, x: number): number {
 }
 
 const cellCls = (locked: boolean, k: Field, warn = false) =>
-  `h-[29px] w-full bg-transparent px-2 uppercase outline-none ${warn ? '!text-red-700' : ''} placeholder:normal-case placeholder:text-muted-foreground/50 read-only:selection:bg-transparent ${locked ? 'cursor-default text-muted-foreground' : 'read-only:cursor-cell'} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
+  `h-[29px] w-full bg-transparent px-2 uppercase outline-none ${warn ? '!text-red-700 pr-8' : ''} placeholder:normal-case placeholder:text-muted-foreground/50 read-only:selection:bg-transparent ${locked ? 'cursor-default text-muted-foreground' : 'read-only:cursor-cell'} ${k === 'name' || k === 'incharge' ? 'font-medium' : ''} ${k === 'phone' || k === 'vehicle_no' ? 'tabular-nums' : ''}`;
 
 /**
  * Uncontrolled box that saves on blur. Keyed by its value, so it redraws when the value changes

@@ -20,6 +20,8 @@ export const showPhone = (key: string) => `${key.slice(0, 5)} ${key.slice(5)}`;
 /** A registration no. as a key: letters and digits only, in capitals ("hr 26 cd 1001" is HR-26CD-1001). */
 export const regKey = (s: string) => s.replace(/[^0-9a-z]/gi, '').toUpperCase();
 
+const GATE3: readonly PassType[] = ['gate3-entry', 'vip-gate', 'gate3-hospital'];
+
 export interface Rule {
   /** The sheets it covers: one pass across all of them. */
   types: readonly PassType[];
@@ -32,12 +34,30 @@ export const RULES: readonly Rule[] = [
   { types: ['mobile-pandal', 'mobile-non-pandal'], by: 'phone', noun: 'a mobile pass', text: 'One mobile pass per person.' },
   { types: ['bike-pandal', 'bike-non-pandal'], by: 'phone', noun: 'a bike pass', text: 'One bike pass per person.' },
   { types: ['bike-pandal', 'bike-non-pandal'], by: 'vehicle_no', noun: 'a bike pass', text: 'One bike pass per bike.' },
-  // Each vehicle sheet on its own: the same car may hold, say, a Sewa Vehicle and a BAV Parking pass.
-  ...PASS_TYPES.filter((t) => TYPE_INFO[t].layout !== 'bike' && TYPE_INFO[t].fields.includes('vehicle_no')).map((t): Rule => (
+  // The Gate 3 sheets together (the owner, 2026-11-24): one Gate 3 pass per vehicle, Entry, VIP or Hospital.
+  { types: GATE3, by: 'vehicle_no', noun: 'a Gate 3 pass', text: 'One Gate 3 pass per vehicle (Entry, VIP or Hospital).' },
+  // Each other vehicle sheet on its own: the same car may hold, say, a Sewa Vehicle and a BAV Parking pass.
+  ...PASS_TYPES.filter((t) => TYPE_INFO[t].layout !== 'bike' && TYPE_INFO[t].fields.includes('vehicle_no') && !GATE3.includes(t)).map((t): Rule => (
     { types: [t], by: 'vehicle_no', noun: `a ${TYPE_INFO[t].label} pass`, text: `One ${TYPE_INFO[t].label} pass per vehicle.` }
   )),
 ];
 const keyOf = (rule: Rule, p: Pass) => (rule.by === 'phone' ? phoneKey(p.phone) : regKey(p.vehicle_no));
+
+/**
+ * Every pass with `p`'s phone (or Reg. No.) on the sheets its rules cover, `p` among them: what a red cell repeats, Pandal and
+ * Non Pandal together, the Gate 3 sheets together (the owner, 2026-11-24). Lost passes aren't held any more: left out.
+ */
+export function sameAs(all: readonly Pass[], p: Pass, by: Rule['by']): { rules: Rule[]; passes: Pass[] } {
+  const rules = RULES.filter((r) => r.by === by && r.types.includes(p.type));
+  const types = new Set(rules.flatMap((r) => r.types));
+  const keyBy = (x: Pass) => (by === 'phone' ? phoneKey(x.phone) : regKey(x.vehicle_no));
+  const key = keyBy(p);
+  const order = (x: Pass) => PASS_TYPES.indexOf(x.type);
+  const passes = !key || !rules.length ? [] : all
+    .filter((x) => x.lost_at === null && types.has(x.type) && keyBy(x) === key)
+    .sort((a, b) => order(a) - order(b) || a.serial - b.serial);
+  return { rules, passes };
+}
 
 /** A pass that breaks a rule, and the passes it repeats. */
 export interface Duplicate { pass: Pass; rule: Rule; others: Pass[] }

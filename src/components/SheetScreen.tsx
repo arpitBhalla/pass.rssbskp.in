@@ -14,7 +14,7 @@ import {
   blankPass, filterPasses, type Filters, type Picked, hasFilters, type Hide, HIDE_LABEL, hidePasses, HIDES, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
-import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks } from '@/lib/people';
+import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks, sameAs } from '@/lib/people';
 import { cleanField, type Field, fieldLabel, fieldsFor, FLAG_LABELS, fmtSerial, type Pass, PASS_TYPES, type PassType, TYPE_INFO, type Values } from '@/shared/types';
 import { Menu, Popover } from './Menu';
 import { ProfileCard } from './Profile';
@@ -257,9 +257,15 @@ export function SheetScreen({ type }: { type: PassType }) {
   /* ----- a person's passes ----- */
   const [person, setPerson] = useState<string | null>(null); // phone key
   const closePerson = useCallback(() => setPerson(null), []);
+  // A marked phone / Reg. No. clicked: every pass sharing it, Pandal and Non Pandal together, the Gate 3 sheets together.
+  const [same, setSame] = useState<{ p: Pass; by: 'phone' | 'vehicle_no' } | null>(null);
+  const closeSame = useCallback(() => setSame(null), []);
+  const onSame = useCallback((p: Pass, by: 'phone' | 'vehicle_no') => setSame({ p, by }), []);
+  const sharing = useMemo(() => (same ? sameAs(all, same.p, same.by) : null), [same, all]);
   const router = useRouter();
   const goTo = useCallback((p: Pass) => {
     setPerson(null);
+    setSame(null);
     if (p.type === type) setFilters({ ...NO_FILTERS, q: fmtSerial(p.serial) });
     else router.push(`/s/${p.type}?q=${fmtSerial(p.serial)}`);
   }, [router, type]);
@@ -327,13 +333,24 @@ export function SheetScreen({ type }: { type: PassType }) {
           type={type} view={view} total={sheet.length} selection={selection} canAdd={canAdd} blankRows={!hideEmpty} next={next} missing={missing}
           onEdit={onEdit} onCreate={onCreate} onPaste={onPaste} onClear={onClear} onPrinted={onPrinted} onGiven={onGiven} onFlag={onFlag} queued={queued}
           onSelect={setSelection} onClearSelection={clearRange} onSelectEnd={onSelectEnd}
-          dupes={dupes} phones={phones} onPerson={setPerson} picks={picks} onPick={onPick}
+          dupes={dupes} phones={phones} onPerson={setPerson} onSame={onSame} picks={picks} onPick={onPick}
         />
       </section>
 
       <RangePanel type={type} sheet={sheet} range={range} setRange={setRange} picks={picks} />
       <Suggestions picks={picks} />
       {person && <ProfileCard phone={person} passes={phones.get(person) ?? []} dupes={dupes} onJump={goTo} onClose={closePerson} />}
+      {same && sharing && sharing.passes.length > 0 && (
+        <ProfileCard
+          phone={`#same`} passes={sharing.passes} dupes={dupes} onJump={goTo} onClose={closeSame}
+          same={{
+            title: same.by === 'phone' ? same.p.phone : same.p.vehicle_no,
+            about: sharing.rules.map((r) => r.text).join(' '),
+            holds: `${sharing.passes.length} passes with this ${same.by === 'phone' ? 'phone number' : 'Reg. No.'}`
+              + ` (${[...new Set(sharing.rules.flatMap((r) => r.types))].map((t) => TYPE_INFO[t].label).join(', ')})`,
+          }}
+        />
+      )}
 
       {importPlan && (
         <div className="fixed inset-0 z-30 grid place-items-center bg-black/30 p-4" onClick={() => setImportPlan(null)}>

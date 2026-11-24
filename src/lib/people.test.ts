@@ -2,7 +2,7 @@ import { describe as group, expect, it } from 'vitest';
 import type { Pass, PassType } from '@/shared/types';
 import { blankPass } from './passes';
 import {
-  alsoHeld, byPhone, describe, detailsFor, duplicatesOf, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey, type SearchIn, withoutPhone,
+  alsoHeld, byPhone, describe, detailsFor, duplicatesOf, filterChoices, findDuplicates, hasValue, listPeople, matchesPerson, namePicks, phoneKey, profileOf, regKey, sameAs, type SearchIn, withoutPhone,
 } from './people';
 
 let nextId = 1;
@@ -129,6 +129,19 @@ group('the People list', () => {
     expect(find('1234', 'vehicle')).toEqual(['Aarti Kamra']);
     expect(everyone).toHaveLength(5); // the blank pass isn't listed
     expect(everyone.find((p) => p.name === 'Aarti Kamra')).toMatchObject({ phone: '92551', passes: [{ serial: 5 }] });
+  });
+  it('a red cell opens the passes sharing it: Pandal and Non Pandal together, the Gate 3 sheets together', () => {
+    const car = 'HR-24AJ-1423';
+    const g = [
+      pass('gate3-entry', 4, { vehicle_no: car }), pass('vip-gate', 1, { vehicle_no: 'hr24aj 1423' }), pass('gate3-hospital', 2, { vehicle_no: car }),
+      pass('sewa-vehicle', 9, { vehicle_no: car }), // another sheet on its own
+    ];
+    const found = findDuplicates(g);
+    expect(found.get(g[0].id)?.[0].rule.text).toBe('One Gate 3 pass per vehicle (Entry, VIP or Hospital).');
+    expect(found.has(g[3].id)).toBe(false);
+    expect(sameAs(g, g[1], 'vehicle_no').passes.map((p) => p.type)).toEqual(['gate3-entry', 'vip-gate', 'gate3-hospital']);
+    expect(sameAs(all, navneet[0], 'phone').passes.map((p) => p.serial)).toEqual([12, 2]); // mobile: both mobile sheets; not the bike
+    expect(sameAs(all, navneet[2], 'phone').passes.map((p) => p.serial)).toEqual([3]);
   });
   it('a search tab looks only there; Vehicle No. finds any part of a Reg. No.', () => {
     const find = (q: string, look: SearchIn) => people.filter((p) => matchesPerson(p, q, look)).map((p) => p.name || p.phone);
