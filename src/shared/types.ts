@@ -19,13 +19,17 @@ export const PASS_TYPES = [
   'eco',
   'metro',
   'gate3-hospital',
+  'gate3-family',
 ] as const;
 export type PassType = (typeof PASS_TYPES)[number];
 
-/** The sheets in the order the tabs (and lists of sheets) show them: Gate 1 & 11 before Gate 3 Entry (the owner, 2026-11-23), Gate 3 Hospital after Gate 3 - VIP. */
+/**
+ * The sheets in the order the tabs (and lists of sheets) show them: Gate 1 & 11 before Gate 3 Entry (the owner, 2026-11-23), Gate 3
+ * Hospital after Gate 3 - VIP, then Gate 3 - Family.
+ */
 export const SHEETS: readonly PassType[] = [
   'mobile-pandal', 'mobile-non-pandal', 'bike-pandal', 'bike-non-pandal', 'sewa-vehicle', 'tractor-trolley',
-  'bav-entry', 'gate3-entry', 'vip-gate', 'gate3-hospital', 'admin', 'e-rickshaw', 'eco', 'metro',
+  'bav-entry', 'gate3-entry', 'vip-gate', 'gate3-hospital', 'gate3-family', 'admin', 'e-rickshaw', 'eco', 'metro',
 ];
 
 /** Text columns. A sheet shows its own subset, in its own order (see `fields` below). */
@@ -107,8 +111,8 @@ const REFERRED = { incharge: 'Referred by' };
 // Colours sampled from the templates (Downloads/passes-template). Pandal is blue, Non Pandal grey,
 // vehicle passes green; Mobile (portrait) and Bike (landscape, tinted card) differ by shape.
 // Gate 3 Entry (orange) and BAV Parking (purple) have no template: the Sewa Vehicle pass in their colour,
-// title included, so the gate tells them apart at a glance. Gate 3 - VIP (red) and Admin (teal) print in
-// the design v2 Ticket and Rail passes (components/cards), in their colour. Gate 3 - VIP prints as
+// title included, so the gate tells them apart at a glance. Admin (teal) prints in the design v2 Rail pass, and Gate 3 - VIP
+// (gold since 2026-11-25) in round 11 Plain, as Tractor Trolley (components/cards), in their colour. Gate 3 - VIP prints as
 // "GATE 3 ENTRY" (the user's wish, 15 Nov: no VIP on the pass); the app still calls the sheet Gate 3 - VIP.
 const BLUE = { name: 'Blue', band: '#2e3192', logo: '#231f20' };
 const GREY = { name: 'Grey', band: '#808285', logo: '#9e0b0f' };
@@ -116,6 +120,8 @@ const GREEN = { name: 'Green', band: '#007236', stripe: '#bcbec0', bg: '#ffffff'
 const ORANGE = { ...GREEN, name: 'Orange', band: '#d35400', title: '#d35400' };
 const PURPLE = { ...GREEN, name: 'Purple', band: '#5b2c83', title: '#5b2c83' };
 const RED = { ...GREEN, name: 'Red', band: '#b3122e', title: '#b3122e' };
+// Gate 3 - VIP (the owner, 2026-11-25): gold, no longer E-Rickshaw's red (maroon was tried first, then "golden color").
+const GOLD = { ...GREEN, name: 'Gold', band: '#a67c00', title: '#a67c00' };
 const TEAL = { ...GREEN, name: 'Teal', band: '#00727a', title: '#00727a' };
 // The Free Helpline Sewa passes (design round 24): E-Rickshaw in Gate 3 - VIP's red, Eco in brown (leaf
 // green until 2026-11-16, too like Sewa Vehicle's green; the owner), Metro in navy (no other pass's colour).
@@ -123,6 +129,8 @@ const BROWN = { ...GREEN, name: 'Brown', band: '#7a4a1f', title: '#7a4a1f' };
 const NAVY = { ...GREEN, name: 'Navy', band: '#1d4e89', title: '#1d4e89' };
 // Gate 3 Hospital (the owner, 2026-11-22): indigo, brighter than Mobile Pandal's blue.
 const INDIGO = { ...GREEN, name: 'Indigo', band: '#4338ca', title: '#4338ca' };
+// Gate 3 - Family (the owner, 2026-11-25): a bright green, clearly lighter than Sewa Vehicle's dark green.
+const BRIGHT_GREEN = { ...GREEN, name: 'Bright green', band: '#2e9d3a', title: '#2e9d3a' };
 /**
  * Gate 1 & 11 passes with Behind RTB 3 ticked print in ocean blue, a colour no other gate pass has (the owner, 2026-11-23;
  * magenta before, too like Gate 3 - VIP's red, then charcoal, "meh").
@@ -151,7 +159,7 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
   'gate3-entry': { label: 'Gate 3 Entry', short: 'G3', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: ORANGE },
   // Gate 1 & 11 (was BAV Parking until 2026-11-23, when some passes became Behind RTB 3; the owner).
   'bav-entry': { label: 'Gate 1 & 11', short: 'BA', layout: 'gate', title: 'ENTRY GATE NO. 1 & 11 PASS', fields: VEHICLE_FIELDS, flags: ['rtb3'], color: PURPLE },
-  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: RED },
+  'vip-gate': { label: 'Gate 3 - VIP', short: 'VG', layout: 'gate', title: 'GATE 3 ENTRY PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: GOLD },
   admin: { label: 'Admin', short: 'AD', layout: 'gate', title: 'ADMIN PASS', fields: VEHICLE_FIELDS, labels: REFERRED, color: TEAL },
   'e-rickshaw': { label: 'E-Rickshaw', short: 'ER', layout: 'large', helpline: true, title: 'E-RICKSHAW', fields: HELPLINE_FIELDS, color: RED },
   // The Eco pass prints FREE HELPLINE SEWA on its band (the owner, 2026-11-16); its tab says Helpline (2026-11-19).
@@ -163,6 +171,12 @@ export const TYPE_INFO: Record<PassType, PassTypeInfo> = {
     // gate passes; with Ferry Sewa 204 × 145 (layoutOf).
     label: 'Gate 3 Hospital', short: 'GH', layout: 'gate', title: 'ENTRY GATE NO. 3 - HOSPITAL', fields: HOSPITAL_FIELDS, labels: REFERRED,
     flags: ['ferry'], color: INDIGO,
+  },
+  // Gate 3 - Family (the owner, 2026-11-25): design v2 round 2 C Stamp (Rail.tsx StampFamily) in bright green, the title white in the
+  // filled stamp box, titled ENTRY GATE NO. 3 - FAMILY.
+  'gate3-family': {
+    label: 'Gate 3 - Family', short: 'GF', layout: 'gate', title: 'ENTRY GATE NO. 3 - FAMILY', fields: VEHICLE_FIELDS, labels: REFERRED,
+    color: BRIGHT_GREEN,
   },
 };
 

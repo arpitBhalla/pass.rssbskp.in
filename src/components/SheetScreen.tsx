@@ -11,7 +11,7 @@ import { AREAS } from '@/lib/areas';
 import { DEPTS } from '@/lib/depts';
 import { exportCSV, exportWorkbook, type ImportPlan, planImport } from '@/lib/csv';
 import {
-  blankPass, filterPasses, type Filters, type Picked, hasFilters, type Hide, HIDE_LABEL, hidePasses, HIDES, isGiven, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
+  blankPass, filterPasses, type Filters, type Picked, hasFilters, type Hide, HIDE_LABEL, hidePasses, HIDES, isBlank, isFullyFilled, isGiven, isPartlyFilled, isPrinted, missingSerials, nextSerial, NO_FILTERS, nPasses, passRanges, planClear, planPaste, type PastePlan,
   ranges, type Show, SHOW_LABEL,
 } from '@/lib/passes';
 import { byPhone, describe, type Duplicate, duplicatesOf, findDuplicates, namePicks, sameAs } from '@/lib/people';
@@ -253,6 +253,14 @@ export function SheetScreen({ type }: { type: PassType }) {
   };
 
   const given = useMemo(() => sheet.reduce((n, p) => n + (isGiven(p) ? 1 : 0), 0), [sheet]);
+  /** How many rows of each kind, beside its tick in the Show menu (empty rows: the serials not in the register too). */
+  const kinds = useMemo((): Record<Hide, number> => {
+    const n = (f: (p: Pass) => boolean) => sheet.reduce((sum, p) => sum + (f(p) ? 1 : 0), 0);
+    return {
+      printed: n(isPrinted), given, filled: n((p) => isFullyFilled(type, p)), partial: n((p) => isPartlyFilled(type, p)),
+      empty: n((p) => isBlank(type, p)) + allMissing.length,
+    };
+  }, [sheet, given, type, allMissing]);
 
   /* ----- a person's passes ----- */
   const [person, setPerson] = useState<string | null>(null); // phone key
@@ -293,11 +301,11 @@ export function SheetScreen({ type }: { type: PassType }) {
             {(Object.keys(SHOW_LABEL) as Show[]).map((s) => <option key={s} value={s}>{SHOW_LABEL[s]}</option>)}
           </select>
           <DateFilter from={filters.from} to={filters.to} onChange={(from, to) => setFilters((f) => ({ ...f, from, to }))} />
-          <HideFilter hide={hide} />
+          <HideFilter hide={hide} counts={kinds} />
           {hasFilters(filters) && <button className="text-[13.5px] font-semibold text-primary hover:underline" onClick={() => setFilters(NO_FILTERS)}>Clear</button>}
           <span className="pl-1.5 text-[14px] text-muted-foreground tabular-nums" aria-live="polite">
             {hasFilters(deferred) || view.length !== sheet.length
-              ? <><b className="font-semibold text-foreground">{view.length}</b> of {sheet.length} shown</>
+              ? <><b className="font-semibold text-foreground">{view.length}</b> of {sheet.length} shown, <b className="font-semibold text-foreground">{given}</b> given</>
               : <><b className="font-semibold text-foreground">{sheet.length}</b> {sheet.length === 1 ? 'pass' : 'passes'}, <b className="font-semibold text-foreground">{given}</b> given</>}
           </span>
           {nDupes > 0 && filters.show !== 'dupes' && (
@@ -386,7 +394,7 @@ function DateFilter({ from, to, onChange }: { from: string; to: string; onChange
 }
 
 /** Which rows to show, all ticked to start: untick a kind to hide it. Remembered in this browser, for every sheet. */
-function HideFilter({ hide }: { hide: readonly Hide[] }) {
+function HideFilter({ hide, counts }: { hide: readonly Hide[]; counts: Record<Hide, number> }) {
   const flip = (h: Hide) => setHide(hide.includes(h) ? hide.filter((x) => x !== h) : [...hide, h]);
   return (
     <Popover
@@ -397,10 +405,12 @@ function HideFilter({ hide }: { hide: readonly Hide[] }) {
         {HIDES.map((h) => (
           <label key={h} className="flex cursor-pointer items-center gap-2 text-[14px]">
             <input type="checkbox" className="size-4 accent-primary" checked={!hide.includes(h)} onChange={() => flip(h)} />
-            {HIDE_LABEL[h]}
+            <span className="flex-1">{HIDE_LABEL[h]}</span>
+            <span className="pl-4 text-muted-foreground tabular-nums">{counts[h]}</span>
           </label>
         ))}
       </div>
+      <p className="mt-2.5 max-w-56 text-xs text-muted-foreground">Only the given passes: pick <b>Given</b> in the list beside the search.</p>
       {hide.length > 0 && <button className="mt-2.5 text-[13.5px] font-semibold text-primary hover:underline" onClick={() => setHide([])}>Show all</button>}
     </Popover>
   );

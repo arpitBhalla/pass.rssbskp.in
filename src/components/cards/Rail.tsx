@@ -35,8 +35,8 @@ const LABEL_AT: Partial<Record<Field, [dx: number, length: number]>> = {
 /** How long Pill draws `t`, `h` tall with `cap` letters. */
 const pillWidth = (t: string, h: number, cap: number) => (t.trim() ? widthOf(upper(t), C800, cap, cap * 0.08) + h * 1.1 : 0);
 
-/** A solid rounded pill with white text, `h` tall, centred on `cy`, ending at `x`. */
-function Pill({ t, x, cy, h, cap, color }: { t: string; x: number; cy: number; h: number; cap: number; color: string }) {
+/** A solid rounded pill with white text, `h` tall, centred on `cy`, ending at `x`; `outline`: white with a colour edge and colour text. */
+function Pill({ t, x, cy, h, cap, color, outline = false }: { t: string; x: number; cy: number; h: number; cap: number; color: string; outline?: boolean }) {
   if (!t.trim()) return null;
   const text = upper(t);
   const track = cap * 0.08;
@@ -44,8 +44,9 @@ function Pill({ t, x, cy, h, cap, color }: { t: string; x: number; cy: number; h
   const x0 = x - w;
   return (
     <g>
-      <rect x={mm(x0)} y={mm(cy - h / 2)} width={mm(w)} height={mm(h)} rx={mm(h / 2)} fill={color} />
-      <T t={text} f={C800} cap={cap} x={x0 + w / 2} y={cy + cap / 2} align="middle" track={track} fill={WHITE} />
+      <rect x={mm(x0)} y={mm(cy - h / 2)} width={mm(w)} height={mm(h)} rx={mm(h / 2)} fill={outline ? WHITE : color}
+        {...(outline && { stroke: color, strokeWidth: 0.6 })} />
+      <T t={text} f={C800} cap={cap} x={x0 + w / 2} y={cy + cap / 2} align="middle" track={track} fill={outline ? color : WHITE} />
     </g>
   );
 }
@@ -348,6 +349,49 @@ export function RailHospital({ p, texts, code }: CardProps) {
           <SignOff href="" x0={114} x1={144} y={Y(88.6)} h={0} line={c} />
         </>
       )}
+    </>
+  );
+}
+
+/**
+ * Gate 3 - Family (the owner, 2026-11-25: design v2 round 2 C "Stamp", "use actual logo, reg no should be at bottom center, only name,
+ * no vehicle"): a thin colour frame inside the edge; the RSSB logo heading; in an outlined stamp box, the Gate 3 sign beside the two
+ * lines ENTRY GATE NO. 3 / FAMILY (as Gate 3 Hospital's title, so FAMILY prints large), VEHICLE PASS in a pill like the tag's on the
+ * box's top edge at the left ("it can be same as Nov 2026"), the tag on its bottom edge at the right; the box filled with the colour
+ * and the title in white, the pills white with colour text so they show on its edges (the owner, 2026-11-25, as Gate 3 - VIP's band); the
+ * Name on a dotted colour line; Sr. No., the Reg. No. in its plate in the middle, and the signature.
+ */
+const FAMILY_LINES = ['ENTRY GATE NO. 3', 'FAMILY'];
+export function StampFamily({ p, texts, code }: CardProps) {
+  const c = TYPE_INFO[p.type].color.band;
+  const [w, h] = [VW, GH];
+  const Y = stretchY(6.4, 93.6, h);
+  const top = Y(26.5); // the VEHICLE PASS pill clear of the logo above
+  const tx = 11.2 + 4 + 2.3 * 7.6;
+  const cap = Math.min(7.6, ...FAMILY_LINES.map((l) => (7.6 * (139 - tx)) / widthOf(l, C900, 7.6)));
+  const tile = 2.3 * cap;
+  const last = top + 4.5 + tile; // the second line's baseline
+  const bottom = last + 3.6;
+  const nameY = Y(65);
+  return (
+    <>
+      <rect width={w} height={h} fill={WHITE} />
+      <rect x={3.5} y={3.5} width={w - 7} height={h - 7} rx={3} fill="none" stroke={c} strokeWidth={0.6} />
+      <OrgHead x={8} y={7} max={127.5 - 4 - (8 + ORG_LOGO.w + 3.2)} />
+      {code && <Qr text={code} x={127.5} y={7.5} size={14.5} pad={0} />}
+      <rect x={8} y={top} width={134} height={mm(bottom - top)} rx={2} fill={c} />
+      <GateTile x={11.2} y={last - tile} size={tile} color={c} />
+      <TwoLines lines={FAMILY_LINES} x={tx} y={last} c={cap} max={139 - tx} color={WHITE} />
+      <Pill t="VEHICLE PASS" x={12 + pillWidth('VEHICLE PASS', 5, 2.3)} cy={top} h={5} cap={2.3} color={c} outline />
+      <Pill t={texts.tag} x={138} cy={bottom} h={5} cap={2.3} color={c} outline />
+      <Caption t="Name" at={[8 - 0.139, nameY - 0.45, 2.625, 6.037]} />
+      <line x1={24} y1={nameY} x2={142} y2={nameY} stroke={c} strokeWidth={0.32} strokeLinecap="round" strokeDasharray="0 0.8" />
+      <T t={upper(p.name)} f={C700} cap={5.6} x={24.9} y={nameY - 1.35} max={142 - 24 - 1.4} />
+      <Caption t="Sr. No." at={[8 - 0.062, Y(83.6), 2.5, 7.637]} />
+      <Dup p={p} x={8 + 7.6 + 1.6} y={Y(83.6) - 0.4} cap={1.6} />
+      <T t={serialText(p.serial, 3)} f={BIG} cap={9} scale={1.075} x={8 - 0.24} y={Y(93.4)} max={30} />
+      <RegPlate v={p.vehicle_no} x0={w / 2 - 34} x1={w / 2 + 34} top={Y(75.5)} bottom={Y(93.6)} />
+      <SignOff href="" x0={113} x1={142} y={Y(88.6)} h={0} line={c} />
     </>
   );
 }

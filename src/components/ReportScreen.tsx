@@ -2,7 +2,7 @@
 import { Fragment, useMemo, useState } from 'react';
 import { useAllPasses } from '@/client/store';
 import { isGiven } from '@/lib/passes';
-import { BY_LABEL, buildReport, type ReportBy, reportCSV } from '@/lib/report';
+import { BY_LABEL, buildReport, buildStats, type ReportBy, reportCSV, STAT_LABEL, STATS } from '@/lib/report';
 import { SHEETS, TYPE_INFO } from '@/shared/types';
 import { PassMark } from './AppShell';
 import { btn, heading } from './ui';
@@ -14,6 +14,7 @@ export function ReportScreen() {
   const [onlyGiven, setOnlyGiven] = useState(true);
   const [today] = useState(() => new Date().toLocaleDateString());
   const report = useMemo(() => buildReport(onlyGiven ? all.filter(isGiven) : all, by), [all, by, onlyGiven]);
+  const stats = useMemo(() => buildStats(all), [all]);
 
   const download = () => {
     const blob = new Blob([reportCSV(report)], { type: 'text/csv;charset=utf-8' });
@@ -48,6 +49,29 @@ export function ReportScreen() {
       <h2 className="mb-2 hidden font-condensed text-[18px] font-bold print:block">
         Pass report by {BY_LABEL[by]}, {today}
       </h2>
+
+      <table className="mb-5 w-full border-separate border-spacing-0 text-[14px]">
+        <thead className="bg-panel text-left font-condensed text-[14.5px] text-foreground/70">
+          <tr>
+            <th className={cell}>All passes</th>
+            {SHEETS.map((t) => (
+              <th key={t} className={`${cell} text-right`} title={TYPE_INFO[t].label}>
+                <span className="inline-flex items-center gap-1"><PassMark type={t} size={11} />{TYPE_INFO[t].short}</span>
+              </th>
+            ))}
+            <th className={`${cell} text-right`}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {STATS.map((k) => (
+            <tr key={k} className={k === 'given' ? 'bg-sand-50 font-semibold' : ''}>
+              <td className={`${cell} whitespace-nowrap`}>{STAT_LABEL[k]}</td>
+              {SHEETS.map((t) => <td key={t} className={`${cell} text-right tabular-nums`}>{n(stats[k][t])}</td>)}
+              <td className={`${cell} text-right font-semibold tabular-nums`}>{SHEETS.reduce((sum, t) => sum + stats[k][t], 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
       <table className="w-full border-separate border-spacing-0 text-[14px]">
         <thead className="sticky top-0 bg-panel text-left font-condensed text-[14.5px] text-foreground/70 print:static">
@@ -97,6 +121,7 @@ export function ReportScreen() {
         </tbody>
       </table>
       <p className="mt-2 text-xs text-muted-foreground">
+        Empty rows aren&apos;t counted. A lost pass is counted only as Lost; its duplicate counts as the pass.{' '}
         {SHEETS.map((t) => `${TYPE_INFO[t].short} ${TYPE_INFO[t].label}`).join(', ')}
       </p>
     </div>

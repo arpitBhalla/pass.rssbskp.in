@@ -8,8 +8,7 @@ import { type Layout, layoutOf, type PassType, TYPE_INFO } from '@/shared/types'
 import { Motorbike, Tractor } from './art';
 import { Qr } from './Qr';
 import { LABEL_FONT, LEDGER_FONTS, LedgerVehicle } from './Ledger';
-import { RailHospital, RailVehicle } from './Rail';
-import { TicketVehicle } from './Ticket';
+import { RailHospital, RailVehicle, StampFamily } from './Rail';
 import { HELPLINE_FONTS, HelplineVehicle } from './Helpline';
 import { MODERN_FONTS, ModernVehicle } from './Modern';
 import { RssbLogo } from './rssbLogo';
@@ -666,10 +665,15 @@ type Card = (props: CardProps) => React.JSX.Element;
 const CARDS: Record<Layout, Card> = { mobile: MobileCard, bike: BikeCardLedger, vehicle: VehicleCard, gate: VehicleCard, large: HelplineVehicle };
 /** Sheets printed in a design v2 pass instead of their layout's template. */
 const BY_TYPE: Partial<Record<PassType, Card>> = {
-  'vip-gate': TicketVehicle, admin: RailVehicle, 'bav-entry': RailVehicle, 'gate3-entry': LedgerVehicle, 'gate3-hospital': RailHospital,
+  admin: RailVehicle, 'bav-entry': RailVehicle, 'gate3-entry': LedgerVehicle, 'gate3-hospital': RailHospital, 'gate3-family': StampFamily,
   /** Design round 11 (Modern.tsx), picked 2026-11-15. */
   'sewa-vehicle': (props) => <ModernVehicle {...props} style="band" />,
   'tractor-trolley': (props) => <ModernVehicle {...props} style="plain" />,
+  /**
+   * Gate 3 - VIP in round 11 at 151 × 103, GATE 3 ENTRY white on a gold band as SEWA VEHICLE on Sewa Vehicle, the Name only over the
+   * Reg. No. (the owner, 2026-11-25: Plain first, then "change the bg color, to gold, and text color as white"; design round 7 Ticket before).
+   */
+  'vip-gate': (props) => <ModernVehicle {...props} style="band" />,
 };
 
 /**

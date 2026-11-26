@@ -93,6 +93,27 @@ function BandKind({ t, x0, x1, top, bottom, cap, color }: { t: string; x0: numbe
   );
 }
 
+/**
+ * Gate 3 - VIP's band (the owner, 2026-11-25): edge to edge from under the heading, "Vehicle pass" and the tag in white inside it
+ * over the kind word, all larger than on Sewa Vehicle ("include this in golden strip as well, increase font size").
+ */
+function VipBand({ t, tag, x0, x1, top, color }: { t: string; tag: string; x0: number; x1: number; top: number; color: string }) {
+  const small = 3.6;
+  /** The kind word as tall as it can be ("increase font size more"): letters 88 % wide, no extra space, 5 mm from each edge. */
+  const scale = 0.88;
+  const c = Math.min(16, (10 * (VW - 10)) / (widthOf(t, HEAVY, 10) * scale));
+  const lineY = top + 2.6 + small;
+  const base = lineY + 3.4 + c;
+  return (
+    <g>
+      <rect y={mm(top)} width={VW} height={mm(base + 3.4 - top)} fill={color} />
+      <T t="Vehicle pass" f={BOLD} cap={small} x={x0} y={lineY} fill={WHITE} />
+      <T t={tag} f={BOLD} cap={small} x={x1} y={lineY} align="end" fill={WHITE} />
+      <T t={t} f={HEAVY} cap={c} scale={scale} x={VW / 2} y={base} align="middle" max={VW - 10} fill={WHITE} />
+    </g>
+  );
+}
+
 type Row = (keyof CardData & Field)[];
 /** Reg. no. is not a row: it prints large in its plate (RegPlate). */
 const ROWS: Row[] = [['name'], ['vehicle'], ['area', 'dept']];
@@ -101,6 +122,8 @@ const SPLIT = [[1], [1], [0.5, 0.5]];
 /** Tractor Trolley: Phone after Name, on its line (the owner, 2026-11-22). */
 const TRACTOR_ROWS: Row[] = [['name', 'phone'], ['vehicle'], ['area', 'dept']];
 const TRACTOR_SPLIT = [[0.6, 0.4], [1], [0.5, 0.5]];
+/** Gate 3 - VIP: the Name only, over the Reg. No.'s plate (the owner, 2026-11-25: no Phone, Area, Vehicle or Dept.). */
+const NAME_ROWS: Row[] = [['name']];
 const LABEL: Partial<Record<Field, string>> = { name: 'Name', phone: 'Phone', dept: 'Dept.', area: 'Area', vehicle: 'Vehicle', vehicle_no: 'Reg. no.' };
 
 /** A label, then a line to write on (or the printed value on it), one row after another. `ys`: each row's line. */
@@ -178,6 +201,7 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
    * match (the owner, 2026-11-16: the rule had come close to the Name line).
    */
   const plain = style === 'plain';
+  const vip = p.type === 'vip-gate';
   const rule = 0.9;
   const kcap = kindCap([kind], Math.min(11, (Y(48.4) - Y(29.4) - rule) / 1.6), x1 - x0);
   const kbase = (Y(27.2) + Y(48.4) - rule) / 2 + kcap / 2;
@@ -193,17 +217,23 @@ export function ModernVehicle({ p, texts, code, style }: CardProps & { style: Mo
       {/* A smaller QR code (15, was 20), at the owner's ask. */}
       {code && <Qr text={code} x={x1 - qr} y={Y(7)} size={qr} pad={0} />}
       {/* "Vehicle pass", the kind word and the fields 4.2 higher (a smaller gap under the heading; the owner, 2026-11-16), the room going to the Sr. no. and plate. */}
-      <T t="Vehicle pass" f={BOLD} cap={3.2} x={x0} y={lineY} />
-      <T t={tag} f={BOLD} cap={3.2} x={x1} y={lineY} align="end" />
+      {vip ? <VipBand t={kind} tag={tag} x0={x0} x1={x1} top={Y(24.5)} color={ink} /> : (
+        <>
+          <T t="Vehicle pass" f={BOLD} cap={3.2} x={x0} y={lineY} />
+          <T t={tag} f={BOLD} cap={3.2} x={x1} y={lineY} align="end" />
+        </>
+      )}
       {/* The kind word as large as it fits (the owner, 2026-11-16; KindWord). */}
-      {plain ? (
+      {vip ? null : plain ? (
         <g>
           <KindWord t={kind} cap={kcap} x={VW / 2} y={kbase} max={x1 - x0} fill={ink} />
           <rect x={x0} y={mm(kbase + gap)} width={mm(x1 - x0)} height={rule} fill={ink} />
         </g>
       ) : <BandKind t={kind} x0={x0} x1={x1} top={Y(29.4)} bottom={Y(48.4)} cap={11} color={ink} />}
-      <Fields p={p} x0={x0} x1={x1} ys={[56.4, 65.4, 74.4].map(Y)} lw={14.5} label={2.2} value={4} gutter={7}
-        {...(plain && { rows: TRACTOR_ROWS, split: TRACTOR_SPLIT })} />
+      {vip
+        ? <Fields p={p} x0={x0} x1={x1} ys={[Y(66.5)]} lw={14.5} label={2.2} value={5} gutter={7} rows={NAME_ROWS} split={[[1]]} />
+        : <Fields p={p} x0={x0} x1={x1} ys={[56.4, 65.4, 74.4].map(Y)} lw={14.5} label={2.2} value={4} gutter={7}
+            {...(p.type === 'tractor-trolley' && { rows: TRACTOR_ROWS, split: TRACTOR_SPLIT })} />}
       {/* The plate centred on the pass, 80 wide and taller (68 before 2026-11-16), no "Reg. no." in it (the owner, 2026-11-16); the signature 26 wide to make room. */}
       <RegPlate v={p.vehicle_no} x0={plate.x0} x1={plate.x1} top={plate.top} bottom={plate.bottom} label={0} />
       {/* The serial larger, its middle level with the plate's (the owner, 2026-11-16), "Sr. no." over it, level with the plate's top; digits narrowed to 92 % to fit before the plate. */}

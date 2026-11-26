@@ -6,7 +6,7 @@ import {
   cardsLabel, forPrint, planLost, planPrint, planQueue, ranges, readyToPrint, unfilledOf,
 } from './passes';
 import { findDuplicates } from './people';
-import { buildReport, reportCSV } from './report';
+import { buildReport, buildStats, reportCSV } from './report';
 
 let id = 0;
 function pass(serial: number, extra: Partial<Pass> = {}, type: PassType = 'mobile-pandal'): Pass {
@@ -365,7 +365,24 @@ describe('report', () => {
     expect(r.groups.map((g) => [g.label, g.total])).toEqual([['DELHI', 1], ['SIRSA', 2]]);
     expect(r.groups[1].lines[0]).toMatchObject({ label: 'LANGAR', serials: 'MP 0001 · BP 0002' });
     expect(r.total.counts['sewa-vehicle']).toBe(1);
-    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,0,0,0,0,3,,');
+    expect(reportCSV(r).split('\r\n').at(-1)).toBe('All,Total,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,3,,');
+  });
+
+  it('leaves out empty rows, and counts printed, given, given today and lost per sheet', () => {
+    const today = '2026-11-25';
+    const at = (day: string) => new Date(`${day}T12:00:00`).toISOString();
+    const ps = [
+      pass(1, { area: 'SIRSA' }),
+      pass(2), // an empty row
+      pass(3, { area: 'SIRSA', printed_at: at(today) }),
+      pass(4, { area: 'SIRSA', printed_at: at(today), given_at: at(today) }),
+      pass(5, { area: 'DELHI', printed_at: at('2026-11-20'), given_at: at('2026-11-20') }),
+      pass(6, { area: 'DELHI', printed_at: at(today), lost_at: at(today) }),
+    ];
+    expect(buildReport(ps, 'area').total.total).toBe(4);
+    const st = buildStats(ps, today);
+    const mp = (k: keyof typeof st) => st[k]['mobile-pandal'];
+    expect([mp('passes'), mp('printed'), mp('given'), mp('today'), mp('toGive'), mp('unprinted'), mp('lost')]).toEqual([4, 3, 2, 1, 1, 1, 1]);
   });
 });
 

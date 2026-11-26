@@ -201,6 +201,7 @@ const SAMPLE: Record<PassType, Partial<CardData>> = {
   'vip-gate': { name: 'Amarjit Singh', phone: '98765-43210', vehicle: 'Toyota Fortuner', vehicle_no: 'HR-26DK-0007', area: 'Gurugram', dept: 'Reception' },
   admin: { name: 'Sukhwinder Kaur', vehicle: 'Honda City', vehicle_no: 'HR-29T-4512', area: 'Faridabad', dept: 'Administration' },
   'gate3-hospital': { name: 'Rajinder Kumar Sharma', vehicle_no: 'HR-26DK-4417', phone: '98111-22334', area: 'Gurugram', dept: 'Medical', meta: { ferry: true } },
+  'gate3-family': { name: 'Manpreet Kaur', phone: '98140-56789', vehicle: 'Maruti Ertiga', vehicle_no: 'HR-26EF-2231', area: 'Gurugram', dept: 'Sewa Samiti' },
   /* The Free Helpline Sewa passes print only their serial. */
   'e-rickshaw': {},
   eco: {},

@@ -247,4 +247,10 @@ export const migrations: Record<string, Migration> = {
       `).execute(db);
     },
   },
+  // Gate 3 - Family (the owner, 2026-11-25): a sheet added at the end (a pass's QR code holds its sheet's position in the list).
+  '0015_gate3_family': {
+    async up(db: Kysely<unknown>) {
+      await sql.raw(`ALTER TYPE pass_type ADD VALUE IF NOT EXISTS 'gate3-family';`).execute(db);
+    },
+  },
 };

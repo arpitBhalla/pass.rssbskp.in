@@ -1,6 +1,6 @@
 import { PASS_TYPES, SHEETS, type Pass, type PassType, TYPE_INFO } from '@/shared/types';
 import { toCSV } from './csv';
-import { ranges } from './passes';
+import { isBlank, localDay, ranges } from './passes';
 
 /** The column the report is grouped by first; the other one is the sub-group. */
 export type ReportBy = 'area' | 'dept';
@@ -72,9 +72,9 @@ function bucket(ps: Pass[], k: ReportBy, labels: Map<string, string>): [string, 
     .map(([key, list]) => [key ? labels.get(key)! : `(no ${BY_LABEL[k].toLowerCase()})`, list]);
 }
 
-/** Pass counts per sheet, grouped by Area then Dept (or Dept then Area). */
+/** Pass counts per sheet, grouped by Area then Dept (or Dept then Area). Empty rows (nothing filled in) aren't counted. */
 export function buildReport(all: Pass[], by: ReportBy): Report {
-  const passes = all.filter((p) => p.lost_at === null); // a lost pass is counted once, as its duplicate
+  const passes = all.filter((p) => p.lost_at === null && !isBlank(p.type, p)); // a lost pass is counted once, as its duplicate
   const labels = { area: spellings(passes, 'area'), dept: spellings(passes, 'dept') };
   return {
     by,
@@ -84,6 +84,33 @@ export function buildReport(all: Pass[], by: ReportBy): Report {
     })),
     total: line('Total', passes),
   };
+}
+
+/** The report's headline numbers, per sheet. */
+export const STATS = ['passes', 'printed', 'given', 'today', 'toGive', 'unprinted', 'lost'] as const;
+export type Stat = (typeof STATS)[number];
+export const STAT_LABEL: Record<Stat, string> = {
+  passes: 'Passes', printed: 'Printed', given: 'Given', today: 'Given today', toGive: 'Printed, not given yet', unprinted: 'Not printed yet', lost: 'Lost',
+};
+
+/** Counts per sheet. Empty rows aren't counted, and a lost pass only as Lost (its duplicate is counted as the pass). */
+export function buildStats(all: Pass[], today = localDay(new Date().toISOString())): Record<Stat, Record<PassType, number>> {
+  const s = Object.fromEntries(STATS.map((k) => [k, Object.fromEntries(PASS_TYPES.map((t) => [t, 0]))])) as Record<Stat, Record<PassType, number>>;
+  for (const p of all) {
+    if (isBlank(p.type, p)) continue;
+    if (p.lost_at !== null) { s.lost[p.type]++; continue; }
+    s.passes[p.type]++;
+    if (p.printed_at === null) s.unprinted[p.type]++;
+    else {
+      s.printed[p.type]++;
+      if (p.given_at === null) s.toGive[p.type]++;
+    }
+    if (p.given_at !== null) {
+      s.given[p.type]++;
+      if (localDay(p.given_at) === today) s.today[p.type]++;
+    }
+  }
+  return s;
 }
 
 /** The report as a CSV file: one row per sub-group, a total row after each group, and a grand total. */

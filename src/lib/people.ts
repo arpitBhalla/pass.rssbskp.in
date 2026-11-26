@@ -20,7 +20,7 @@ export const showPhone = (key: string) => `${key.slice(0, 5)} ${key.slice(5)}`;
 /** A registration no. as a key: letters and digits only, in capitals ("hr 26 cd 1001" is HR-26CD-1001). */
 export const regKey = (s: string) => s.replace(/[^0-9a-z]/gi, '').toUpperCase();
 
-const GATE3: readonly PassType[] = ['gate3-entry', 'vip-gate', 'gate3-hospital'];
+const GATE3: readonly PassType[] = ['gate3-entry', 'vip-gate', 'gate3-hospital', 'gate3-family'];
 
 export interface Rule {
   /** The sheets it covers: one pass across all of them. */
